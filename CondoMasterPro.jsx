@@ -14,8 +14,24 @@ import {
 } from "recharts";
 import {
   loadAll, criarCondominio, criarUnidade, criarPessoa, criarLancamento, criarPenalidade, decidirPenalidade,
-  criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas,
+  criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, loginDiretor,
 } from "./src/lib/api.js";
+import { L, LANG, setLang } from "./src/lib/i18n.js";
+
+/* Traduz os filhos de texto de um componente, preservando ícones e espaços */
+const trKids = (children) => React.Children.map(children, (c) => {
+  if (typeof c !== "string") return c;
+  const s = c.trim();
+  return s ? c.replace(s, () => L(s)) : c;
+});
+
+const LangSel = ({ t, lang, onLang }) => (
+  <select value={lang} onChange={(e) => onLang(e.target.value)} title={L("Idioma")}
+    className="rounded-lg px-2 py-2 text-xs font-semibold"
+    style={{ background: t.surface2, color: t.dim, border: "none", cursor: "pointer" }}>
+    <option value="pt">PT</option><option value="en">EN</option><option value="es">ES</option>
+  </select>
+);
 
 /* ══════════════ DESIGN TOKENS — Verum design system ══════════════ */
 const THEMES = {
@@ -107,7 +123,7 @@ const STATUS_META = {
 const Badge = ({ s, t }) => {
   const m = STATUS_META[s] || { c: "info", l: s };
   return <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium"
-    style={{ background: t[m.c] + "1E", color: t[m.c] }}><CircleDot size={9} /> {m.l}</span>;
+    style={{ background: t[m.c] + "1E", color: t[m.c] }}><CircleDot size={9} /> {L(m.l)}</span>;
 };
 
 const Card = ({ t, children, className = "", pad = true }) => (
@@ -125,13 +141,13 @@ const StatCard = ({ t, icon: Ic, label, value, trend, color }) => (
         </span>)}
     </div>
     <div className="mt-2 text-xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: color || t.text }}>{value}</div>
-    <div className="text-xs" style={{ color: t.dim }}>{label}</div>
+    <div className="text-xs" style={{ color: t.dim }}>{L(label)}</div>
   </Card>
 );
 
 const SectionTitle = ({ t, children, action }) => (
   <div className="mb-3 flex items-center justify-between">
-    <h2 className="text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif", color: t.text }}>{children}</h2>{action}
+    <h2 className="text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif", color: t.text }}>{trKids(children)}</h2>{action}
   </div>
 );
 
@@ -143,12 +159,12 @@ const Btn = ({ t, kind = "ghost", children, className = "", ...rest }) => {
     soft:    { background: t.goldSoft, color: t.gold, border: `1px solid ${t.border}` },
   }[kind];
   return <button type="button" {...rest} style={s}
-    className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-50 ${className}`}>{children}</button>;
+    className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-50 ${className}`}>{trKids(children)}</button>;
 };
 
 const inputStyle = (t) => ({ background: t.surface2, color: t.text, border: `1px solid ${t.borderSoft}`, borderRadius: 10, padding: "8px 10px", width: "100%", fontSize: 14 });
 const Field = ({ t, label, children }) => (
-  <label className="block space-y-1 text-sm"><div className="text-xs font-medium" style={{ color: t.dim }}>{label}</div>{children}</label>
+  <label className="block space-y-1 text-sm"><div className="text-xs font-medium" style={{ color: t.dim }}>{L(label)}</div>{children}</label>
 );
 
 const Modal = ({ t, onClose, children, wide }) => (
@@ -161,7 +177,7 @@ const Modal = ({ t, onClose, children, wide }) => (
 
 const ModalHeader = ({ t, title, onClose }) => (
   <div className="mb-4 flex items-center justify-between">
-    <div className="text-base font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.text }}>{title}</div>
+    <div className="text-base font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.text }}>{L(title)}</div>
     <button onClick={onClose} className="rounded-lg p-1.5" style={{ background: t.surface2 }}><X size={16} color={t.dim} /></button>
   </div>
 );
@@ -169,8 +185,8 @@ const ModalHeader = ({ t, title, onClose }) => (
 const EmptyState = ({ t, icon: Ic = ListChecks, title, hint, action }) => (
   <Card t={t} className="p-10 text-center">
     <Ic size={30} color={t.dim} className="mx-auto mb-3" />
-    <div className="text-sm font-semibold" style={{ color: t.text }}>{title}</div>
-    <div className="mx-auto mt-1 max-w-sm text-xs" style={{ color: t.dim }}>{hint}</div>
+    <div className="text-sm font-semibold" style={{ color: t.text }}>{L(title)}</div>
+    <div className="mx-auto mt-1 max-w-sm text-xs" style={{ color: t.dim }}>{L(hint)}</div>
     {action && <div className="mt-4">{action}</div>}
   </Card>
 );
@@ -178,8 +194,8 @@ const EmptyState = ({ t, icon: Ic = ListChecks, title, hint, action }) => (
 const ErrorState = ({ t, onRetry }) => (
   <Card t={t} className="p-8 text-center">
     <AlertCircle size={28} color={t.danger} className="mx-auto mb-2" />
-    <div className="text-sm font-semibold" style={{ color: t.text }}>Não foi possível carregar os dados</div>
-    <div className="mt-1 text-xs" style={{ color: t.dim }}>Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.</div>
+    <div className="text-sm font-semibold" style={{ color: t.text }}>{L("Não foi possível carregar os dados")}</div>
+    <div className="mt-1 text-xs" style={{ color: t.dim }}>{L("Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.")}</div>
     <div className="mt-4"><Btn t={t} kind="soft" onClick={onRetry}><RefreshCw size={14} /> Tentar novamente</Btn></div>
   </Card>
 );
@@ -198,7 +214,7 @@ const Tbl = ({ t, cols, rows, renderCell, onRowClick, empty }) => {
       <Card t={t} pad={false} className="hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead><tr style={{ color: t.dim }} className="text-left text-xs">
-            {cols.map((c) => <th key={c.k} className="px-4 py-3 font-medium">{c.l}</th>)}
+            {cols.map((c) => <th key={c.k} className="px-4 py-3 font-medium">{L(c.l)}</th>)}
           </tr></thead>
           <tbody>{rows.map((r) => (
             <tr key={r.id} onClick={() => onRowClick?.(r)}
@@ -213,7 +229,7 @@ const Tbl = ({ t, cols, rows, renderCell, onRowClick, empty }) => {
         <Card t={t} key={r.id} className={onRowClick ? "cursor-pointer" : ""} onClick={() => onRowClick?.(r)}>
           <div className="space-y-1.5">{cols.map((c) => (
             <div key={c.k} className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-xs" style={{ color: t.dim }}>{c.l}</span>
+              <span className="text-xs" style={{ color: t.dim }}>{L(c.l)}</span>
               <span className="text-right">{renderCell(r, c.k)}</span>
             </div>))}
           </div>
@@ -227,7 +243,7 @@ const Toolbar = ({ t, q, setQ, placeholder, children, action }) => (
   <div className="mb-4 flex flex-wrap items-center gap-2">
     <div className="flex min-w-[200px] flex-1 items-center gap-2 rounded-xl border px-3 py-2" style={{ background: t.surface, borderColor: t.borderSoft }}>
       <Search size={15} color={t.dim} />
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} className="w-full bg-transparent text-sm" style={{ color: t.text }} />
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L(placeholder)} className="w-full bg-transparent text-sm" style={{ color: t.text }} />
       {q && <button onClick={() => setQ("")}><X size={14} color={t.dim} /></button>}
     </div>
     {children}{action}
@@ -237,7 +253,7 @@ const Toolbar = ({ t, q, setQ, placeholder, children, action }) => (
 const Sel = ({ t, value, onChange, opts }) => (
   <select value={value} onChange={(e) => onChange(e.target.value)} className="rounded-xl border px-2 py-2 text-xs"
     style={{ background: t.surface, color: t.text, borderColor: t.borderSoft }}>
-    {opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+    {opts.map(([v, l]) => <option key={v} value={v}>{L(l)}</option>)}
   </select>
 );
 
@@ -300,32 +316,43 @@ const useLoad = (screen) => {
 };
 
 /* ══════════════ LOGIN ══════════════ */
-function Login({ t, onEnter, dark, setDark }) {
+function Login({ t, onEnter, dark, setDark, lang, onLang }) {
   const [diretor, setDiretor] = useState(() => loadJSON(K_DIRETOR, null));
   const [role, setRole] = useState(null);
   const [erro, setErro] = useState("");
+  const [jaCadastrado, setJaCadastrado] = useState(false); // pula o cadastro quando o prédio já existe
+  const [verificando, setVerificando] = useState(false);
 
   /* primeiro acesso: cria a conta que dará acesso ao perfil Diretor */
   const registrar = (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.currentTarget));
-    if (f.senha.length < 4) return setErro("A senha deve ter pelo menos 4 caracteres.");
-    if (f.senha !== f.confirma) return setErro("As senhas não conferem.");
+    if (f.senha.length < 4) return setErro(L("A senha deve ter pelo menos 4 caracteres."));
+    if (f.senha !== f.confirma) return setErro(L("As senhas não conferem."));
     const conta = { nome: f.nome.trim(), email: f.email.trim().toLowerCase(), senha: f.senha };
     saveJSON(K_DIRETOR, conta); setDiretor(conta); setErro("");
   };
 
-  const entrar = (e) => {
+  const entrar = async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.currentTarget));
     const email = f.email.trim().toLowerCase();
-    const ok = role === "diretor"
-      ? email === diretor.email && f.senha === diretor.senha
-      : loadJSON(K_USUARIOS, []).some((u) => u.role === role && u.email === email && u.senha === f.senha);
+    if (role === "diretor") {
+      if (diretor && email === diretor.email && f.senha === diretor.senha) { setErro(""); return onEnter(role); }
+      /* conta não está neste navegador: confere e-mail e senha no banco */
+      setVerificando(true);
+      try {
+        const conta = await loginDiretor(email, f.senha);
+        if (conta) { saveJSON(K_DIRETOR, conta); setDiretor(conta); setErro(""); return onEnter(role); }
+        setErro(L("E-mail ou senha incorretos."));
+      } catch (err) {
+        setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
+      } finally { setVerificando(false); }
+      return;
+    }
+    const ok = loadJSON(K_USUARIOS, []).some((u) => u.role === role && u.email === email && u.senha === f.senha);
     if (ok) { setErro(""); onEnter(role); }
-    else setErro(role === "diretor"
-      ? "E-mail ou senha incorretos."
-      : "E-mail ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails.");
+    else setErro(L("E-mail ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails."));
   };
 
   const temAcesso = role && (role === "diretor" || loadJSON(K_USUARIOS, []).some((u) => u.role === role));
@@ -339,25 +366,34 @@ function Login({ t, onEnter, dark, setDark }) {
             style={{ background: t.goldSoft, color: t.gold, border: `1px solid ${t.border}`, fontFamily: "'Sora',sans-serif" }}>CM</div>
           <h1 className="text-xl font-bold tracking-wide" style={{ fontFamily: "'Sora',sans-serif" }}>
             CONDOMASTER <span style={{ color: t.gold }}>PRO</span></h1>
-          <p className="mt-1 text-xs" style={{ color: t.dim }}>Gestão condominial premium · powered by Verum Pay</p>
+          <p className="mt-1 text-xs" style={{ color: t.dim }}>{L("Gestão condominial premium · powered by Verum Pay")}</p>
         </div>
         <Card t={t} className="p-5">
-          {!diretor ? (
+          {!diretor && !jaCadastrado ? (
             <form onSubmit={registrar} className="space-y-3">
-              <div className="text-sm font-semibold">Criar acesso do diretor</div>
+              <div className="text-sm font-semibold">{L("Criar acesso do diretor")}</div>
               <div className="text-xs" style={{ color: t.dim }}>
-                Este é o primeiro acesso. A conta criada aqui será usada para entrar como <b style={{ color: t.text }}>Diretor</b>,
-                que poderá cadastrar os e-mails e senhas dos demais perfis em Gerenciar Emails.</div>
-              <Field t={t} label="Nome completo"><input name="nome" required placeholder="Seu nome" style={inputStyle(t)} /></Field>
-              <Field t={t} label="E-mail"><input name="email" type="email" required placeholder="voce@exemplo.com" style={inputStyle(t)} /></Field>
-              <Field t={t} label="Senha"><input name="senha" type="password" required placeholder="Mínimo 4 caracteres" style={inputStyle(t)} /></Field>
-              <Field t={t} label="Confirmar senha"><input name="confirma" type="password" required placeholder="Repita a senha" style={inputStyle(t)} /></Field>
+                {L("Este é o primeiro acesso. A conta criada aqui será usada para entrar como")} <b style={{ color: t.text }}>{L("Diretor")}</b>
+                {L(", que poderá cadastrar os e-mails e senhas dos demais perfis em Gerenciar Emails.")}</div>
+              <Field t={t} label="Nome completo"><input name="nome" required placeholder={L("Seu nome")} style={inputStyle(t)} /></Field>
+              <Field t={t} label="E-mail"><input name="email" type="email" required placeholder={L("voce@exemplo.com")} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Senha"><input name="senha" type="password" required placeholder={L("Mínimo 4 caracteres")} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Confirmar senha"><input name="confirma" type="password" required placeholder={L("Repita a senha")} style={inputStyle(t)} /></Field>
               {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
               <Btn t={t} kind="primary" type="submit" className="w-full"><UserPlus size={15} /> Criar conta e continuar</Btn>
+              <div className="pt-1 text-center">
+                <button type="button" onClick={() => { setJaCadastrado(true); setRole("diretor"); setErro(""); }}
+                  className="text-xs font-semibold" style={{ color: t.gold }}>
+                  {L("Já tem prédio cadastrado? Fazer login")}</button>
+              </div>
             </form>
           ) : !role ? (
             <>
-              <div className="mb-3 text-sm font-semibold">Entrar como</div>
+              {!diretor && (
+                <button onClick={() => { setJaCadastrado(false); setErro(""); }}
+                  className="mb-3 flex items-center gap-1 text-xs" style={{ color: t.dim }}>
+                  <ChevronLeft size={14} /> {L("Voltar ao cadastro")}</button>)}
+              <div className="mb-3 text-sm font-semibold">{L("Entrar como")}</div>
               <div className="space-y-2">
                 {Object.entries(PROFILES).map(([k, p]) => (
                   <button key={k} onClick={() => { setRole(k); setErro(""); }}
@@ -365,8 +401,8 @@ function Login({ t, onEnter, dark, setDark }) {
                     style={{ background: t.surface2, borderColor: t.borderSoft }}>
                     <div className="rounded-lg p-2" style={{ background: t.goldSoft }}><p.icon size={16} color={t.gold} /></div>
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold">{p.label}</div>
-                      <div className="truncate text-xs" style={{ color: t.dim }}>{p.desc}</div>
+                      <div className="text-sm font-semibold">{L(p.label)}</div>
+                      <div className="truncate text-xs" style={{ color: t.dim }}>{L(p.desc)}</div>
                     </div>
                     <ChevronRight size={16} color={t.dim} />
                   </button>))}
@@ -375,25 +411,27 @@ function Login({ t, onEnter, dark, setDark }) {
           ) : (
             <>
               <button onClick={() => { setRole(null); setErro(""); }} className="mb-3 flex items-center gap-1 text-xs" style={{ color: t.dim }}>
-                <ChevronLeft size={14} /> Trocar perfil</button>
+                <ChevronLeft size={14} /> {L("Trocar perfil")}</button>
               <div className="mb-4 flex items-center gap-2">
                 {React.createElement(PROFILES[role].icon, { size: 18, color: t.gold })}
-                <span className="text-sm font-semibold">{PROFILES[role].label}</span>
+                <span className="text-sm font-semibold">{L(PROFILES[role].label)}</span>
               </div>
               <form onSubmit={entrar} className="space-y-3">
-                <Field t={t} label="E-mail"><input name="email" type="email" required placeholder="voce@exemplo.com" style={inputStyle(t)} /></Field>
+                <Field t={t} label="E-mail"><input name="email" type="email" required placeholder={L("voce@exemplo.com")} style={inputStyle(t)} /></Field>
                 <Field t={t} label="Senha"><input name="senha" type="password" required placeholder="••••••••" style={inputStyle(t)} /></Field>
                 {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
                 {!temAcesso && <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
-                  Nenhum acesso de {PROFILES[role].label} foi criado ainda. Peça ao diretor para cadastrá-lo em Gerenciar Emails.</div>}
-                <Btn t={t} kind="primary" type="submit" className="w-full"><KeyRound size={15} /> Entrar</Btn>
+                  {L("Nenhum acesso de")} {L(PROFILES[role].label)} {L("foi criado ainda. Peça ao diretor para cadastrá-lo em Gerenciar Emails.")}</div>}
+                <Btn t={t} kind="primary" type="submit" disabled={verificando} className="w-full">
+                  <KeyRound size={15} /> {verificando ? "Verificando conta..." : "Entrar"}</Btn>
               </form>
             </>
           )}
         </Card>
-        <div className="mt-4 text-center">
+        <div className="mt-4 flex items-center justify-center gap-3">
           <button onClick={() => setDark(!dark)} className="text-xs" style={{ color: t.dim }}>
-            {dark ? "Tema claro" : "Tema escuro"}</button>
+            {L(dark ? "Tema claro" : "Tema escuro")}</button>
+          <LangSel t={t} lang={lang} onLang={onLang} />
         </div>
       </div>
     </div>
@@ -454,8 +492,20 @@ function SetupCondominio({ t, role, onCriado, onSair, dark, setDark }) {
 function Dashboard({ t, role, go }) {
   const { db } = useData();
   const S = db.stats;
+  const [mesGrafico, setMesGrafico] = useState(db.mesAtualReal);
+  const [mesDespesas, setMesDespesas] = useState(db.mesAtualReal);
+  const [mesReceitas, setMesReceitas] = useState(db.mesAtualReal);
+  const mesBR = (m) => `${m.slice(5, 7)}/${m.slice(0, 4)}`;
+  const selectMes = (value, onChange, mapa) => (
+    <select value={value} onChange={(e) => onChange(e.target.value)}
+      style={{ ...inputStyle(t), width: "auto", padding: "4px 8px", fontSize: 12 }}>
+      {Object.keys(mapa).sort().reverse().map((m) => <option key={m} value={m}>{mesBR(m)}</option>)}
+    </select>
+  );
+  const fluxoDia = db.fluxoDiarioPorMes[mesGrafico] || [];
+  const despesasMes = db.despesasPorMes[mesDespesas] || [];
   const pieColors = [t.gold, t.info, t.danger, t.purple];
-  const pie = db.pieReceitas.map((p, i) => ({ ...p, color: pieColors[i % pieColors.length] }));
+  const pie = (db.pieReceitasPorMes[mesReceitas] || []).map((p, i) => ({ ...p, color: pieColors[i % pieColors.length] }));
   const trendOf = (key) => {
     const f = db.fluxo; if (f.length < 2) return null;
     const a = f[f.length - 2][key], b = f[f.length - 1][key];
@@ -466,8 +516,8 @@ function Dashboard({ t, role, go }) {
       {/* cards principais — variam por perfil */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard t={t} icon={Wallet}     label="Saldo em caixa"       value={BRL(S.saldo)} />
-        <StatCard t={t} icon={TrendingUp} label={`Receitas de ${S.competencia}`}   value={BRL(S.receitaMes)} trend={trendOf("receita")} color={t.ok} />
-        <StatCard t={t} icon={TrendingDown} label={`Despesas de ${S.competencia}`} value={BRL(S.despesaMes)} trend={trendOf("despesa")} color={t.info} />
+        <StatCard t={t} icon={TrendingUp} label={`${L("Receitas de")} ${S.competencia}`}   value={BRL(S.receitaMes)} trend={trendOf("receita")} color={t.ok} />
+        <StatCard t={t} icon={TrendingDown} label={`${L("Despesas de")} ${S.competencia}`} value={BRL(S.despesaMes)} trend={trendOf("despesa")} color={t.info} />
         <StatCard t={t} icon={AlertCircle} label="Inadimplência"       value={S.inadimplencia + "%"} color={t.danger} />
       </div>
 
@@ -482,27 +532,34 @@ function Dashboard({ t, role, go }) {
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card t={t} className="lg:col-span-2">
-          <SectionTitle t={t}>Evolução financeira mensal</SectionTitle>
+          <SectionTitle t={t} action={selectMes(mesGrafico, setMesGrafico, db.fluxoDiarioPorMes)}>
+            Evolução financeira do mês — dia a dia</SectionTitle>
           <div style={{ height: 220 }}>
-            <ResponsiveContainer><LineChart data={db.fluxo}>
+            <ResponsiveContainer><LineChart data={fluxoDia}>
               <CartesianGrid stroke={t.borderSoft} vertical={false} />
-              <XAxis dataKey="m" tick={{ fill: t.dim, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <XAxis dataKey="m" tick={{ fill: t.dim, fontSize: 11 }} axisLine={false} tickLine={false} interval={2} />
               <YAxis tick={{ fill: t.dim, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => (v/1000)+"k"} />
-              <RTooltip {...chartTip(t)} formatter={(v) => BRL(v)} />
+              <RTooltip {...chartTip(t)} formatter={(v) => BRL(v)} labelFormatter={(d) => `${L("Dia")} ${d}`} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Line name="Receita" dataKey="receita" stroke={t.gold} strokeWidth={2.5} dot={false} />
-              <Line name="Despesa" dataKey="despesa" stroke={t.info} strokeWidth={2} dot={false} />
+              <Line name={L("Receita")} dataKey="receita" stroke={t.gold} strokeWidth={2.5} dot={false} />
+              <Line name={L("Despesa")} dataKey="despesa" stroke={t.info} strokeWidth={2} dot={false} />
             </LineChart></ResponsiveContainer>
           </div>
         </Card>
         <Card t={t}>
-          <SectionTitle t={t}>Distribuição de receitas</SectionTitle>
+          <SectionTitle t={t} action={selectMes(mesReceitas, setMesReceitas, db.pieReceitasPorMes)}>
+            Distribuição de receitas</SectionTitle>
           <div style={{ height: 160 }}>
-            <ResponsiveContainer><PieChart>
-              <Pie data={pie} dataKey="value" innerRadius={42} outerRadius={64} paddingAngle={3} stroke="none">
-                {pie.map((e, i) => <Cell key={i} fill={e.color} />)}</Pie>
-              <RTooltip {...chartTip(t)} formatter={(v) => v + "%"} />
-            </PieChart></ResponsiveContainer>
+            {pie.length ? (
+              <ResponsiveContainer><PieChart>
+                <Pie data={pie} dataKey="value" innerRadius={42} outerRadius={64} paddingAngle={3} stroke="none">
+                  {pie.map((e, i) => <Cell key={i} fill={e.color} />)}</Pie>
+                <RTooltip {...chartTip(t)} formatter={(v) => v + "%"} />
+              </PieChart></ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center text-xs" style={{ color: t.dim }}>
+                {L("Sem receitas em")} {mesBR(mesReceitas)}</div>
+            )}
           </div>
           <div className="mt-2 space-y-1 text-xs">{pie.map((e) => (
             <div key={e.name} className="flex items-center gap-1.5">
@@ -515,13 +572,19 @@ function Dashboard({ t, role, go }) {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card t={t}>
-          <SectionTitle t={t}>Despesas por categoria — {S.competencia}</SectionTitle>
+          <SectionTitle t={t} action={selectMes(mesDespesas, setMesDespesas, db.despesasPorMes)}>
+            Despesas por categoria</SectionTitle>
           <div style={{ height: 200 }}>
-            <ResponsiveContainer><BarChart data={db.despesas} layout="vertical" margin={{ left: 10 }}>
-              <XAxis type="number" hide /><YAxis type="category" dataKey="cat" width={90} tick={{ fill: t.dim, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <RTooltip {...chartTip(t)} formatter={(v) => BRL(v)} />
-              <Bar dataKey="v" fill={t.gold} radius={[0, 6, 6, 0]} barSize={14} />
-            </BarChart></ResponsiveContainer>
+            {despesasMes.length ? (
+              <ResponsiveContainer><BarChart data={despesasMes} layout="vertical" margin={{ left: 10 }}>
+                <XAxis type="number" hide /><YAxis type="category" dataKey="cat" width={90} tick={{ fill: t.dim, fontSize: 11 }} axisLine={false} tickLine={false} />
+                <RTooltip {...chartTip(t)} formatter={(v) => BRL(v)} cursor={false} />
+                <Bar dataKey="v" fill={t.gold} radius={[0, 6, 6, 0]} barSize={14} activeBar={false} />
+              </BarChart></ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center text-xs" style={{ color: t.dim }}>
+                {L("Sem despesas em")} {mesBR(mesDespesas)}</div>
+            )}
           </div>
         </Card>
         <Card t={t}>
@@ -544,7 +607,7 @@ function Dashboard({ t, role, go }) {
       {/* pendências e alertas */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card t={t}>
-          <SectionTitle t={t} action={<button onClick={() => go("cobrancas")} className="text-xs" style={{ color: t.gold }}>Ver todas →</button>}>
+          <SectionTitle t={t} action={<button onClick={() => go("cobrancas")} className="text-xs" style={{ color: t.gold }}>{L("Ver todas →")}</button>}>
             {role === "diretor" ? "Aprovações pendentes" : "Alertas do dia"}</SectionTitle>
           <div className="space-y-2 text-sm">
             {(() => {
@@ -552,9 +615,9 @@ function Dashboard({ t, role, go }) {
               const vencidas = db.cobr.filter((c) => c.status === "vencida");
               const semResp = db.chamados.find((c) => c.status === "aberto" && c.resp === "—");
               const alertas = [
-                multaPend && [Gavel, `Multa ${multaPend.num} aguarda decisão do síndico`, "danger", "multas"],
-                vencidas.length > 0 && [QrCode, `${vencidas.length} cobrança(s) vencida(s) somando ` + BRL(vencidas.reduce((s, c) => s + c.valor, 0)), "warn", "cobrancas"],
-                semResp && [Wrench, `${semResp.num} (${semResp.cat.toLowerCase()}) sem responsável designado`, "warn", "chamados"],
+                multaPend && [Gavel, `${L("Multa")} ${multaPend.num} ${L("aguarda decisão do síndico")}`, "danger", "multas"],
+                vencidas.length > 0 && [QrCode, `${vencidas.length} ${L("cobrança(s) vencida(s) somando")} ` + BRL(vencidas.reduce((s, c) => s + c.valor, 0)), "warn", "cobrancas"],
+                semResp && [Wrench, `${semResp.num} (${semResp.cat.toLowerCase()}) ${L("sem responsável designado")}`, "warn", "chamados"],
               ].filter(Boolean);
               if (!alertas.length) return <div className="text-xs" style={{ color: t.dim }}>Nenhuma pendência no momento. Tudo em dia! 🎉</div>;
               return alertas.map(([Ic, txt, c, s], i) => (
@@ -1085,9 +1148,9 @@ function Chamados({ t }) {
           return (
             <div key={k}>
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold" style={{ color: t.dim }}>
-                <CircleDot size={11} color={t[STATUS_META[k].c]} /> {l.toUpperCase()} · {list.length}</div>
+                <CircleDot size={11} color={t[STATUS_META[k].c]} /> {L(l).toUpperCase()} · {list.length}</div>
               <div className="space-y-2">
-                {list.length === 0 && <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>Nenhum chamado aqui</div>}
+                {list.length === 0 && <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>{L("Nenhum chamado aqui")}</div>}
                 {list.map((c) => (
                   <Card t={t} key={c.id}>
                     <div className="flex items-center justify-between text-xs" style={{ color: t.dim }}>
@@ -1095,7 +1158,7 @@ function Chamados({ t }) {
                     <div className="mt-1 text-sm font-medium">{c.desc}</div>
                     <div className="mt-2 flex items-center justify-between text-xs" style={{ color: t.dim }}>
                       <span><User size={11} className="mr-1 inline" />{c.resp}</span>
-                      <span>{c.custo > 0 ? BRL(c.custo) : "sem custo lançado"}</span></div>
+                      <span>{c.custo > 0 ? BRL(c.custo) : L("sem custo lançado")}</span></div>
                   </Card>))}
               </div>
             </div>);
@@ -1143,7 +1206,7 @@ function Portaria({ t }) {
         <Btn t={t}><AlertCircle size={14} /> Registrar ocorrência</Btn>
       </div>
       <Card t={t} pad={false}>
-        <div className="border-b px-4 py-3 text-sm font-semibold" style={{ borderColor: t.borderSoft, fontFamily: "'Sora',sans-serif" }}>Movimentação de hoje</div>
+        <div className="border-b px-4 py-3 text-sm font-semibold" style={{ borderColor: t.borderSoft, fontFamily: "'Sora',sans-serif" }}>{L("Movimentação de hoje")}</div>
         <div>{db.acessos.map((a) => {
           const Ic = icons[a.tipo] || User;
           return (
@@ -1340,7 +1403,7 @@ function SaaS({ t }) {
 }
 
 /* ══════════════ PORTAL DO MORADOR ══════════════ */
-function PortalMorador({ t, onLogout, dark, setDark }) {
+function PortalMorador({ t, onLogout, dark, setDark, lang, onLang }) {
   const { db, reload } = useData();
   const [tab, setTab] = useState("inicio"); const [qr, setQr] = useState(null); const [chamado, setChamado] = useState(false);
   const [enviarChamado, enviando] = useSubmit(async (f) => { await criarChamado(db.ctx, f); await reload(); setChamado(false); });
@@ -1356,8 +1419,9 @@ function PortalMorador({ t, onLogout, dark, setDark }) {
             <div className="truncate text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>Residencial Águas Claras</div>
             <div className="text-xs" style={{ color: t.dim }}>Ana Beatriz · Unidade 102-A</div>
           </div>
+          <LangSel t={t} lang={lang} onLang={onLang} />
           <button onClick={() => setDark(!dark)} className="rounded-lg p-2" style={{ background: t.surface2 }}>{dark ? <Sun size={15} color={t.gold} /> : <Moon size={15} color={t.gold} />}</button>
-          <button onClick={onLogout} className="rounded-lg p-2" style={{ background: t.surface2 }} title="Sair"><LogOut size={15} color={t.dim} /></button>
+          <button onClick={onLogout} className="rounded-lg p-2" style={{ background: t.surface2 }} title={L("Sair")}><LogOut size={15} color={t.dim} /></button>
         </div>
       </header>
       <main className="mx-auto max-w-lg px-4 py-5 pb-28">
@@ -1378,7 +1442,7 @@ function PortalMorador({ t, onLogout, dark, setDark }) {
               {[["Boletos e QR", QrCode, "pagamentos"], ["Extrato", Wallet, "pagamentos"], ["Comunicados", Megaphone, "comunicados"], ["Abrir chamado", Wrench, null]].map(([l, Ic, dest]) => (
                 <button key={l} onClick={() => dest ? setTab(dest) : setChamado(true)}
                   className="vhover rounded-2xl border p-4 text-left" style={{ background: t.surface, borderColor: t.borderSoft }}>
-                  <Ic size={18} color={t.gold} /><div className="mt-2 text-sm font-semibold">{l}</div>
+                  <Ic size={18} color={t.gold} /><div className="mt-2 text-sm font-semibold">{L(l)}</div>
                 </button>))}
             </div>
             <Card t={t}>
@@ -1434,7 +1498,7 @@ function PortalMorador({ t, onLogout, dark, setDark }) {
         <div className="mx-auto flex max-w-lg justify-around">
           {[["inicio","Início",Home],["pagamentos","Pagamentos",QrCode],["comunicados","Avisos",Megaphone]].map(([k,l,Ic]) => (
             <button key={k} onClick={() => setTab(k)} className="flex flex-col items-center gap-0.5 rounded-lg px-4 py-1.5 text-[10px] font-medium"
-              style={{ color: tab === k ? t.gold : t.dim }}><Ic size={18} /> {l}</button>))}
+              style={{ color: tab === k ? t.gold : t.dim }}><Ic size={18} /> {L(l)}</button>))}
         </div>
       </nav>
       {qr && (
@@ -1467,6 +1531,8 @@ function PortalMorador({ t, onLogout, dark, setDark }) {
 /* ══════════════ SHELL PRINCIPAL ══════════════ */
 export default function App() {
   const [dark, setDark] = useState(true);
+  const [lang, setLangState] = useState(LANG);
+  const onLang = useCallback((l) => { setLang(l); setLangState(l); }, []);
   const [role, setRole] = useState(null);
   const [screen, setScreen] = useState("dashboard");
   const [sideOpen, setSideOpen] = useState(false);
@@ -1501,14 +1567,14 @@ export default function App() {
     `}</style>
   );
 
-  if (!role) return <DataCtx.Provider value={dataValue}>{globalStyle}<Login t={t} dark={dark} setDark={setDark} onEnter={(r) => { setRole(r); setScreen(r === "administradora" ? "saas" : "dashboard"); }} /></DataCtx.Provider>;
+  if (!role) return <DataCtx.Provider value={dataValue}>{globalStyle}<Login t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} onEnter={(r) => { setRole(r); setScreen(r === "administradora" ? "saas" : "dashboard"); }} /></DataCtx.Provider>;
   if (db?.vazio) return (
     <DataCtx.Provider value={dataValue}>{globalStyle}
       <SetupCondominio t={t} role={role} dark={dark} setDark={setDark} onCriado={reload} onSair={() => setRole(null)} />
     </DataCtx.Provider>);
   if (role === "morador") return (
     <DataCtx.Provider value={dataValue}>{globalStyle}
-      {db ? <PortalMorador t={t} dark={dark} setDark={setDark} onLogout={() => setRole(null)} />
+      {db ? <PortalMorador t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} onLogout={() => setRole(null)} />
         : <div className="mx-auto max-w-lg p-4" style={{ background: t.bg, minHeight: "100vh" }}>
             {dbErr ? <ErrorState t={t} onRetry={reload} /> : <Skeleton t={t} />}</div>}
     </DataCtx.Provider>);
@@ -1545,7 +1611,7 @@ export default function App() {
                   <button key={n.id} onClick={() => go(n.id)}
                     className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
                     style={{ background: active ? t.goldSoft : "transparent", color: active ? t.gold : t.dim, border: `1px solid ${active ? t.border : "transparent"}` }}>
-                    <n.icon size={16} /> {n.label}
+                    <n.icon size={16} /> {L(n.label)}
                     {n.id === "multas" && db?.stats.multasEmDefesa > 0 && <span className="ml-auto rounded-full px-1.5 text-[10px] font-bold" style={{ background: t.danger + "22", color: t.danger }}>{db.stats.multasEmDefesa}</span>}
                   </button>);
               })}
@@ -1553,10 +1619,10 @@ export default function App() {
             <div className="mt-4 border-t pt-3" style={{ borderColor: t.borderSoft }}>
               <div className="flex items-center gap-2.5 rounded-xl px-2 py-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold" style={{ background: t.goldSoft, color: t.gold }}>
-                  {PROFILES[role].label[0]}</div>
+                  {L(PROFILES[role].label)[0]}</div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs font-semibold">{PROFILES[role].label}</div>
-                  <div className="text-[10px]" style={{ color: t.dim }}>Perfil de acesso</div>
+                  <div className="truncate text-xs font-semibold">{L(PROFILES[role].label)}</div>
+                  <div className="text-[10px]" style={{ color: t.dim }}>{L("Perfil de acesso")}</div>
                 </div>
                 <button onClick={() => setRole(null)} title="Sair" className="rounded-lg p-1.5" style={{ background: t.surface2 }}><LogOut size={14} color={t.dim} /></button>
               </div>
@@ -1571,20 +1637,21 @@ export default function App() {
             <div className="flex items-center gap-3">
               <button onClick={() => setSideOpen(true)} className="rounded-lg p-2 lg:hidden" style={{ background: t.surface2 }}><Menu size={16} color={t.dim} /></button>
               <div className="min-w-0 flex-1">
-                <h1 className="truncate text-base font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{current?.label || "Dashboard"}</h1>
+                <h1 className="truncate text-base font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{L(current?.label || "Dashboard")}</h1>
                 <div className="hidden text-xs sm:block" style={{ color: t.dim }}>
-                  {{dashboard:"Visão geral do condomínio em tempo real",condominio:"Cadastro-mãe: dados legais, gestão e regras internas",
+                  {L({dashboard:"Visão geral do condomínio em tempo real",condominio:"Cadastro-mãe: dados legais, gestão e regras internas",
                     unidades:"96 unidades · 2 torres + térreo comercial",pessoas:"Papéis separados: proprietário, inquilino, funcionário e prestador",
                     financeiro:"Competência 06/2026 · aprovações do síndico ativas",cobrancas:"QR Code Verum Pay com baixa automática",
                     multas:"Fluxo com prova, defesa e aprovação",comunicados:"Envio por portal, e-mail e WhatsApp",
                     documentos:"Arquivo timbrado com retenção histórica",chamados:"Ordens de serviço por categoria e prioridade",
                     portaria:"Controle de acessos, entregas e ocorrências",saas:"Clientes, planos, licenças e implantação",
-                    emails:"E-mails e senhas de acesso dos perfis síndico, tesouraria, administradora e morador"}[screen]}</div>
+                    emails:"E-mails e senhas de acesso dos perfis síndico, tesouraria, administradora e morador"}[screen])}</div>
               </div>
-              <button className="relative rounded-lg p-2" style={{ background: t.surface2 }} title="Notificações">
+              <LangSel t={t} lang={lang} onLang={onLang} />
+              <button className="relative rounded-lg p-2" style={{ background: t.surface2 }} title={L("Notificações")}>
                 <Bell size={16} color={t.dim} />
                 <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full" style={{ background: t.danger }} /></button>
-              <button onClick={() => setDark(!dark)} className="rounded-lg p-2" style={{ background: t.surface2 }} title="Alternar tema">
+              <button onClick={() => setDark(!dark)} className="rounded-lg p-2" style={{ background: t.surface2 }} title={L("Alternar tema")}>
                 {dark ? <Sun size={16} color={t.gold} /> : <Moon size={16} color={t.gold} />}</button>
             </div>
           </header>

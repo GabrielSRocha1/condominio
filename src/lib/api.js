@@ -220,20 +220,42 @@ export async function loadAll() {
   const fluxo = comps.map((c) => ({ m: mesLabel(c), receita: porComp[c].receita, despesa: porComp[c].despesa }));
   const compAtual = comps[comps.length - 1];
 
-  const despPorCat = {};
+  /* evolução diária: um ponto para cada dia, agrupado por mês (chave AAAA-MM).
+     O mês corrente sempre existe no mapa, mesmo sem lançamentos. */
+  const hoje = new Date();
+  const mesAtualReal = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+  const porDiaMes = {};
   lancRaw.forEach((l) => {
-    if (l.tipo === "despesa" && l.competencia === compAtual && l.status !== "cancelado")
-      despPorCat[l.categorias_financeiras?.nome || "Outros"] = (despPorCat[l.categorias_financeiras?.nome] || 0) + num(l.valor);
+    if (l.status === "cancelado" || l.status === "rejeitado") return;
+    if (!l.data) return;
+    const d = ((porDiaMes[l.data.slice(0, 7)] ||= {})[l.data.slice(8, 10)] ||= { receita: 0, despesa: 0 });
+    d[l.tipo] += num(l.valor);
   });
-  const despesas = Object.entries(despPorCat).map(([cat, v]) => ({ cat, v })).sort((a, b) => b.v - a.v);
+  porDiaMes[mesAtualReal] ||= {};
+  const fluxoDiarioPorMes = Object.fromEntries(Object.keys(porDiaMes).sort().map((mes) => {
+    const diasNoMes = new Date(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), 0).getDate();
+    return [mes, Array.from({ length: diasNoMes }, (_, i) => {
+      const dia = String(i + 1).padStart(2, "0");
+      return { m: dia, receita: porDiaMes[mes][dia]?.receita || 0, despesa: porDiaMes[mes][dia]?.despesa || 0 };
+    })];
+  }));
 
-  const recPorCat = {};
+  /* despesas e receitas por categoria, agrupadas por competência (AAAA-MM).
+     O mês corrente sempre existe no mapa, mesmo sem lançamentos. */
+  const catPorMes = {};
   lancRaw.forEach((l) => {
-    if (l.tipo === "receita" && l.competencia === compAtual && l.status !== "cancelado")
-      recPorCat[l.categorias_financeiras?.nome || "Outros"] = (recPorCat[l.categorias_financeiras?.nome] || 0) + num(l.valor);
+    if (l.status === "cancelado" || l.status === "rejeitado" || !l.competencia) return;
+    const m = (catPorMes[l.competencia] ||= { despesa: {}, receita: {} });
+    const nome = l.categorias_financeiras?.nome || "Outros";
+    m[l.tipo][nome] = (m[l.tipo][nome] || 0) + num(l.valor);
   });
-  const totalRec = Object.values(recPorCat).reduce((s, v) => s + v, 0) || 1;
-  const pieReceitas = Object.entries(recPorCat).map(([name, v]) => ({ name, value: Math.round((v / totalRec) * 100) }));
+  catPorMes[mesAtualReal] ||= { despesa: {}, receita: {} };
+  const despesasPorMes = {}, pieReceitasPorMes = {};
+  Object.keys(catPorMes).forEach((mes) => {
+    despesasPorMes[mes] = Object.entries(catPorMes[mes].despesa).map(([cat, v]) => ({ cat, v })).sort((a, b) => b.v - a.v);
+    const totalRec = Object.values(catPorMes[mes].receita).reduce((s, v) => s + v, 0) || 1;
+    pieReceitasPorMes[mes] = Object.entries(catPorMes[mes].receita).map(([name, v]) => ({ name, value: Math.round((v / totalRec) * 100) }));
+  });
 
   const cobrPorComp = {};
   cobrRaw.forEach((c) => {
@@ -295,7 +317,7 @@ export async function loadAll() {
     maxPenalidade: Math.max(0, ...multasRaw.map((m) => Number((m.numero || "").split("-")[1]) || 0)),
   };
 
-  return { ctx, unidades, pessoas, lanc, cobr, multas, comunic, chamados, acessos, docs, tenants, boletos, fluxo, despesas, inadim, pieReceitas, stats, atividades };
+  return { ctx, unidades, pessoas, lanc, cobr, multas, comunic, chamados, acessos, docs, tenants, boletos, fluxo, fluxoDiarioPorMes, mesAtualReal, despesasPorMes, inadim, pieReceitasPorMes, stats, atividades };
 }
 
 /* ─────────── escritas ─────────── */
@@ -325,6 +347,21 @@ export async function criarCondominio(f, diretor) {
   await q(supabase.from("usuario_perfis").insert({
     usuario_id: usuario.id, condominio_id: cond.id, perfil_id: perfil.id,
   }).select(), "usuario_perfis");
+}
+
+/* "Já tem prédio cadastrado": confere e-mail e senha na tabela usuarios
+   e exige que a conta tenha o perfil de diretor em algum condomínio. */
+export async function loginDiretor(email, senha) {
+  const { data, error } = await supabase
+    .from("usuarios")
+    .select("id, email, senha_hash, pessoas(nome), usuario_perfis(perfis(nome))")
+    .eq("email", email)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data || data.senha_hash !== (await sha256(senha))) return null;
+  const ehDiretor = (data.usuario_perfis || []).some((up) => up.perfis?.nome === "diretor");
+  if (!ehDiretor) return null;
+  return { nome: data.pessoas?.nome || "Diretor", email: data.email, senha };
 }
 
 const precisaUsuario = (ctx) => {
