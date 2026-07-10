@@ -1,0 +1,373 @@
+CONDOMASTER PRO — MODELAGEM DE DADOS (v1)	PostgreSQL · multi-tenant por condominio_id + RLS					
+CONVENÇÕES GLOBAIS	Toda tabela tem: id UUID (PK, gerado), criado_em TIMESTAMP e atualizado_em TIMESTAMP — omitidos abaixo para não repetir. Toda tabela de domínio do condomínio tem condominio_id (FK) com Row-Level Security. Dinheiro sempre NUMERIC(14,2). Exclusão é lógica (deletado_em) nas tabelas com histórico.					
+CONSOLIDAÇÕES DE MODELAGEM	Proprietários, inquilinos, moradores, dependentes, funcionários e prestadores NÃO são tabelas separadas: são PAPÉIS na tabela pessoa_vinculos (uma pessoa pode ter vários papéis, com vigência). Despesas e receitas são a tabela lancamentos com campo tipo. Multas e advertências são a tabela penalidades com campo tipo. Atas são documentos vinculados à assembleia + tabela atas de controle.					
+						
+═══ PARTE 1 · RESUMO DAS TABELAS ═══						
+Nº	TABELA	DESCRIÇÃO	GRUPO			
+1	saas_planos	Planos comerciais do SaaS (Essencial, Standard, Premium) com limites e módulos	SaaS			
+2	saas_assinaturas	Contrato de cada condomínio com o SaaS: plano, ciclo, status, bloqueio	SaaS			
+3	condominios	Cadastro-mãe de cada condomínio (tenant): dados legais, regras, identidade visual	Núcleo			
+4	blocos	Torres/blocos/alas de cada condomínio	Núcleo			
+5	unidades	Apartamentos, salas, lojas, coberturas, boxes e depósitos	Núcleo			
+6	vagas	Vagas de garagem como ativos: fixas, rotativas ou de visitante	Núcleo			
+7	pessoas	Cadastro único de pessoas físicas e jurídicas (sem papel)	Pessoas			
+8	pessoa_vinculos	Papel de cada pessoa (proprietário, inquilino, morador, dependente, síndico, funcionário, prestador…) com unidade e vigência	Pessoas			
+9	usuarios	Contas de acesso (login) vinculadas a pessoas	Acesso			
+10	perfis	Perfis de acesso (diretor, síndico, tesouraria, morador, administradora…)	Acesso			
+11	permissoes	Permissões granulares do sistema (ex.: multa.aprovar, financeiro.lancar)	Acesso			
+12	perfil_permissoes	Matriz N:N perfil × permissão	Acesso			
+13	usuario_perfis	Perfil de cada usuário em cada condomínio (usuário pode atuar em vários)	Acesso			
+14	categorias_financeiras	Categorias e subcategorias de receita/despesa (árvore)	Financeiro			
+15	fundos	Fundos do condomínio (reserva, obras) e seus saldos	Financeiro			
+16	lancamentos	Receitas e despesas: competência, categoria, aprovação, rateio, anexos	Financeiro			
+17	cobrancas	Títulos por unidade/competência com máquina de estados e QR	Financeiro			
+18	pagamentos	Transações recebidas (webhook Verum Pay ou baixa manual)	Financeiro			
+19	integracoes_pagamento	Configuração do provedor de pagamento por condomínio (Verum Pay)	Financeiro			
+20	penalidades	Multas e advertências: infração, prova, defesa, decisão, reincidência	Penalidades			
+21	penalidade_provas	Arquivos de prova (foto, vídeo, áudio, documento) de cada penalidade	Penalidades			
+22	comunicados	Comunicados, convocações, circulares e avisos	Comunicação			
+23	comunicado_destinatarios	Destinatário de cada comunicado com confirmação de leitura	Comunicação			
+24	documentos	Arquivo central de documentos timbrados (PDF) com hash e retenção	Comunicação			
+25	notificacoes	Fila lógica de notificações geradas pelo sistema	Comunicação			
+26	envios_log	Log de cada tentativa de envio por e-mail/WhatsApp/push (auditável)	Comunicação			
+27	chamados	Ordens de serviço de manutenção com custo estimado/realizado	Operação			
+28	areas_comuns	Áreas reserváveis (salão, churrasqueira, quadra) e suas regras	Operação			
+29	reservas	Reservas de áreas comuns por unidade	Operação			
+30	assembleias	Assembleias: convocação, tipo, quórum, status	Operação			
+31	atas	Ata de cada assembleia com deliberações e vínculo ao PDF timbrado	Operação			
+32	pre_autorizacoes	(Portaria) Entradas pré-autorizadas com QR de acesso de uso único	Portaria			
+33	acessos_portaria	(Portaria) Registro de entrada/saída/entrega/ocorrência	Portaria			
+34	auditoria	Trilha append-only de toda mutação: quem, o quê, antes e depois	Governança			
+						
+═══ PARTE 2 · DICIONÁRIO DE DADOS ═══						
+TABELA	CAMPO	TIPO	PK	FK → REFERÊNCIA	OBRIGATÓRIO	OBSERVAÇÕES
+saas_planos	id	UUID	SIM		SIM	
+saas_planos	nome	VARCHAR(60)			SIM	Essencial · Standard · Premium
+saas_planos	preco_mensal	NUMERIC(14,2)			SIM	
+saas_planos	limite_unidades	INTEGER			NÃO	NULL = ilimitado
+saas_planos	modulos	JSONB			SIM	Feature flags: {"portaria":true,"whatsapp":false,…} — controla alto/baixo padrão
+saas_planos	ativo	BOOLEAN			SIM	Plano descontinuado continua nas assinaturas antigas
+saas_assinaturas	id	UUID	SIM		SIM	
+saas_assinaturas	condominio_id	UUID		condominios.id	SIM	1 assinatura ativa por condomínio (índice único parcial)
+saas_assinaturas	plano_id	UUID		saas_planos.id	SIM	
+saas_assinaturas	status	ENUM			SIM	teste · ativa · inadimplente · bloqueada · cancelada
+saas_assinaturas	inicio	DATE			SIM	
+saas_assinaturas	renovacao	DATE			NÃO	Próxima renovação/cobrança da licença
+saas_assinaturas	forma_pagamento	ENUM			SIM	verum_pay · transferencia
+saas_assinaturas	bloqueada_em	TIMESTAMP			NÃO	Bloqueio = admin somente-leitura; portal do morador segue pagando
+saas_assinaturas	checklist_implantacao	JSONB			NÃO	Etapas de onboarding e datas de conclusão
+condominios	id	UUID	SIM		SIM	Este id é o tenant_id de todo o sistema
+condominios	nome_fantasia	VARCHAR(120)			SIM	
+condominios	razao_social	VARCHAR(160)			SIM	
+condominios	cnpj	VARCHAR(18)			SIM	Único
+condominios	inscricao_municipal	VARCHAR(30)			NÃO	
+condominios	endereco	JSONB			SIM	logradouro, número, bairro, cidade, UF, CEP
+condominios	tipo	ENUM			SIM	residencial · comercial · misto
+condominios	porte	ENUM			SIM	alto · medio · baixo — orienta UX e módulos
+condominios	regras_internas	JSONB			NÃO	silêncio, mudanças, obras, visitantes, animais, áreas comuns
+condominios	identidade_visual	JSONB			NÃO	logo_url, cor_primaria, assinante padrão — usada nos timbrados
+condominios	encargos_atraso	JSONB			SIM	{multa_pct:2, juros_am_pct:1, indice_correcao} — teto legal validado na aplicação
+condominios	sindico_pessoa_id	UUID		pessoas.id	NÃO	Denormalização de conveniência; vínculo oficial em pessoa_vinculos
+condominios	ativo	BOOLEAN			SIM	
+blocos	id	UUID	SIM		SIM	
+blocos	condominio_id	UUID		condominios.id	SIM	
+blocos	nome	VARCHAR(40)			SIM	Ex.: Torre A, Bloco B, Térreo comercial
+blocos	andares	INTEGER			NÃO	
+unidades	id	UUID	SIM		SIM	
+unidades	condominio_id	UUID		condominios.id	SIM	
+unidades	bloco_id	UUID		blocos.id	SIM	
+unidades	numero	VARCHAR(20)			SIM	Único por (condominio_id, bloco_id, numero)
+unidades	tipo	ENUM			SIM	apartamento · sala · loja · cobertura · box · deposito
+unidades	andar	INTEGER			NÃO	
+unidades	status	ENUM			SIM	ocupada · vaga · alugada · vendida · reservada · inativa
+unidades	fracao_ideal	NUMERIC(9,6)			SIM	Base do rateio; soma por condomínio validada na aplicação
+unidades	area_privativa_m2	NUMERIC(10,2)			NÃO	
+unidades	unidade_principal_id	UUID		unidades.id	NÃO	Auto-relacionamento: box/depósito dependente de um apto
+unidades	responsavel_financeiro_id	UUID		pessoas.id	NÃO	Quem recebe a cobrança
+unidades	observacoes	TEXT			NÃO	
+unidades	deletado_em	TIMESTAMP			NÃO	Soft delete — histórico permanece
+vagas	id	UUID	SIM		SIM	
+vagas	condominio_id	UUID		condominios.id	SIM	
+vagas	numero	VARCHAR(20)			SIM	
+vagas	tipo	ENUM			SIM	fixa · rotativa · visitante · PCD · moto
+vagas	status	ENUM			SIM	livre · vinculada · bloqueada
+vagas	unidade_id	UUID		unidades.id	NÃO	NULL em vaga rotativa/visitante
+vagas	restricoes	TEXT			NÃO	
+pessoas	id	UUID	SIM		SIM	Cadastro único — papéis ficam em pessoa_vinculos
+pessoas	condominio_id	UUID		condominios.id	SIM	
+pessoas	nome	VARCHAR(160)			SIM	
+pessoas	tipo_pessoa	ENUM			SIM	fisica · juridica
+pessoas	cpf_cnpj	VARCHAR(18)			SIM	Único por condomínio; criptografia de coluna
+pessoas	nascimento	DATE			NÃO	
+pessoas	telefone	VARCHAR(20)			NÃO	Canal WhatsApp
+pessoas	email	VARCHAR(160)			NÃO	
+pessoas	foto_url	VARCHAR(300)			NÃO	Storage S3
+pessoas	documento_url	VARCHAR(300)			NÃO	Documento digitalizado (S3, URL assinada)
+pessoas	consentimentos	JSONB			NÃO	LGPD: opt-in por canal (email, whatsapp) e data
+pessoas	anonimizada_em	TIMESTAMP			NÃO	LGPD: expurgo após retenção
+pessoa_vinculos	id	UUID	SIM		SIM	SUBSTITUI as tabelas proprietários/inquilinos/moradores/funcionários/prestadores
+pessoa_vinculos	condominio_id	UUID		condominios.id	SIM	
+pessoa_vinculos	pessoa_id	UUID		pessoas.id	SIM	
+pessoa_vinculos	unidade_id	UUID		unidades.id	NÃO	NULL para funcionário/prestador/síndico do condomínio
+pessoa_vinculos	papel	ENUM			SIM	proprietario · coproprietario · inquilino · morador · dependente · sindico · diretor · tesouraria · conselho_fiscal · funcionario · prestador · visitante_recorrente · imobiliaria
+pessoa_vinculos	inicio	DATE			SIM	
+pessoa_vinculos	fim	DATE			NÃO	NULL = vigente; encerrar preserva histórico
+pessoa_vinculos	observacoes	TEXT			NÃO	
+usuarios	id	UUID	SIM		SIM	
+usuarios	pessoa_id	UUID		pessoas.id	SIM	1 pessoa pode ter 1 usuário
+usuarios	email	VARCHAR(160)			SIM	Único global (login)
+usuarios	senha_hash	VARCHAR(255)			SIM	Argon2id
+usuarios	totp_secret	VARCHAR(64)			NÃO	2FA — recomendado obrigatório p/ tesouraria e administradora
+usuarios	ultimo_login_em	TIMESTAMP			NÃO	
+usuarios	bloqueado_em	TIMESTAMP			NÃO	Bloqueio por tentativas ou administrativo
+perfis	id	UUID	SIM		SIM	
+perfis	nome	VARCHAR(40)			SIM	administradora · diretor · sindico · tesouraria · conselho_fiscal · morador · funcionario · prestador
+perfis	descricao	VARCHAR(200)			NÃO	
+perfis	sistema	BOOLEAN			SIM	Perfis nativos não podem ser excluídos
+permissoes	id	UUID	SIM		SIM	
+permissoes	codigo	VARCHAR(60)			SIM	Único. Ex.: financeiro.lancar · financeiro.aprovar · multa.aprovar · saas.gerir
+permissoes	descricao	VARCHAR(200)			SIM	
+perfil_permissoes	id	UUID	SIM		SIM	N:N
+perfil_permissoes	perfil_id	UUID		perfis.id	SIM	Único por (perfil_id, permissao_id)
+perfil_permissoes	permissao_id	UUID		permissoes.id	SIM	
+usuario_perfis	id	UUID	SIM		SIM	Um usuário pode ter perfis em vários condomínios
+usuario_perfis	usuario_id	UUID		usuarios.id	SIM	Único por (usuario_id, condominio_id, perfil_id)
+usuario_perfis	condominio_id	UUID		condominios.id	NÃO	NULL = perfil global do SaaS (administradora)
+usuario_perfis	perfil_id	UUID		perfis.id	SIM	
+usuario_perfis	ativo	BOOLEAN			SIM	
+categorias_financeiras	id	UUID	SIM		SIM	
+categorias_financeiras	condominio_id	UUID		condominios.id	SIM	Seed padrão (23 categorias do escopo) na implantação
+categorias_financeiras	nome	VARCHAR(80)			SIM	Água, Luz, Portaria, Manutenção, Fundo de reserva…
+categorias_financeiras	tipo	ENUM			SIM	receita · despesa · ambas
+categorias_financeiras	categoria_pai_id	UUID		categorias_financeiras.id	NÃO	Auto-relacionamento = subcategorias
+categorias_financeiras	ativa	BOOLEAN			SIM	
+fundos	id	UUID	SIM		SIM	
+fundos	condominio_id	UUID		condominios.id	SIM	
+fundos	nome	VARCHAR(60)			SIM	Fundo de reserva · Fundo de obras
+fundos	saldo	NUMERIC(14,2)			SIM	Atualizado por lançamentos vinculados
+lancamentos	id	UUID	SIM		SIM	SUBSTITUI tabelas separadas de despesas e receitas
+lancamentos	condominio_id	UUID		condominios.id	SIM	
+lancamentos	tipo	ENUM			SIM	receita · despesa
+lancamentos	categoria_id	UUID		categorias_financeiras.id	SIM	
+lancamentos	fundo_id	UUID		fundos.id	NÃO	Preenchido quando movimenta fundo
+lancamentos	descricao	VARCHAR(240)			SIM	
+lancamentos	valor	NUMERIC(14,2)			SIM	Sempre positivo; sinal vem do tipo
+lancamentos	data	DATE			SIM	Data do fato
+lancamentos	competencia	CHAR(7)			SIM	Formato AAAA-MM
+lancamentos	centro_custo	VARCHAR(80)			NÃO	
+lancamentos	forma_pagamento	ENUM			NÃO	verum_pay · transferencia · debito_automatico · dinheiro
+lancamentos	status	ENUM			SIM	aguardando_aprovacao · aprovado · rejeitado · pago · cancelado
+lancamentos	lancado_por	UUID		usuarios.id	SIM	
+lancamentos	aprovado_por	UUID		usuarios.id	NÃO	Exigido acima do limite configurado
+lancamentos	nota_fiscal_url	VARCHAR(300)			NÃO	Anexo no S3
+lancamentos	origem_tipo	VARCHAR(30)			NÃO	Rastreabilidade: penalidade · chamado · cobranca · manual
+lancamentos	origem_id	UUID			NÃO	Id do registro de origem (FK polimórfica — validada na aplicação)
+cobrancas	id	UUID	SIM		SIM	
+cobrancas	condominio_id	UUID		condominios.id	SIM	
+cobrancas	unidade_id	UUID		unidades.id	SIM	
+cobrancas	responsavel_id	UUID		pessoas.id	SIM	Devedor (responsável financeiro na emissão)
+cobrancas	competencia	CHAR(7)			SIM	Único por (unidade_id, competencia, tipo) p/ taxa ordinária
+cobrancas	tipo	ENUM			SIM	ordinaria · extra · multa · chamada_caixa
+cobrancas	valor_original	NUMERIC(14,2)			SIM	
+cobrancas	encargos	NUMERIC(14,2)			NÃO	Multa+juros+correção calculados no pagamento, não congelados
+cobrancas	vencimento	DATE			SIM	
+cobrancas	status	ENUM			SIM	rascunho · emitida · paga · vencida · paga_em_atraso · cancelada · pagamento_divergente
+cobrancas	qr_payload	TEXT			NÃO	Payload do QR Verum Pay
+cobrancas	provider_charge_id	VARCHAR(80)			NÃO	Id da cobrança no Verum Pay (índice — chave do webhook)
+cobrancas	lote_id	UUID			NÃO	Agrupa cobranças geradas juntas na competência
+cobrancas	comprovante_documento_id	UUID		documentos.id	NÃO	PDF de comprovante após pagamento
+pagamentos	id	UUID	SIM		SIM	
+pagamentos	condominio_id	UUID		condominios.id	SIM	
+pagamentos	cobranca_id	UUID		cobrancas.id	SIM	
+pagamentos	valor_pago	NUMERIC(14,2)			SIM	Validado ≥ devido + encargos na data
+pagamentos	pago_em	TIMESTAMP			SIM	
+pagamentos	origem	ENUM			SIM	webhook · baixa_manual · reconciliacao
+pagamentos	provider_event_id	VARCHAR(80)			NÃO	ÚNICO — garante idempotência do webhook
+pagamentos	provider_tx_id	VARCHAR(80)			NÃO	Id da transação no Verum Pay
+pagamentos	baixado_por	UUID		usuarios.id	NÃO	Preenchido em baixa manual (tesouraria) + justificativa
+pagamentos	justificativa	TEXT			NÃO	Obrigatória quando origem = baixa_manual
+integracoes_pagamento	id	UUID	SIM		SIM	
+integracoes_pagamento	condominio_id	UUID		condominios.id	SIM	
+integracoes_pagamento	provedor	ENUM			SIM	verum_pay (outros no futuro via mesmo contrato)
+integracoes_pagamento	credenciais	JSONB			SIM	Chaves API criptografadas (nunca em texto puro)
+integracoes_pagamento	webhook_secret	VARCHAR(120)			SIM	Validação HMAC — criptografado
+integracoes_pagamento	conta_recebedora	JSONB			SIM	Carteira/conta destino dos recebimentos
+integracoes_pagamento	ativa	BOOLEAN			SIM	
+penalidades	id	UUID	SIM		SIM	SUBSTITUI tabelas separadas de multas e advertências
+penalidades	condominio_id	UUID		condominios.id	SIM	
+penalidades	numero	VARCHAR(20)			SIM	Sequencial por ano: 2026-014 (único por condomínio)
+penalidades	tipo	ENUM			SIM	advertencia · multa
+penalidades	unidade_id	UUID		unidades.id	SIM	
+penalidades	infrator_id	UUID		pessoas.id	NÃO	Quando identificável
+penalidades	categoria_infracao	VARCHAR(120)			SIM	Tabela de infrações parametrizada por condomínio (JSONB em regras_internas)
+penalidades	descricao	TEXT			SIM	
+penalidades	base_normativa	VARCHAR(200)			SIM	Obrigatória: artigo da convenção/regimento
+penalidades	ocorrida_em	TIMESTAMP			SIM	
+penalidades	valor	NUMERIC(14,2)			NÃO	NULL em advertência
+penalidades	prazo_defesa	DATE			NÃO	Não pode ser zero quando multa
+penalidades	defesa_texto	TEXT			NÃO	Apresentada pelo morador no portal
+penalidades	status	ENUM			SIM	registrada · em_defesa · aprovada · cancelada · lancada
+penalidades	registrada_por	UUID		usuarios.id	SIM	
+penalidades	decidida_por	UUID		usuarios.id	NÃO	Exige permissão multa.aprovar (síndico)
+penalidades	parecer	TEXT			NÃO	Fundamentação da decisão
+penalidades	documento_id	UUID		documentos.id	NÃO	PDF timbrado — só existe após decisão
+penalidades	lancamento_id	UUID		lancamentos.id	NÃO	Receita gerada quando aprovada
+penalidade_provas	id	UUID	SIM		SIM	
+penalidade_provas	penalidade_id	UUID		penalidades.id	SIM	
+penalidade_provas	tipo	ENUM			SIM	foto · video · audio · documento
+penalidade_provas	arquivo_url	VARCHAR(300)			SIM	S3 com URL assinada; antivírus antes de aceitar
+penalidade_provas	hash_sha256	CHAR(64)			SIM	Integridade da prova
+comunicados	id	UUID	SIM		SIM	
+comunicados	condominio_id	UUID		condominios.id	SIM	
+comunicados	tipo	ENUM			SIM	comunicado · convocacao · circular · aviso_manutencao · emergencia
+comunicados	titulo	VARCHAR(200)			SIM	
+comunicados	corpo	TEXT			SIM	
+comunicados	segmento	JSONB			SIM	Destinatários: todos · bloco X · lojas · inadimplentes…
+comunicados	canais	JSONB			SIM	["portal","email","whatsapp"]
+comunicados	publicado_em	TIMESTAMP			NÃO	NULL = rascunho
+comunicados	publicado_por	UUID		usuarios.id	SIM	
+comunicados	documento_id	UUID		documentos.id	NÃO	Versão timbrada arquivada
+comunicado_destinatarios	id	UUID	SIM		SIM	
+comunicado_destinatarios	comunicado_id	UUID		comunicados.id	SIM	Único por (comunicado_id, pessoa_id)
+comunicado_destinatarios	pessoa_id	UUID		pessoas.id	SIM	
+comunicado_destinatarios	lido_em	TIMESTAMP			NÃO	Alimenta o % de leitura do painel
+documentos	id	UUID	SIM		SIM	Arquivo central — tudo que vira PDF timbrado aponta para cá
+documentos	condominio_id	UUID		condominios.id	SIM	
+documentos	tipo	ENUM			SIM	multa · advertencia · recibo · comprovante · convocacao · ata · autorizacao · circular · extrato · ordem_servico
+documentos	titulo	VARCHAR(200)			SIM	
+documentos	unidade_id	UUID		unidades.id	NÃO	Quando o documento é de uma unidade
+documentos	arquivo_url	VARCHAR(300)			SIM	S3; download só por URL pré-assinada
+documentos	hash_sha256	CHAR(64)			SIM	Prova de integridade (gravado também na auditoria)
+documentos	template_versao	VARCHAR(20)			SIM	Reemissão usa o template da época
+documentos	emitido_por	UUID		usuarios.id	SIM	
+documentos	retencao_ate	DATE			SIM	Padrão emissão + 5 anos; expurgo agendado depois
+documentos	deletado_em	TIMESTAMP			NÃO	Soft delete; expurgo físico só após retencao_ate
+notificacoes	id	UUID	SIM		SIM	Fila lógica — o que deve ser comunicado a quem
+notificacoes	condominio_id	UUID		condominios.id	SIM	
+notificacoes	pessoa_id	UUID		pessoas.id	SIM	
+notificacoes	evento	VARCHAR(60)			SIM	cobranca.emitida · pagamento.confirmado · multa.emitida · comunicado.publicado…
+notificacoes	titulo	VARCHAR(200)			SIM	
+notificacoes	payload	JSONB			SIM	Dados para o template
+notificacoes	canais	JSONB			SIM	Canais escolhidos respeitando opt-in LGPD
+notificacoes	referencia_tipo	VARCHAR(30)			NÃO	cobranca · penalidade · comunicado · chamado
+notificacoes	referencia_id	UUID			NÃO	
+envios_log	id	UUID	SIM		SIM	Log físico — cada tentativa em cada canal
+envios_log	notificacao_id	UUID		notificacoes.id	SIM	
+envios_log	canal	ENUM			SIM	email · whatsapp · push · portal
+envios_log	destinatario	VARCHAR(160)			SIM	E-mail ou telefone no momento do envio
+envios_log	template	VARCHAR(60)			SIM	
+envios_log	status	ENUM			SIM	enfileirado · enviado · entregue · falhou
+envios_log	provider_message_id	VARCHAR(120)			NÃO	Id no provedor (SES/WhatsApp API)
+envios_log	erro	TEXT			NÃO	Motivo da falha após retries
+envios_log	tentativas	INTEGER			SIM	
+envios_log	enviado_em	TIMESTAMP			NÃO	
+chamados	id	UUID	SIM		SIM	
+chamados	condominio_id	UUID		condominios.id	SIM	
+chamados	numero	VARCHAR(20)			SIM	OS-231 — sequencial por condomínio
+chamados	categoria	ENUM			SIM	eletrica · hidraulica · pintura · limpeza · elevador · portao · cameras · jardinagem · estrutural · telhado · area_comum · equipamentos · emergencia
+chamados	prioridade	ENUM			SIM	baixa · media · alta
+chamados	descricao	TEXT			SIM	
+chamados	status	ENUM			SIM	aberto · andamento · concluido · cancelado
+chamados	aberto_por	UUID		usuarios.id	SIM	Pode ser morador (portal)
+chamados	unidade_id	UUID		unidades.id	NÃO	Quando o problema é de uma unidade
+chamados	responsavel_vinculo_id	UUID		pessoa_vinculos.id	NÃO	Funcionário ou prestador designado
+chamados	prazo	DATE			NÃO	
+chamados	custo_estimado	NUMERIC(14,2)			NÃO	
+chamados	custo_realizado	NUMERIC(14,2)			NÃO	No fechamento gera lancamento (origem_tipo=chamado)
+chamados	midias	JSONB			NÃO	URLs de fotos/vídeos no S3
+chamados	fechado_em	TIMESTAMP			NÃO	
+areas_comuns	id	UUID	SIM		SIM	
+areas_comuns	condominio_id	UUID		condominios.id	SIM	
+areas_comuns	nome	VARCHAR(80)			SIM	Salão de festas, churrasqueira, quadra…
+areas_comuns	regras	JSONB			NÃO	Antecedência, taxa, capacidade, horários
+areas_comuns	taxa	NUMERIC(14,2)			NÃO	Gera cobrança tipo extra quando > 0
+areas_comuns	ativa	BOOLEAN			SIM	
+reservas	id	UUID	SIM		SIM	
+reservas	condominio_id	UUID		condominios.id	SIM	
+reservas	area_id	UUID		areas_comuns.id	SIM	
+reservas	unidade_id	UUID		unidades.id	SIM	
+reservas	solicitante_id	UUID		pessoas.id	SIM	
+reservas	inicio	TIMESTAMP			SIM	Sem sobreposição por área (constraint de exclusão)
+reservas	fim	TIMESTAMP			SIM	
+reservas	status	ENUM			SIM	solicitada · confirmada · cancelada · concluida
+reservas	cobranca_id	UUID		cobrancas.id	NÃO	Quando a área tem taxa
+assembleias	id	UUID	SIM		SIM	
+assembleias	condominio_id	UUID		condominios.id	SIM	
+assembleias	tipo	ENUM			SIM	ordinaria · extraordinaria
+assembleias	modalidade	ENUM			SIM	presencial · digital · hibrida
+assembleias	data_hora	TIMESTAMP			SIM	
+assembleias	pauta	JSONB			SIM	Itens de pauta ordenados
+assembleias	convocacao_documento_id	UUID		documentos.id	NÃO	Convocação timbrada
+assembleias	quorum_minimo	NUMERIC(5,2)			NÃO	% conforme convenção
+assembleias	presencas	JSONB			NÃO	Lista de presença: pessoa_id, unidade, fração, procuração
+assembleias	status	ENUM			SIM	convocada · realizada · cancelada
+atas	id	UUID	SIM		SIM	
+atas	condominio_id	UUID		condominios.id	SIM	
+atas	assembleia_id	UUID		assembleias.id	SIM	1:1 com a assembleia realizada
+atas	deliberacoes	JSONB			SIM	Item de pauta → resultado da votação (a favor/contra/abstenção)
+atas	documento_id	UUID		documentos.id	SIM	PDF timbrado assinado
+atas	registrada_por	UUID		usuarios.id	SIM	
+pre_autorizacoes	id	UUID	SIM		SIM	Portaria (complemento ao escopo solicitado)
+pre_autorizacoes	condominio_id	UUID		condominios.id	SIM	
+pre_autorizacoes	tipo	ENUM			SIM	visitante · prestador · entrega · recorrente
+pre_autorizacoes	nome	VARCHAR(160)			SIM	Nome/empresa de quem entra
+pre_autorizacoes	unidade_id	UUID		unidades.id	SIM	Destino
+pre_autorizacoes	autorizada_por	UUID		usuarios.id	SIM	Morador (portal) ou portaria
+pre_autorizacoes	valida_de	TIMESTAMP			SIM	Janela de validade
+pre_autorizacoes	valida_ate	TIMESTAMP			SIM	
+pre_autorizacoes	qr_token_hash	CHAR(64)			SIM	Uso único; invalidado após entrada ou expiração
+pre_autorizacoes	veiculo_placa	VARCHAR(10)			NÃO	
+pre_autorizacoes	usada_em	TIMESTAMP			NÃO	
+acessos_portaria	id	UUID	SIM		SIM	Portaria (complemento ao escopo solicitado)
+acessos_portaria	condominio_id	UUID		condominios.id	SIM	
+acessos_portaria	tipo	ENUM			SIM	entrada · saida · entrega · ocorrencia
+acessos_portaria	pre_autorizacao_id	UUID		pre_autorizacoes.id	NÃO	Quando entrada via QR
+acessos_portaria	pessoa_nome	VARCHAR(160)			SIM	Snapshot do nome (visitante pode não ser pessoa cadastrada)
+acessos_portaria	unidade_id	UUID		unidades.id	NÃO	Destino
+acessos_portaria	registrado_por	UUID		usuarios.id	SIM	Porteiro
+acessos_portaria	detalhes	TEXT			NÃO	Descrição de ocorrência/encomenda
+acessos_portaria	ocorrido_em	TIMESTAMP			SIM	
+auditoria	id	BIGSERIAL	SIM		SIM	Append-only: sem UPDATE/DELETE (REVOKE no banco)
+auditoria	ts	TIMESTAMP			SIM	
+auditoria	condominio_id	UUID		condominios.id	NÃO	NULL em ações do painel SaaS
+auditoria	usuario_id	UUID		usuarios.id	NÃO	NULL em ações de sistema (webhook, cron)
+auditoria	perfil	VARCHAR(40)			NÃO	Perfil no momento da ação
+auditoria	acao	VARCHAR(60)			SIM	criar · atualizar · excluir · aprovar · baixa_manual · login…
+auditoria	entidade	VARCHAR(60)			SIM	Nome da tabela afetada
+auditoria	entidade_id	UUID			NÃO	
+auditoria	antes	JSONB			NÃO	Estado anterior (campos alterados)
+auditoria	depois	JSONB			NÃO	Estado novo
+auditoria	ip	INET			NÃO	
+auditoria	user_agent	VARCHAR(300)			NÃO	CPF/senha/tokens nunca gravados aqui (redaction)
+						
+═══ PARTE 3 · RELACIONAMENTOS PRINCIPAIS ═══						
+ORIGEM	CARDINALIDADE	DESTINO	VIA (FK)	OBSERVAÇÃO		
+condominios	1 : 1	saas_assinaturas	saas_assinaturas.condominio_id	1 assinatura ativa por tenant		
+saas_planos	1 : N	saas_assinaturas	saas_assinaturas.plano_id			
+condominios	1 : N	blocos · unidades · vagas · pessoas · (todas as tabelas de domínio)	condominio_id	Isolamento multi-tenant + RLS		
+blocos	1 : N	unidades	unidades.bloco_id			
+unidades	1 : N	unidades	unidades.unidade_principal_id	Box/depósito dependente		
+unidades	1 : N	vagas	vagas.unidade_id	Vaga fixa vinculada		
+pessoas	1 : N	pessoa_vinculos	pessoa_vinculos.pessoa_id	1 pessoa, N papéis (com vigência)		
+unidades	1 : N	pessoa_vinculos	pessoa_vinculos.unidade_id	Proprietários, inquilinos e moradores da unidade		
+pessoas	1 : 1	usuarios	usuarios.pessoa_id	Nem toda pessoa tem login		
+usuarios	N : N	perfis	usuario_perfis	Por condomínio — usuário multi-condomínio		
+perfis	N : N	permissoes	perfil_permissoes	Matriz RBAC		
+categorias_financeiras	1 : N	categorias_financeiras	categoria_pai_id	Subcategorias (árvore)		
+categorias_financeiras	1 : N	lancamentos	lancamentos.categoria_id			
+fundos	1 : N	lancamentos	lancamentos.fundo_id			
+unidades	1 : N	cobrancas	cobrancas.unidade_id			
+cobrancas	1 : N	pagamentos	pagamentos.cobranca_id	N por título (parcial/divergente)		
+condominios	1 : N	integracoes_pagamento	integracoes_pagamento.condominio_id	Config Verum Pay por tenant		
+unidades	1 : N	penalidades	penalidades.unidade_id			
+penalidades	1 : N	penalidade_provas	penalidade_provas.penalidade_id			
+penalidades	1 : 1	documentos	penalidades.documento_id	Timbrado só após decisão		
+penalidades	1 : 1	lancamentos	penalidades.lancamento_id	Multa aprovada vira receita		
+comunicados	1 : N	comunicado_destinatarios	comunicado_id	Leitura confirmada por pessoa		
+notificacoes	1 : N	envios_log	envios_log.notificacao_id	1 notificação, N tentativas/canais		
+chamados	1 : 1	lancamentos	lancamentos.origem_id (origem_tipo=chamado)	Custo realizado vira despesa		
+areas_comuns	1 : N	reservas	reservas.area_id	Sem sobreposição de horário		
+reservas	1 : 1	cobrancas	reservas.cobranca_id	Taxa da área gera cobrança extra		
+assembleias	1 : 1	atas	atas.assembleia_id			
+pre_autorizacoes	1 : N	acessos_portaria	acessos_portaria.pre_autorizacao_id			
+cobrancas · penalidades · comunicados · atas	N : 1	documentos	documento_id	Todo PDF timbrado no arquivo central		
