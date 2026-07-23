@@ -5,7 +5,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { createHash, createHmac } from "crypto";
 
-const envVal = (k) => (process.env[k] && !process.env[k].startsWith("COLE_AQUI") ? process.env[k] : undefined);
+const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
 const b64u = (s) => Buffer.from(s).toString("base64url");
 const assinarToken = (claims, secret) => {
   const h = b64u(JSON.stringify({ alg: "HS256", typ: "JWT" }));

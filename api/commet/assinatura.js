@@ -6,7 +6,7 @@ import { Commet } from "@commet/node";
 import { createClient } from "@supabase/supabase-js";
 
 /* variáveis ainda com o placeholder do .env contam como não preenchidas */
-const envVal = (k) => (process.env[k] && !process.env[k].startsWith("COLE_AQUI") ? process.env[k] : undefined);
+const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
 const supabase = createClient(
   envVal("SUPABASE_URL") || process.env.VITE_SUPABASE_URL,
   envVal("SUPABASE_SERVICE_ROLE_KEY") || process.env.VITE_SUPABASE_ANON_KEY
