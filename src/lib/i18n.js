@@ -1,0 +1,402 @@
+/* Idiomas do app: dicionários PT → 14 idiomas (15 no total, com o português).
+   A chave é o texto em português exatamente como aparece no código;
+   fallback: idioma escolhido → inglês → português. */
+import FR from "./langs/fr.js";
+import DE from "./langs/de.js";
+import IT from "./langs/it.js";
+import ZH from "./langs/zh.js";
+import JA from "./langs/ja.js";
+import KO from "./langs/ko.js";
+import RU from "./langs/ru.js";
+import AR from "./langs/ar.js";
+import HI from "./langs/hi.js";
+import TR from "./langs/tr.js";
+import ID from "./langs/id.js";
+import BN from "./langs/bn.js";
+
+const K_LANG = "cm_lang";
+
+/* os 15 idiomas do seletor, com nome nativo */
+export const LANGS = [
+  ["pt", "Português"], ["en", "English"], ["es", "Español"], ["fr", "Français"], ["de", "Deutsch"],
+  ["it", "Italiano"], ["zh", "中文"], ["ja", "日本語"], ["ko", "한국어"], ["ru", "Русский"],
+  ["ar", "العربية"], ["hi", "हिन्दी"], ["tr", "Türkçe"], ["id", "Bahasa Indonesia"], ["bn", "বাংলা"],
+];
+
+const aplicarDocumento = (l) => {
+  try {
+    document.documentElement.lang = l === "pt" ? "pt-BR" : l;
+    document.documentElement.dir = l === "ar" ? "rtl" : "ltr"; // árabe é da direita para a esquerda
+  } catch { /* fora do navegador */ }
+};
+
+export let LANG = (() => { try { return localStorage.getItem(K_LANG) || "pt"; } catch { return "pt"; } })();
+aplicarDocumento(LANG);
+
+export const setLang = (l) => {
+  LANG = l;
+  try { localStorage.setItem(K_LANG, l); } catch { /* sem storage */ }
+  aplicarDocumento(l);
+};
+
+const EN = {
+  /* navegação e cabeçalho */
+  "Condomínio": "Condominium", "Unidades": "Units", "Pessoas": "People", "Financeiro": "Finance",
+  "Cobranças QR": "QR Billing", "Multas": "Fines", "Comunicados": "Announcements", "Documentos": "Documents",
+  "Manutenção": "Maintenance", "Portaria": "Front desk", "Gerenciar Emails": "Manage Emails", "Painel SaaS": "SaaS Panel",
+  "Visão geral do condomínio em tempo real": "Real-time overview of the condominium",
+  "Cadastro-mãe: dados legais, gestão e regras internas": "Master record: legal data, management and internal rules",
+  "96 unidades · 2 torres + térreo comercial": "96 units · 2 towers + commercial ground floor",
+  "Papéis separados: proprietário, inquilino, funcionário e prestador": "Separate roles: owner, tenant, employee and contractor",
+  "Competência 06/2026 · aprovações do síndico ativas": "Period 06/2026 · manager approvals enabled",
+  "QR Code Verum Pay com baixa automática": "Verum Pay QR Code with automatic settlement",
+  "Fluxo com prova, defesa e aprovação": "Flow with evidence, defense and approval",
+  "Envio por portal, e-mail e WhatsApp": "Delivery via portal, e-mail and WhatsApp",
+  "Arquivo timbrado com retenção histórica": "Letterheaded archive with historical retention",
+  "Ordens de serviço por categoria e prioridade": "Work orders by category and priority",
+  "Controle de acessos, entregas e ocorrências": "Control of accesses, deliveries and incidents",
+  "Clientes, planos, licenças e implantação": "Clients, plans, licenses and onboarding",
+  "E-mails e senhas de acesso dos perfis síndico, tesouraria, administradora e morador": "Access e-mails and passwords for manager, treasury, administrator and resident profiles",
+  "Notificações": "Notifications", "Alternar tema": "Toggle theme", "Idioma": "Language", "Perfil de acesso": "Access profile",
+
+  /* perfis */
+  "Diretor": "Director", "Síndico": "Manager", "Tesouraria": "Treasury", "Administradora": "Administrator", "Morador": "Resident",
+  "Visão estratégica, aprovações e auditoria": "Strategic view, approvals and audit",
+  "Operação, multas, comunicados e manutenção": "Operations, fines, announcements and maintenance",
+  "Financeiro, cobranças e conciliação": "Finance, billing and reconciliation",
+  "Gestão SaaS: clientes, planos e licenças": "SaaS management: clients, plans and licenses",
+  "Boletos, comprovantes, comunicados e chamados": "Bills, receipts, announcements and requests",
+
+  /* login */
+  "Gestão condominial premium · powered by Verum Pay": "Premium condominium management · powered by Verum Pay",
+  "Criar acesso do diretor": "Create director access",
+  "Este é o primeiro acesso. A conta criada aqui será usada para entrar como": "This is the first access. The account created here will be used to sign in as",
+  ", que poderá cadastrar os e-mails e senhas dos demais perfis em Gerenciar Emails.": ", who will be able to register the e-mails and passwords of the other profiles in Manage Emails.",
+  "Nome completo": "Full name", "E-mail": "E-mail", "Senha": "Password", "Confirmar senha": "Confirm password",
+  "Criar conta e continuar": "Create account and continue",
+  "Já tem prédio cadastrado? Fazer login": "Already have a registered building? Sign in",
+  "Entrar como": "Sign in as", "Trocar perfil": "Switch profile", "Voltar ao cadastro": "Back to sign-up",
+  "Entrar": "Sign in", "Verificando conta...": "Verifying account...",
+  "E-mail ou senha incorretos.": "Incorrect e-mail or password.",
+  "E-mail ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails.": "Incorrect e-mail or password. Ask the director to check your access in Manage Emails.",
+  "Nenhum acesso de diretor foi encontrado neste dispositivo. Volte e crie o acesso do diretor.": "No director access was found on this device. Go back and create the director access.",
+  "Não foi possível verificar sua conta agora.": "We couldn't verify your account right now.",
+  "A senha deve ter pelo menos 4 caracteres.": "The password must be at least 4 characters long.",
+  "As senhas não conferem.": "The passwords don't match.",
+  "Nenhum acesso de": "No access for",
+  "foi criado ainda. Peça ao diretor para cadastrá-lo em Gerenciar Emails.": "has been created yet. Ask the director to register it in Manage Emails.",
+  "Tema claro": "Light theme", "Tema escuro": "Dark theme",
+  "Nenhum acesso com este nome. Peça ao diretor para cadastrá-lo em Gerenciar Emails.": "No access found with this name. Ask the director to register it in Manage Emails.",
+  "Senha incorreta para este nome.": "Incorrect password for this name.",
+  "Seu nome": "Your name", "voce@exemplo.com": "you@example.com", "Mínimo 4 caracteres": "At least 4 characters", "Repita a senha": "Repeat the password",
+
+  /* dashboard */
+  "Saldo em caixa": "Cash balance", "Inadimplência": "Delinquency", "Receitas de": "Income for", "Despesas de": "Expenses for",
+  "Nova cobrança": "New charge", "Novo gasto": "New expense", "Nova multa": "New fine", "Novo comunicado": "New announcement", "Novo chamado": "New request",
+  "Evolução financeira do mês — dia a dia": "Monthly financial evolution — day by day",
+  "Distribuição de receitas": "Income distribution", "Despesas por categoria": "Expenses by category",
+  "Inadimplência ao longo do tempo": "Delinquency over time", "Atividade recente": "Recent activity",
+  "Aprovações pendentes": "Pending approvals", "Alertas do dia": "Today's alerts", "Ver todas →": "View all →",
+  "Sem despesas em": "No expenses in", "Sem receitas em": "No income in", "Dia": "Day",
+  "Receita": "Income", "Despesa": "Expense",
+  "Multa": "Fine",
+  "aguarda decisão do síndico": "awaits the manager's decision",
+  "cobrança(s) vencida(s) somando": "overdue charge(s) totaling",
+  "sem responsável designado": "with no assignee",
+
+  /* status */
+  "Pago": "Paid", "Parcial": "Partial", "Em aberto": "Open", "Aguardando": "Waiting", "Vencida": "Overdue", "Emitida": "Issued",
+  "Ocupada": "Occupied", "Alugada": "Rented", "Vaga": "Vacant", "Ativo": "Active", "Em teste": "Trial", "Inadimplente": "Delinquent",
+  "Prazo de defesa": "Defense period", "Multa aplicada": "Fine applied", "Advertência": "Warning",
+  "Em andamento": "In progress", "Concluído": "Done", "No condomínio": "On premises", "Saiu": "Left", "Retirado": "Picked up",
+  "Ocorrência": "Incident", "Cancelada": "Canceled", "Cancelado": "Canceled", "Vendida": "Sold", "Reservada": "Reserved", "Inativa": "Inactive",
+  "Alta": "High", "Média": "Medium", "Baixa": "Low",
+
+  /* filtros, colunas e seções */
+  "Todos os status": "All statuses", "Todos os papéis": "All roles", "Todos": "All", "Pagas": "Paid", "Emitidas": "Issued", "Vencidas": "Overdue",
+  "Abertos": "Open", "Em andamento ": "In progress", "Concluídos": "Done",
+  "Nome": "Name", "Papel": "Role", "Unidade": "Unit", "CPF/CNPJ": "Tax ID", "Telefone": "Phone", "Status": "Status",
+  "Data": "Date", "Tipo": "Type", "Categoria": "Category", "Descrição": "Description", "Valor": "Amount",
+  "Responsável": "Assignee", "Competência": "Period", "Vencimento": "Due date", "Plano": "Plan", "Mensalidade": "Monthly fee", "Renovação": "Renewal",
+  "Evolução da receita recorrente": "Recurring revenue evolution", "Planos": "Plans",
+  "Últimos comunicados": "Latest announcements", "Minha situação": "My status", "Cobranças da unidade": "Charges for unit",
+  "Unidade / apartamento": "Unit / apartment", "Cadastre unidades primeiro na tela Unidades.": "Register units first on the Units screen.",
+  "Nenhuma cobrança para esta unidade ainda.": "No charges for this unit yet.",
+  "Toque para ler": "Tap to read",
+  "Destino": "Target", "Todas as unidades (rateio pela fração)": "All units (apportioned by fraction)",
+  "Valor da cobrança (R$)": "Charge amount (R$)",
+  "Será gerada 1 cobrança para": "1 charge will be generated for",
+  "O morador verá o aviso no portal dele.": "The resident will see the notice in their portal.",
+  "Serão geradas": "The system will generate", "cobranças (unidades com responsável financeiro), rateadas por fração ideal.": "charges (units with a financial responsible), apportioned by ideal fraction.",
+  "Gerar cobrança": "Generate charge", "Gerar": "Generate", "cobranças": "charges",
+  "Cobrança de": "Charge for", "vencida": "overdue", "Nova cobrança de": "New charge for",
+  "vence em": "due on", "venceu em": "was due on",
+  "Multas da unidade": "Unit fines",
+  "Você pode apresentar defesa até": "You can submit a defense until",
+  "Procure a administração do condomínio.": "Contact the condominium management.",
+  "Movimentação de hoje": "Today's activity", "Nenhum chamado aqui": "No requests here", "sem custo lançado": "no cost recorded",
+
+  /* campos de formulário */
+  "Nome fantasia *": "Trade name *", "Razão social": "Legal name", "CNPJ *": "Company tax ID *", "Seu CPF (diretor) *": "Your tax ID (director) *",
+  "Porte": "Size", "Endereço completo *": "Full address *", "Nome fantasia": "Trade name", "CNPJ": "Company tax ID",
+  "Inscrição municipal": "Municipal registration", "Torres / blocos": "Towers / blocks", "Unidades / vagas": "Units / parking spots",
+  "Endereço completo": "Full address", "Administradora responsável": "Managing company", "Síndico atual": "Current manager",
+  "Diretor administrativo": "Administrative director", "Início da gestão": "Term start", "Status do contrato SaaS": "SaaS contract status",
+  "Horário de silêncio": "Quiet hours", "Mudanças": "Move-ins", "Obras": "Renovations", "Visitantes": "Visitors", "Animais": "Pets",
+  "Áreas comuns": "Common areas", "Logo (upload)": "Logo (upload)", "Cor primária do portal": "Portal primary color",
+  "Responsável financeiro": "Financial responsible", "Fração ideal (%)": "Ideal fraction (%)", "Área privativa (m²)": "Private area (m²)",
+  "Vagas vinculadas": "Linked parking spots", "Número": "Number", "Bloco / torre": "Block / tower", "Andar": "Floor",
+  "Número (ou início do intervalo)": "Number (or start of range)", "Até o número (opcional)": "Up to number (optional)",
+  "Ex.: 402, 1 ou 1D": "E.g.: 402, 1 or 1D",
+  "Ex.: 100 ou 4D — vazio cria só uma": "E.g.: 100 or 4D — leave empty to create just one",
+  "Preencha \"Até o número\" para criar várias unidades de uma vez: 1 até 100 cria 1, 2… 100; 1D até 4D cria 1D, 2D, 3D e 4D. Números que já existem no bloco são pulados. Tipo, andar, status e fração valem para todas.": "Fill in \"Up to number\" to create several units at once: 1 to 100 creates 1, 2… 100; 1D to 4D creates 1D, 2D, 3D and 4D. Numbers that already exist in the block are skipped. Type, floor, status and fraction apply to all.",
+  "CPF ou CNPJ": "Tax ID", "Papel no condomínio": "Role in the condominium", "Unidade vinculada": "Linked unit",
+  "Data de entrada": "Entry date", "Documento (upload)": "Document (upload)",
+  "Fundo de reserva": "Reserve fund", "Fundo de obras": "Works fund", "Valor (R$)": "Amount (R$)",
+  "Subcategoria / centro de custo": "Subcategory / cost center", "Forma de pagamento": "Payment method", "Rateio": "Apportionment",
+  "Nota fiscal (anexo)": "Invoice (attachment)", "Aguardando pagamento": "Awaiting payment",
+  "Valor total a ratear (R$)": "Total amount to apportion (R$)", "Base de cálculo": "Calculation basis", "Canais de envio": "Delivery channels",
+  "Aplicadas em 2026": "Applied in 2026", "Em prazo de defesa": "In defense period", "Arrecadado em multas": "Collected in fines",
+  "Categoria da infração": "Infraction category", "Unidade responsável": "Responsible unit", "Data e hora": "Date and time",
+  "Tipo de penalidade": "Penalty type", "Valor (se multa)": "Amount (if fine)", "Prazo para defesa": "Defense deadline",
+  "Base normativa": "Normative basis", "Descrição detalhada": "Detailed description",
+  "Provas (foto, vídeo, áudio ou documento)": "Evidence (photo, video, audio or document)",
+  "Destinatários": "Recipients", "Título": "Title", "Mensagem": "Message", "Canais": "Channels",
+  "Unidade (se aplicável)": "Unit (if applicable)", "Conteúdo": "Content", "Prioridade": "Priority", "Prazo": "Deadline",
+  "Custo estimado": "Estimated cost", "Fotos / vídeos": "Photos / videos", "Descrição do problema": "Problem description",
+  "Acessos registrados": "Registered accesses", "Visitantes no condomínio": "Visitors on premises",
+  "Entregas registradas": "Registered deliveries", "Vagas de visitante livres": "Free visitor spots",
+  "Nome / empresa": "Name / company", "Unidade de destino": "Destination unit", "Janela de horário": "Time window",
+  "Veículo (opcional)": "Vehicle (optional)", "Condomínios ativos": "Active condominiums",
+  "Receita recorrente (MRR)": "Recurring revenue (MRR)", "Em período de teste": "In trial period",
+
+  /* títulos de modal */
+  "Nova unidade": "New unit", "Nova pessoa": "New person", "Novo lançamento": "New entry",
+  "Gerar cobranças da competência": "Generate charges for the period", "Registrar infração": "Register infraction",
+  "Novo documento timbrado": "New letterheaded document", "Abrir chamado de manutenção": "Open maintenance request",
+  "Pré-autorizar entrada": "Pre-authorize entry", "Novo acesso": "New access", "Contratar novo condomínio": "Onboard new condominium",
+  "Abrir chamado": "Open request",
+
+  /* botões */
+  "Cancelar": "Cancel", "Fechar": "Close", "Exportar": "Export", "Lançamento": "Entry", "Pessoa": "Person",
+  "Cadastrar unidade": "Register unit", "Criar unidade": "Create unit", "Cadastrar": "Register",
+  "Salvar alterações": "Save changes", "Gerar cobranças": "Generate charges", "Gerar cobranças do mês": "Generate this month's charges",
+  "Reenviar": "Resend", "Baixar": "Download", "Enviar por WhatsApp": "Send via WhatsApp", "Imprimir PDF": "Print PDF",
+  "Enviar ao responsável": "Send to responsible", "Cancelar multa": "Cancel fine", "Aprovar (síndico)": "Approve (manager)",
+  "Enviar para aprovação": "Send for approval", "Ver": "View", "Publicar e enviar": "Publish and send",
+  "Criar documento timbrado": "Create letterheaded document", "Gerar PDF": "Generate PDF",
+  "Gerar QR de acesso": "Generate access QR", "Registrar ocorrência": "Register incident",
+  "Autorizar e gerar QR": "Authorize and generate QR", "Adicionar acesso": "Add access", "Remover": "Remove",
+  "Criar acesso": "Create access", "Novo cliente": "New client", "Bloquear acesso": "Block access", "Abrir painel": "Open panel",
+  "Iniciar implantação": "Start onboarding", "Pagar": "Pay", "Copiar código": "Copy code", "Enviar chamado": "Send request",
+  "Tentar novamente": "Try again", "Voltar e trocar perfil": "Go back and switch profile", "Sair": "Sign out",
+  "Lançar e enviar para aprovação": "Post and send for approval", "Criar condomínio e começar": "Create condominium and start",
+  "Salvando…": "Saving…", "Criando…": "Creating…", "Gerando…": "Generating…", "Publicando…": "Publishing…",
+  "Abrindo…": "Opening…", "Autorizando…": "Authorizing…", "Enviando…": "Sending…",
+  "Boletos e QR": "Bills and QR", "Extrato": "Statement", "Pagar online": "Pay online",
+  "Início": "Home", "Pagamentos": "Payments", "Avisos": "Notices",
+
+  /* buscas e estados vazios */
+  "Buscar por número, bloco ou responsável…": "Search by number, block or responsible…",
+  "Buscar por nome…": "Search by name…", "Buscar lançamento…": "Search entries…",
+  "Buscar por unidade ou responsável…": "Search by unit or responsible…",
+  "Nenhuma unidade encontrada": "No units found",
+  "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "Adjust the search or filters, or register this condominium's first unit.",
+  "Nenhuma pessoa encontrada": "No people found",
+  "Cadastre proprietários, inquilinos, funcionários e prestadores com papéis separados para evitar confusão operacional.": "Register owners, tenants, employees and contractors with separate roles to avoid operational confusion.",
+  "Nenhum lançamento neste período": "No entries in this period",
+  "Registre a primeira receita ou despesa da competência para começar a acompanhar o caixa.": "Record the period's first income or expense to start tracking cash.",
+  "Nenhuma cobrança nesta competência": "No charges in this period",
+  "Gere as cobranças do mês: o sistema cria um QR Code Verum Pay único por unidade e envia pelo portal, e-mail ou WhatsApp.": "Generate this month's charges: the system creates a unique Verum Pay QR Code per unit and sends it via portal, e-mail or WhatsApp.",
+  "Nenhum documento nesta categoria": "No documents in this category",
+  "Documentos timbrados de multas, comunicados, atas e recibos são arquivados automaticamente aqui, com retenção por anos.": "Letterheaded documents for fines, announcements, minutes and receipts are automatically archived here, retained for years.",
+  "Nenhum acesso criado ainda": "No access created yet",
+  "Cadastre o primeiro e-mail e senha para que síndico, tesouraria, administradora e moradores consigam entrar.": "Register the first e-mail and password so the manager, treasury, administrator and residents can sign in.",
+  "Não foi possível carregar os dados": "Couldn't load the data",
+  "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "Check your connection and try again. If the problem persists, contact support.",
+};
+
+const ES = {
+  /* navegação e cabeçalho */
+  "Condomínio": "Condominio", "Unidades": "Unidades", "Pessoas": "Personas", "Financeiro": "Finanzas",
+  "Cobranças QR": "Cobros QR", "Multas": "Multas", "Comunicados": "Comunicados", "Documentos": "Documentos",
+  "Manutenção": "Mantenimiento", "Portaria": "Portería", "Gerenciar Emails": "Gestionar Emails", "Painel SaaS": "Panel SaaS",
+  "Visão geral do condomínio em tempo real": "Visión general del condominio en tiempo real",
+  "Cadastro-mãe: dados legais, gestão e regras internas": "Registro maestro: datos legales, gestión y reglas internas",
+  "96 unidades · 2 torres + térreo comercial": "96 unidades · 2 torres + planta baja comercial",
+  "Papéis separados: proprietário, inquilino, funcionário e prestador": "Roles separados: propietario, inquilino, empleado y proveedor",
+  "Competência 06/2026 · aprovações do síndico ativas": "Período 06/2026 · aprobaciones del administrador activas",
+  "QR Code Verum Pay com baixa automática": "Código QR Verum Pay con conciliación automática",
+  "Fluxo com prova, defesa e aprovação": "Flujo con prueba, defensa y aprobación",
+  "Envio por portal, e-mail e WhatsApp": "Envío por portal, e-mail y WhatsApp",
+  "Arquivo timbrado com retenção histórica": "Archivo membretado con retención histórica",
+  "Ordens de serviço por categoria e prioridade": "Órdenes de servicio por categoría y prioridad",
+  "Controle de acessos, entregas e ocorrências": "Control de accesos, entregas e incidencias",
+  "Clientes, planos, licenças e implantação": "Clientes, planes, licencias e implementación",
+  "E-mails e senhas de acesso dos perfis síndico, tesouraria, administradora e morador": "E-mails y contraseñas de acceso de los perfiles administrador, tesorería, administradora y residente",
+  "Notificações": "Notificaciones", "Alternar tema": "Cambiar tema", "Idioma": "Idioma", "Perfil de acesso": "Perfil de acceso",
+
+  /* perfis */
+  "Diretor": "Director", "Síndico": "Administrador", "Tesouraria": "Tesorería", "Administradora": "Gestora", "Morador": "Residente",
+  "Visão estratégica, aprovações e auditoria": "Visión estratégica, aprobaciones y auditoría",
+  "Operação, multas, comunicados e manutenção": "Operación, multas, comunicados y mantenimiento",
+  "Financeiro, cobranças e conciliação": "Finanzas, cobros y conciliación",
+  "Gestão SaaS: clientes, planos e licenças": "Gestión SaaS: clientes, planes y licencias",
+  "Boletos, comprovantes, comunicados e chamados": "Facturas, comprobantes, comunicados y solicitudes",
+
+  /* login */
+  "Gestão condominial premium · powered by Verum Pay": "Gestión de condominios premium · powered by Verum Pay",
+  "Criar acesso do diretor": "Crear acceso del director",
+  "Este é o primeiro acesso. A conta criada aqui será usada para entrar como": "Este es el primer acceso. La cuenta creada aquí se usará para entrar como",
+  ", que poderá cadastrar os e-mails e senhas dos demais perfis em Gerenciar Emails.": ", quien podrá registrar los e-mails y contraseñas de los demás perfiles en Gestionar Emails.",
+  "Nome completo": "Nombre completo", "E-mail": "E-mail", "Senha": "Contraseña", "Confirmar senha": "Confirmar contraseña",
+  "Criar conta e continuar": "Crear cuenta y continuar",
+  "Já tem prédio cadastrado? Fazer login": "¿Ya tiene un edificio registrado? Iniciar sesión",
+  "Entrar como": "Entrar como", "Trocar perfil": "Cambiar perfil", "Voltar ao cadastro": "Volver al registro",
+  "Entrar": "Entrar", "Verificando conta...": "Verificando cuenta...",
+  "E-mail ou senha incorretos.": "E-mail o contraseña incorrectos.",
+  "E-mail ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails.": "E-mail o contraseña incorrectos. Pida al director que revise su acceso en Gestionar Emails.",
+  "Nenhum acesso de diretor foi encontrado neste dispositivo. Volte e crie o acesso do diretor.": "No se encontró ningún acceso de director en este dispositivo. Vuelva y cree el acceso del director.",
+  "Não foi possível verificar sua conta agora.": "No fue posible verificar su cuenta ahora.",
+  "A senha deve ter pelo menos 4 caracteres.": "La contraseña debe tener al menos 4 caracteres.",
+  "As senhas não conferem.": "Las contraseñas no coinciden.",
+  "Nenhum acesso de": "Ningún acceso de",
+  "foi criado ainda. Peça ao diretor para cadastrá-lo em Gerenciar Emails.": "fue creado todavía. Pida al director que lo registre en Gestionar Emails.",
+  "Tema claro": "Tema claro", "Tema escuro": "Tema oscuro",
+  "Nenhum acesso com este nome. Peça ao diretor para cadastrá-lo em Gerenciar Emails.": "Ningún acceso con este nombre. Pida al director que lo registre en Gestionar Emails.",
+  "Senha incorreta para este nome.": "Contraseña incorrecta para este nombre.",
+  "Seu nome": "Su nombre", "voce@exemplo.com": "usted@ejemplo.com", "Mínimo 4 caracteres": "Mínimo 4 caracteres", "Repita a senha": "Repita la contraseña",
+
+  /* dashboard */
+  "Saldo em caixa": "Saldo en caja", "Inadimplência": "Morosidad", "Receitas de": "Ingresos de", "Despesas de": "Gastos de",
+  "Nova cobrança": "Nuevo cobro", "Novo gasto": "Nuevo gasto", "Nova multa": "Nueva multa", "Novo comunicado": "Nuevo comunicado", "Novo chamado": "Nueva solicitud",
+  "Evolução financeira do mês — dia a dia": "Evolución financiera del mes — día a día",
+  "Distribuição de receitas": "Distribución de ingresos", "Despesas por categoria": "Gastos por categoría",
+  "Inadimplência ao longo do tempo": "Morosidad a lo largo del tiempo", "Atividade recente": "Actividad reciente",
+  "Aprovações pendentes": "Aprobaciones pendientes", "Alertas do dia": "Alertas del día", "Ver todas →": "Ver todas →",
+  "Sem despesas em": "Sin gastos en", "Sem receitas em": "Sin ingresos en", "Dia": "Día",
+  "Receita": "Ingreso", "Despesa": "Gasto",
+  "Multa": "Multa",
+  "aguarda decisão do síndico": "espera la decisión del administrador",
+  "cobrança(s) vencida(s) somando": "cobro(s) vencido(s) sumando",
+  "sem responsável designado": "sin responsable asignado",
+
+  /* status */
+  "Pago": "Pagado", "Parcial": "Parcial", "Em aberto": "Abierto", "Aguardando": "En espera", "Vencida": "Vencida", "Emitida": "Emitida",
+  "Ocupada": "Ocupada", "Alugada": "Alquilada", "Vaga": "Libre", "Ativo": "Activo", "Em teste": "En prueba", "Inadimplente": "Moroso",
+  "Prazo de defesa": "Plazo de defensa", "Multa aplicada": "Multa aplicada", "Advertência": "Advertencia",
+  "Em andamento": "En curso", "Concluído": "Concluido", "No condomínio": "En el condominio", "Saiu": "Salió", "Retirado": "Retirado",
+  "Ocorrência": "Incidencia", "Cancelada": "Cancelada", "Cancelado": "Cancelado", "Vendida": "Vendida", "Reservada": "Reservada", "Inativa": "Inactiva",
+  "Alta": "Alta", "Média": "Media", "Baixa": "Baja",
+
+  /* filtros, colunas e seções */
+  "Todos os status": "Todos los estados", "Todos os papéis": "Todos los roles", "Todos": "Todos", "Pagas": "Pagadas", "Emitidas": "Emitidas", "Vencidas": "Vencidas",
+  "Abertos": "Abiertos", "Concluídos": "Concluidos",
+  "Nome": "Nombre", "Papel": "Rol", "Unidade": "Unidad", "CPF/CNPJ": "Documento", "Telefone": "Teléfono", "Status": "Estado",
+  "Data": "Fecha", "Tipo": "Tipo", "Categoria": "Categoría", "Descrição": "Descripción", "Valor": "Importe",
+  "Responsável": "Responsable", "Competência": "Período", "Vencimento": "Vencimiento", "Plano": "Plan", "Mensalidade": "Mensualidad", "Renovação": "Renovación",
+  "Evolução da receita recorrente": "Evolución de los ingresos recurrentes", "Planos": "Planes",
+  "Últimos comunicados": "Últimos comunicados", "Minha situação": "Mi situación", "Cobranças da unidade": "Cobros de la unidad",
+  "Unidade / apartamento": "Unidad / apartamento", "Cadastre unidades primeiro na tela Unidades.": "Registre unidades primero en la pantalla Unidades.",
+  "Nenhuma cobrança para esta unidade ainda.": "Ningún cobro para esta unidad todavía.",
+  "Toque para ler": "Toque para leer",
+  "Destino": "Destino", "Todas as unidades (rateio pela fração)": "Todas las unidades (prorrateo por fracción)",
+  "Valor da cobrança (R$)": "Importe del cobro (R$)",
+  "Será gerada 1 cobrança para": "Se generará 1 cobro para",
+  "O morador verá o aviso no portal dele.": "El residente verá el aviso en su portal.",
+  "Serão geradas": "Se generarán", "cobranças (unidades com responsável financeiro), rateadas por fração ideal.": "cobros (unidades con responsable financiero), prorrateados por fracción ideal.",
+  "Gerar cobrança": "Generar cobro", "Gerar": "Generar", "cobranças": "cobros",
+  "Cobrança de": "Cobro de", "vencida": "vencido", "Nova cobrança de": "Nuevo cobro de",
+  "vence em": "vence el", "venceu em": "venció el",
+  "Multas da unidade": "Multas de la unidad",
+  "Você pode apresentar defesa até": "Puede presentar su defensa hasta el",
+  "Procure a administração do condomínio.": "Contacte a la administración del condominio.",
+  "Movimentação de hoje": "Movimiento de hoy", "Nenhum chamado aqui": "Ninguna solicitud aquí", "sem custo lançado": "sin costo registrado",
+
+  /* campos de formulário */
+  "Nome fantasia *": "Nombre comercial *", "Razão social": "Razón social", "CNPJ *": "RUC/CNPJ *", "Seu CPF (diretor) *": "Su documento (director) *",
+  "Porte": "Tamaño", "Endereço completo *": "Dirección completa *", "Nome fantasia": "Nombre comercial", "CNPJ": "RUC/CNPJ",
+  "Inscrição municipal": "Registro municipal", "Torres / blocos": "Torres / bloques", "Unidades / vagas": "Unidades / plazas",
+  "Endereço completo": "Dirección completa", "Administradora responsável": "Gestora responsable", "Síndico atual": "Administrador actual",
+  "Diretor administrativo": "Director administrativo", "Início da gestão": "Inicio de la gestión", "Status do contrato SaaS": "Estado del contrato SaaS",
+  "Horário de silêncio": "Horario de silencio", "Mudanças": "Mudanzas", "Obras": "Obras", "Visitantes": "Visitantes", "Animais": "Mascotas",
+  "Áreas comuns": "Áreas comunes", "Logo (upload)": "Logo (subida)", "Cor primária do portal": "Color primario del portal",
+  "Responsável financeiro": "Responsable financiero", "Fração ideal (%)": "Fracción ideal (%)", "Área privativa (m²)": "Área privada (m²)",
+  "Vagas vinculadas": "Plazas vinculadas", "Número": "Número", "Bloco / torre": "Bloque / torre", "Andar": "Piso",
+  "Número (ou início do intervalo)": "Número (o inicio del intervalo)", "Até o número (opcional)": "Hasta el número (opcional)",
+  "Ex.: 402, 1 ou 1D": "Ej.: 402, 1 o 1D",
+  "Ex.: 100 ou 4D — vazio cria só uma": "Ej.: 100 o 4D — vacío crea solo una",
+  "Preencha \"Até o número\" para criar várias unidades de uma vez: 1 até 100 cria 1, 2… 100; 1D até 4D cria 1D, 2D, 3D e 4D. Números que já existem no bloco são pulados. Tipo, andar, status e fração valem para todas.": "Complete \"Hasta el número\" para crear varias unidades a la vez: 1 hasta 100 crea 1, 2… 100; 1D hasta 4D crea 1D, 2D, 3D y 4D. Los números que ya existen en el bloque se omiten. Tipo, piso, estado y fracción se aplican a todas.",
+  "CPF ou CNPJ": "Documento", "Papel no condomínio": "Rol en el condominio", "Unidade vinculada": "Unidad vinculada",
+  "Data de entrada": "Fecha de entrada", "Documento (upload)": "Documento (subida)",
+  "Fundo de reserva": "Fondo de reserva", "Fundo de obras": "Fondo de obras", "Valor (R$)": "Importe (R$)",
+  "Subcategoria / centro de custo": "Subcategoría / centro de costos", "Forma de pagamento": "Forma de pago", "Rateio": "Prorrateo",
+  "Nota fiscal (anexo)": "Factura (adjunto)", "Aguardando pagamento": "Esperando pago",
+  "Valor total a ratear (R$)": "Importe total a prorratear (R$)", "Base de cálculo": "Base de cálculo", "Canais de envio": "Canales de envío",
+  "Aplicadas em 2026": "Aplicadas en 2026", "Em prazo de defesa": "En plazo de defensa", "Arrecadado em multas": "Recaudado en multas",
+  "Categoria da infração": "Categoría de la infracción", "Unidade responsável": "Unidad responsable", "Data e hora": "Fecha y hora",
+  "Tipo de penalidade": "Tipo de sanción", "Valor (se multa)": "Importe (si es multa)", "Prazo para defesa": "Plazo para defensa",
+  "Base normativa": "Base normativa", "Descrição detalhada": "Descripción detallada",
+  "Provas (foto, vídeo, áudio ou documento)": "Pruebas (foto, video, audio o documento)",
+  "Destinatários": "Destinatarios", "Título": "Título", "Mensagem": "Mensaje", "Canais": "Canales",
+  "Unidade (se aplicável)": "Unidad (si aplica)", "Conteúdo": "Contenido", "Prioridade": "Prioridad", "Prazo": "Plazo",
+  "Custo estimado": "Costo estimado", "Fotos / vídeos": "Fotos / videos", "Descrição do problema": "Descripción del problema",
+  "Acessos registrados": "Accesos registrados", "Visitantes no condomínio": "Visitantes en el condominio",
+  "Entregas registradas": "Entregas registradas", "Vagas de visitante livres": "Plazas de visitante libres",
+  "Nome / empresa": "Nombre / empresa", "Unidade de destino": "Unidad de destino", "Janela de horário": "Franja horaria",
+  "Veículo (opcional)": "Vehículo (opcional)", "Condomínios ativos": "Condominios activos",
+  "Receita recorrente (MRR)": "Ingresos recurrentes (MRR)", "Em período de teste": "En período de prueba",
+
+  /* títulos de modal */
+  "Nova unidade": "Nueva unidad", "Nova pessoa": "Nueva persona", "Novo lançamento": "Nuevo registro",
+  "Gerar cobranças da competência": "Generar cobros del período", "Registrar infração": "Registrar infracción",
+  "Novo documento timbrado": "Nuevo documento membretado", "Abrir chamado de manutenção": "Abrir solicitud de mantenimiento",
+  "Pré-autorizar entrada": "Preautorizar entrada", "Novo acesso": "Nuevo acceso", "Contratar novo condomínio": "Contratar nuevo condominio",
+  "Abrir chamado": "Abrir solicitud",
+
+  /* botões */
+  "Cancelar": "Cancelar", "Fechar": "Cerrar", "Exportar": "Exportar", "Lançamento": "Registro", "Pessoa": "Persona",
+  "Cadastrar unidade": "Registrar unidad", "Criar unidade": "Crear unidad", "Cadastrar": "Registrar",
+  "Salvar alterações": "Guardar cambios", "Gerar cobranças": "Generar cobros", "Gerar cobranças do mês": "Generar cobros del mes",
+  "Reenviar": "Reenviar", "Baixar": "Descargar", "Enviar por WhatsApp": "Enviar por WhatsApp", "Imprimir PDF": "Imprimir PDF",
+  "Enviar ao responsável": "Enviar al responsable", "Cancelar multa": "Cancelar multa", "Aprovar (síndico)": "Aprobar (administrador)",
+  "Enviar para aprovação": "Enviar para aprobación", "Ver": "Ver", "Publicar e enviar": "Publicar y enviar",
+  "Criar documento timbrado": "Crear documento membretado", "Gerar PDF": "Generar PDF",
+  "Gerar QR de acesso": "Generar QR de acceso", "Registrar ocorrência": "Registrar incidencia",
+  "Autorizar e gerar QR": "Autorizar y generar QR", "Adicionar acesso": "Agregar acceso", "Remover": "Eliminar",
+  "Criar acesso": "Crear acceso", "Novo cliente": "Nuevo cliente", "Bloquear acesso": "Bloquear acceso", "Abrir painel": "Abrir panel",
+  "Iniciar implantação": "Iniciar implementación", "Pagar": "Pagar", "Copiar código": "Copiar código", "Enviar chamado": "Enviar solicitud",
+  "Tentar novamente": "Intentar de nuevo", "Voltar e trocar perfil": "Volver y cambiar perfil", "Sair": "Salir",
+  "Lançar e enviar para aprovação": "Registrar y enviar para aprobación", "Criar condomínio e começar": "Crear condominio y empezar",
+  "Salvando…": "Guardando…", "Criando…": "Creando…", "Gerando…": "Generando…", "Publicando…": "Publicando…",
+  "Abrindo…": "Abriendo…", "Autorizando…": "Autorizando…", "Enviando…": "Enviando…",
+  "Boletos e QR": "Facturas y QR", "Extrato": "Extracto", "Pagar online": "Pagar en línea",
+  "Início": "Inicio", "Pagamentos": "Pagos", "Avisos": "Avisos",
+
+  /* buscas e estados vazios */
+  "Buscar por número, bloco ou responsável…": "Buscar por número, bloque o responsable…",
+  "Buscar por nome…": "Buscar por nombre…", "Buscar lançamento…": "Buscar registro…",
+  "Buscar por unidade ou responsável…": "Buscar por unidad o responsable…",
+  "Nenhuma unidade encontrada": "Ninguna unidad encontrada",
+  "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "Ajuste la búsqueda o los filtros, o registre la primera unidad de este condominio.",
+  "Nenhuma pessoa encontrada": "Ninguna persona encontrada",
+  "Cadastre proprietários, inquilinos, funcionários e prestadores com papéis separados para evitar confusão operacional.": "Registre propietarios, inquilinos, empleados y proveedores con roles separados para evitar confusión operativa.",
+  "Nenhum lançamento neste período": "Ningún registro en este período",
+  "Registre a primeira receita ou despesa da competência para começar a acompanhar o caixa.": "Registre el primer ingreso o gasto del período para empezar a seguir la caja.",
+  "Nenhuma cobrança nesta competência": "Ningún cobro en este período",
+  "Gere as cobranças do mês: o sistema cria um QR Code Verum Pay único por unidade e envia pelo portal, e-mail ou WhatsApp.": "Genere los cobros del mes: el sistema crea un código QR Verum Pay único por unidad y lo envía por portal, e-mail o WhatsApp.",
+  "Nenhum documento nesta categoria": "Ningún documento en esta categoría",
+  "Documentos timbrados de multas, comunicados, atas e recibos são arquivados automaticamente aqui, com retenção por anos.": "Los documentos membretados de multas, comunicados, actas y recibos se archivan automáticamente aquí, con retención por años.",
+  "Nenhum acesso criado ainda": "Ningún acceso creado todavía",
+  "Cadastre o primeiro e-mail e senha para que síndico, tesouraria, administradora e moradores consigam entrar.": "Registre el primer e-mail y contraseña para que el administrador, tesorería, gestora y residentes puedan entrar.",
+  "Não foi possível carregar os dados": "No fue posible cargar los datos",
+  "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "Verifique la conexión e intente de nuevo. Si el problema continúa, contacte al soporte.",
+};
+
+const DICTS = { en: EN, es: ES, fr: FR, de: DE, it: IT, zh: ZH, ja: JA, ko: KO, ru: RU, ar: AR, hi: HI, tr: TR, id: ID, bn: BN };
+
+/* Traduz um texto; sem tradução no idioma, cai para o inglês; por fim, o original em PT. */
+export const L = (s) => {
+  if (LANG === "pt" || typeof s !== "string") return s;
+  return DICTS[LANG]?.[s] ?? EN[s] ?? s;
+};
