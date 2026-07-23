@@ -69,8 +69,12 @@ const BRL = (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 /* ══════════════ CONTAS DE ACESSO (salvas neste navegador — modo demo) ══════════════ */
-/* Todos os dados de contas e acessos vivem na tabela usuarios do Supabase —
-   nada é gravado em localStorage; a sessão dura enquanto a aba estiver aberta. */
+/* Todos os dados de contas e acessos vivem na tabela usuarios do Supabase.
+   O localStorage guarda APENAS a sessão (perfil e nome de quem entrou — nunca
+   a senha), para a pessoa não precisar logar de novo ao recarregar a página. */
+const K_SESSAO = "cm_sessao";
+const lerSessao = () => { try { return JSON.parse(localStorage.getItem(K_SESSAO)) || null; } catch { return null; } };
+const salvarSessao = (s) => { try { s ? localStorage.setItem(K_SESSAO, JSON.stringify(s)) : localStorage.removeItem(K_SESSAO); } catch { /* sem storage */ } };
 
 /* ══════════════ PERFIS E NAVEGAÇÃO ══════════════ */
 const PROFILES = {
@@ -1805,10 +1809,10 @@ export default function App() {
   const [dark, setDark] = useState(true);
   const [lang, setLangState] = useState(LANG);
   const onLang = useCallback((l) => { setLang(l); setLangState(l); }, []);
-  const [role, setRole] = useState(null);
-  const [morador, setMorador] = useState(null); // { nome, unidade } do morador logado
-  const [diretorConta, setDiretorConta] = useState(null); // conta do diretor logado (para o 1º acesso)
-  const [screen, setScreen] = useState("dashboard");
+  const [role, setRole] = useState(() => lerSessao()?.role || null);
+  const [morador, setMorador] = useState(() => lerSessao()?.morador || null); // { nome, unidade } do morador logado
+  const [diretorConta, setDiretorConta] = useState(() => lerSessao()?.diretor || null); // conta do diretor logado (para o 1º acesso)
+  const [screen, setScreen] = useState(() => (lerSessao()?.role === "administradora" ? "saas" : "dashboard"));
   const [sideOpen, setSideOpen] = useState(false);
   const t = dark ? THEMES.dark : THEMES.light;
   const [phase, retry] = useLoad(screen);
@@ -1841,10 +1845,17 @@ export default function App() {
     `}</style>
   );
 
-  if (!role) return <DataCtx.Provider value={dataValue}>{globalStyle}<Login t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} onEnter={(r, m, d) => { setMorador(m || null); setDiretorConta(d || null); setRole(r); setScreen(r === "administradora" ? "saas" : "dashboard"); }} /></DataCtx.Provider>;
+  const sair = useCallback(() => { salvarSessao(null); setMorador(null); setDiretorConta(null); setRole(null); }, []);
+  const entrar = useCallback((r, m, d) => {
+    salvarSessao({ role: r, morador: m || null, diretor: d ? { nome: d.nome, email: d.email } : null });
+    setMorador(m || null); setDiretorConta(d || null); setRole(r);
+    setScreen(r === "administradora" ? "saas" : "dashboard");
+  }, []);
+
+  if (!role) return <DataCtx.Provider value={dataValue}>{globalStyle}<Login t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} onEnter={entrar} /></DataCtx.Provider>;
   if (db?.vazio) return (
     <DataCtx.Provider value={dataValue}>{globalStyle}
-      <SetupCondominio t={t} role={role} diretor={diretorConta} dark={dark} setDark={setDark} onCriado={reload} onSair={() => setRole(null)} />
+      <SetupCondominio t={t} role={role} diretor={diretorConta} dark={dark} setDark={setDark} onCriado={reload} onSair={sair} />
     </DataCtx.Provider>);
 
   /* ── PAYWALL: sem assinatura ativa, nenhum perfil do condomínio entra ──
@@ -1853,12 +1864,12 @@ export default function App() {
   if (db && role !== "administradora" && tenantPrincipal && tenantPrincipal.status !== "ativo") return (
     <DataCtx.Provider value={dataValue}>{globalStyle}
       <Paywall t={t} licenca={tenantPrincipal.status} tenant={tenantPrincipal} condominioId={db.ctx.condominioId}
-        onLogout={() => setRole(null)} onReload={reload} />
+        onLogout={sair} onReload={reload} />
     </DataCtx.Provider>);
 
   if (role === "morador") return (
     <DataCtx.Provider value={dataValue}>{globalStyle}
-      {db ? <PortalMorador t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} morador={morador} onLogout={() => setRole(null)} />
+      {db ? <PortalMorador t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} morador={morador} onLogout={sair} />
         : <div className="mx-auto max-w-lg p-4" style={{ background: t.bg, minHeight: "100vh" }}>
             {dbErr ? <ErrorState t={t} onRetry={reload} /> : <Skeleton t={t} />}</div>}
     </DataCtx.Provider>);
@@ -1908,7 +1919,7 @@ export default function App() {
                   <div className="truncate text-xs font-semibold">{L(PROFILES[role].label)}</div>
                   <div className="text-[10px]" style={{ color: t.dim }}>{L("Perfil de acesso")}</div>
                 </div>
-                <button onClick={() => setRole(null)} title="Sair" className="rounded-lg p-1.5" style={{ background: t.surface2 }}><LogOut size={14} color={t.dim} /></button>
+                <button onClick={sair} title="Sair" className="rounded-lg p-1.5" style={{ background: t.surface2 }}><LogOut size={14} color={t.dim} /></button>
               </div>
             </div>
           </div>
