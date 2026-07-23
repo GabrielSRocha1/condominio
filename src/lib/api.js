@@ -340,10 +340,16 @@ export async function criarCondominio(f, diretor) {
     condominio_id: cond.id, pessoa_id: pessoa.id, papel: "diretor",
     inicio: new Date().toISOString().slice(0, 10),
   }).select(), "pessoa_vinculos");
-  const [usuario] = await q(supabase.from("usuarios").insert({
-    pessoa_id: pessoa.id, email: diretor?.email || `diretor+${Date.now()}@local`,
-    senha_hash: await sha256(diretor?.senha || crypto.randomUUID()),
-  }).select(), "usuarios");
+  /* conta pré-gravada no cadastro (banco vazio): completa o vínculo com a
+     pessoa; senão, cria o usuário agora */
+  const emailDiretor = diretor?.email || `diretor+${Date.now()}@local`;
+  const { data: preExistente } = await supabase.from("usuarios").select("id").eq("email", emailDiretor).maybeSingle();
+  const [usuario] = preExistente
+    ? await q(supabase.from("usuarios").update({ pessoa_id: pessoa.id }).eq("id", preExistente.id).select(), "usuarios")
+    : await q(supabase.from("usuarios").insert({
+        pessoa_id: pessoa.id, email: emailDiretor,
+        senha_hash: await sha256(diretor?.senha || crypto.randomUUID()),
+      }).select(), "usuarios");
   const perfil = await q(supabase.from("perfis").select("id").eq("nome", "diretor").single(), "perfis");
   await q(supabase.from("usuario_perfis").insert({
     usuario_id: usuario.id, condominio_id: cond.id, perfil_id: perfil.id,
@@ -377,7 +383,16 @@ export async function registrarDiretor({ nome, email, senha }) {
 
   const { data: conds } = await supabase.from("condominios").select("id").order("criado_em").limit(1);
   const cond = conds?.[0];
-  if (!cond) return null; // banco vazio: o fluxo de primeiro acesso cria tudo
+  if (!cond) {
+    /* banco vazio: ainda não existe condomínio para vincular a pessoa —
+       grava a conta já, e criarCondominio completa pessoa + perfil depois */
+    const { data: novo, error } = await supabase.from("usuarios")
+      .insert({ email, senha_hash: await sha256(senha), pessoa_id: null }).select().single();
+    if (error) throw new Error(error.message.includes("not-null")
+      ? "O banco precisa de um ajuste: rode no Supabase (SQL Editor): alter table usuarios alter column pessoa_id drop not null;"
+      : error.message);
+    return { id: novo.id, pendente: true };
+  }
 
   const [pessoa] = await q(supabase.from("pessoas").insert({
     condominio_id: cond.id, nome, tipo_pessoa: "fisica",
@@ -498,7 +513,10 @@ export async function loginDiretor(email, senha) {
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data || data.senha_hash !== (await sha256(senha))) return null;
-  const ehDiretor = (data.usuario_perfis || []).some((up) => up.perfis?.nome === "diretor");
+  /* conta sem perfil ainda = cadastro feito com o banco vazio, aguardando
+     a criação do condomínio — também é diretor */
+  const ehDiretor = !(data.usuario_perfis || []).length ||
+    (data.usuario_perfis || []).some((up) => up.perfis?.nome === "diretor");
   if (!ehDiretor) return null;
   return { nome: data.pessoas?.nome || "Diretor", email: data.email, senha };
 }

@@ -194,7 +194,7 @@ create table pessoa_vinculos (
 -- 9 · usuarios — Contas de acesso vinculadas a pessoas
 create table usuarios (
   id              uuid primary key default gen_random_uuid(),
-  pessoa_id       uuid not null unique references pessoas(id),   -- 1:1
+  pessoa_id       uuid unique references pessoas(id),   -- 1:1; NULL = conta criada antes do condomínio (vinculada no 1º acesso)
   email           varchar(160) not null unique,
   senha_hash      varchar(255) not null,
   totp_secret     varchar(64),
