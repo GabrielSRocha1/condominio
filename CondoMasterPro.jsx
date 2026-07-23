@@ -1911,7 +1911,7 @@ export default function App() {
                   </button>);
               })}
             </nav>
-            <div className="mt-4 border-t pt-3" style={{ borderColor: t.borderSoft }}>
+            <div className="mt-4 space-y-2 border-t pt-3" style={{ borderColor: t.borderSoft }}>
               <div className="flex items-center gap-2.5 rounded-xl px-2 py-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold" style={{ background: t.goldSoft, color: t.gold }}>
                   {L(PROFILES[role].label)[0]}</div>
@@ -1921,6 +1921,7 @@ export default function App() {
                 </div>
                 <button onClick={sair} title="Sair" className="rounded-lg p-1.5" style={{ background: t.surface2 }}><LogOut size={14} color={t.dim} /></button>
               </div>
+              <Btn t={t} kind="danger" className="w-full" onClick={sair}><LogOut size={14} /> {L("Sair da conta")}</Btn>
             </div>
           </div>
         </aside>
