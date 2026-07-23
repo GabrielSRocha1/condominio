@@ -16,6 +16,7 @@ import {
   loadAll, criarCondominio, criarUnidade, criarPessoa, criarLancamento, criarPenalidade, decidirPenalidade,
   criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, loginDiretor, pagarComCommet,
   assinarLicencaCommet, verificarLicencaCommet, listarPlanos, registrarDiretor,
+  criarAcesso, listarAcessos, removerAcesso, loginUsuario,
 } from "./src/lib/api.js";
 
 /* Abre o checkout do Commet em nova aba; avisa se o backend ainda não estiver no ar */
@@ -374,10 +375,15 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     if (role === "morador") {
       /* morador entra com o nome cadastrado pelo diretor em Gerenciar Emails */
       const nome = (f.nome || "").trim();
-      const conta = loadJSON(K_USUARIOS, []).find((u) => u.role === "morador" && (u.nome || "").toLowerCase() === nome.toLowerCase());
-      if (!conta) return setErro(L("Nenhum acesso com este nome. Peça ao diretor para cadastrá-lo em Gerenciar Emails."));
-      if (conta.senha !== f.senha) return setErro(L("Senha incorreta para este nome."));
-      setErro(""); return onEnter(role, { nome: conta.nome, unidade: conta.unidade || null });
+      setVerificando(true);
+      try {
+        const conta = await loginUsuario("morador", { nome, senha: f.senha });
+        if (conta) { setErro(""); return onEnter(role, { nome: conta.nome, unidade: conta.unidade || null }); }
+      } catch { /* sem conexão: tenta o acesso local abaixo */ }
+      finally { setVerificando(false); }
+      const local = loadJSON(K_USUARIOS, []).find((u) => u.role === "morador" && (u.nome || "").toLowerCase() === nome.toLowerCase());
+      if (local && local.senha === f.senha) { setErro(""); return onEnter(role, { nome: local.nome, unidade: local.unidade || null }); }
+      return setErro(L("Nome ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails."));
     }
     const email = f.email.trim().toLowerCase();
     if (role === "diretor") {
@@ -393,12 +399,18 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
       } finally { setVerificando(false); }
       return;
     }
+    setVerificando(true);
+    try {
+      const conta = await loginUsuario(role, { email, senha: f.senha });
+      if (conta) { setErro(""); return onEnter(role); }
+    } catch { /* sem conexão: tenta o acesso local abaixo */ }
+    finally { setVerificando(false); }
     const ok = loadJSON(K_USUARIOS, []).some((u) => u.role === role && u.email === email && u.senha === f.senha);
     if (ok) { setErro(""); onEnter(role); }
     else setErro(L("E-mail ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails."));
   };
 
-  const temAcesso = role && (role === "diretor" || loadJSON(K_USUARIOS, []).some((u) => u.role === role));
+  const temAcesso = true; // acessos agora vivem no banco — a validação é feita no envio
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4" style={{ background: t.bg, color: t.text, fontFamily: "'Inter',system-ui,sans-serif" }}>
@@ -1328,33 +1340,36 @@ function Portaria({ t }) {
 function GerenciarEmails({ t }) {
   const { db } = useData();
   const unidades = db.ctx.unidades; // unidades cadastradas na tela Unidades
-  const [usuarios, setUsuarios] = useState(() => loadJSON(K_USUARIOS, []));
+  const [usuarios, setUsuarios] = useState(null); // null = carregando do banco
   const [novo, setNovo] = useState(false);
-  const [ver, setVer] = useState({});
   const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
   const [perfil, setPerfil] = useState("sindico");
-  const persistir = (next) => { setUsuarios(next); saveJSON(K_USUARIOS, next); };
   const perfis = ["sindico", "tesouraria", "administradora", "morador"];
 
-  const salvar = (e) => {
+  const recarregar = useCallback(
+    () => listarAcessos(db.ctx).then(setUsuarios).catch((e) => setErro(e.message)),
+    [db.ctx]
+  );
+  useEffect(() => { recarregar(); }, [recarregar]);
+
+  const salvar = async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.currentTarget));
     if (f.senha.length < 4) return setErro("A senha deve ter pelo menos 4 caracteres.");
-    if (f.perfil === "morador") {
-      const nome = f.nome.trim();
-      if (!f.unidade) return setErro("Cadastre unidades primeiro na tela Unidades.");
-      if (usuarios.some((u) => u.role === "morador" && (u.nome || "").toLowerCase() === nome.toLowerCase()))
-        return setErro("Já existe um morador cadastrado com este nome.");
-      persistir([...usuarios, { id: uid(), nome, unidade: f.unidade, senha: f.senha, role: "morador" }]);
-    } else {
-      const email = f.email.trim().toLowerCase();
-      if (usuarios.some((u) => u.email === email)) return setErro("Já existe um acesso cadastrado com este e-mail.");
-      persistir([...usuarios, { id: uid(), email, senha: f.senha, role: f.perfil }]);
-    }
-    setErro(""); setNovo(false);
+    if (f.perfil === "morador" && !f.unidade) return setErro("Cadastre unidades primeiro na tela Unidades.");
+    setSalvando(true);
+    try {
+      await criarAcesso(db.ctx, f);
+      await recarregar();
+      setErro(""); setNovo(false);
+    } catch (err) { setErro(err.message); }
+    finally { setSalvando(false); }
   };
-  const remover = (u) => {
-    if (confirm(`Remover o acesso de ${u.nome || u.email}? Essa pessoa não conseguirá mais entrar.`)) persistir(usuarios.filter((x) => x.id !== u.id));
+  const remover = async (u) => {
+    if (!confirm(`Remover o acesso de ${u.nome || u.email}? Essa pessoa não conseguirá mais entrar.`)) return;
+    try { await removerAcesso(u.id); await recarregar(); }
+    catch (err) { setErro(err.message); }
   };
 
   return (
@@ -1362,14 +1377,16 @@ function GerenciarEmails({ t }) {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {perfis.map((r) => (
           <StatCard t={t} key={r} icon={PROFILES[r].icon} label={`Acessos de ${PROFILES[r].label}`}
-            value={String(usuarios.filter((u) => u.role === r).length)} />))}
+            value={String((usuarios || []).filter((u) => u.role === r).length)} />))}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-xs" style={{ color: t.dim }}>
           Os acessos criados aqui são o que cada pessoa usará na tela de entrada. Síndico, tesouraria e administradora entram com e-mail; o morador entra com o nome cadastrado.</div>
         <Btn t={t} kind="primary" onClick={() => { setErro(""); setNovo(true); }}><Plus size={15} /> Adicionar acesso</Btn>
       </div>
-      {usuarios.length ? (
+      {usuarios === null ? (
+        <Skeleton t={t} />
+      ) : usuarios.length ? (
         <div className="space-y-2">
           {usuarios.map((u) => (
             <Card t={t} key={u.id}>
@@ -1377,11 +1394,9 @@ function GerenciarEmails({ t }) {
                 <div className="rounded-xl p-2" style={{ background: t.goldSoft }}><Mail size={16} color={t.gold} /></div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold">{u.nome || u.email}</div>
-                  <div className="text-xs" style={{ color: t.dim }}>{u.unidade ? `${L("Unidade")} ${u.unidade} · ` : ""}Senha: <b style={{ color: t.text }}>{ver[u.id] ? u.senha : "••••••••"}</b></div>
+                  <div className="text-xs" style={{ color: t.dim }}>{u.unidade ? `${L("Unidade")} ${u.unidade}` : (u.email && u.nome ? u.email : L("Senha protegida por criptografia"))}</div>
                 </div>
                 <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.goldSoft, color: t.gold }}>{PROFILES[u.role]?.label || u.role}</span>
-                <Btn t={t} className="!px-2 !py-1 text-xs" title={ver[u.id] ? "Ocultar senha" : "Mostrar senha"}
-                  onClick={() => setVer((v) => ({ ...v, [u.id]: !v[u.id] }))}>{ver[u.id] ? <EyeOff size={13} /> : <Eye size={13} />}</Btn>
                 <Btn t={t} kind="danger" className="!px-2 !py-1 text-xs" onClick={() => remover(u)}><Trash2 size={13} /> Remover</Btn>
               </div>
             </Card>))}
@@ -1391,7 +1406,7 @@ function GerenciarEmails({ t }) {
           hint="Cadastre o primeiro e-mail e senha para que síndico, tesouraria, administradora e moradores consigam entrar."
           action={<Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={14} /> Adicionar acesso</Btn>} />)}
       <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
-        Modo demonstração: os acessos ficam salvos apenas neste navegador. Na fase de integração serão migrados para o Supabase Auth, com senhas criptografadas.</div>
+        Os acessos são gravados no banco de dados com senha criptografada — a pessoa consegue entrar de qualquer navegador.</div>
       {novo && (
         <Modal t={t} onClose={() => setNovo(false)}>
           <ModalHeader t={t} title="Novo acesso" onClose={() => setNovo(false)} />
@@ -1422,7 +1437,7 @@ function GerenciarEmails({ t }) {
               {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
             </div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovo(false)}>Cancelar</Btn>
-              <Btn t={t} kind="primary" type="submit"><Check size={14} /> Criar acesso</Btn></div>
+              <Btn t={t} kind="primary" type="submit" disabled={salvando}><Check size={14} /> {salvando ? "Salvando…" : "Criar acesso"}</Btn></div>
           </form>
         </Modal>)}
     </div>

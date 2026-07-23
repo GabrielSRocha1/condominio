@@ -394,6 +394,100 @@ export async function registrarDiretor({ nome, email, senha }) {
   return { id: usuario.id };
 }
 
+/* ─────────── acessos (Gerenciar Emails) — gravados na tabela usuarios ─────────── */
+
+/* e-mail sintético para morador, que entra pelo nome e não tem e-mail próprio */
+const emailMorador = (nome, condominioId) =>
+  `morador+${nome.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, ".")}@${condominioId.slice(0, 8)}.local`;
+
+/* Cria um acesso (sindico, tesouraria, administradora ou morador):
+   pessoa + usuário (senha com hash) + perfil; morador ganha também o
+   vínculo com a unidade. */
+export async function criarAcesso(ctx, f) {
+  const ehMorador = f.perfil === "morador";
+  const nome = ehMorador ? f.nome.trim() : (f.email.trim().toLowerCase().split("@")[0]);
+  const email = ehMorador ? emailMorador(f.nome.trim(), ctx.condominioId) : f.email.trim().toLowerCase();
+
+  const { data: dup } = await supabase.from("usuarios").select("id").eq("email", email).maybeSingle();
+  if (dup) throw new Error(ehMorador ? "Já existe um morador cadastrado com este nome." : "Já existe um acesso cadastrado com este e-mail.");
+
+  const [pessoa] = await q(supabase.from("pessoas").insert({
+    condominio_id: ctx.condominioId, nome: ehMorador ? f.nome.trim() : nome,
+    tipo_pessoa: "fisica", cpf_cnpj: `P-${crypto.randomUUID().slice(0, 12)}`,
+    email: ehMorador ? null : email,
+  }).select(), "pessoas");
+  const [usuario] = await q(supabase.from("usuarios").insert({
+    pessoa_id: pessoa.id, email, senha_hash: await sha256(f.senha),
+  }).select(), "usuarios");
+  const perfil = await q(supabase.from("perfis").select("id").eq("nome", f.perfil).single(), "perfis");
+  await q(supabase.from("usuario_perfis").insert({
+    usuario_id: usuario.id, condominio_id: ctx.condominioId, perfil_id: perfil.id,
+  }).select(), "usuario_perfis");
+  if (ehMorador) {
+    const un = ctx.unidades.find((u) => u.label === f.unidade || u.id === f.unidade);
+    await q(supabase.from("pessoa_vinculos").insert({
+      condominio_id: ctx.condominioId, pessoa_id: pessoa.id, unidade_id: un?.id || null,
+      papel: "morador", inicio: new Date().toISOString().slice(0, 10),
+    }).select(), "pessoa_vinculos");
+  }
+  return { id: usuario.id };
+}
+
+/* Lista os acessos do condomínio (todos os perfis, exceto o diretor). */
+export async function listarAcessos(ctx) {
+  const rows = await q(supabase.from("usuario_perfis")
+    .select("perfis(nome), usuarios(id, email, pessoas(nome, pessoa_vinculos(papel, unidades(numero, blocos(nome)))))")
+    .eq("condominio_id", ctx.condominioId), "usuario_perfis");
+  return rows
+    .filter((r) => r.perfis?.nome && r.perfis.nome !== "diretor" && r.usuarios)
+    .map((r) => {
+      const u = r.usuarios, p = u.pessoas;
+      const vinc = (p?.pessoa_vinculos || []).find((v) => v.papel === "morador");
+      const unidade = vinc?.unidades ? `${vinc.unidades.numero}-${vinc.unidades.blocos?.nome || "?"}` : null;
+      return {
+        id: u.id, role: r.perfis.nome, nome: p?.nome || null,
+        email: u.email.endsWith(".local") ? null : u.email, unidade,
+      };
+    });
+}
+
+/* Remove um acesso: usuário, perfis e vínculos (a pessoa some junto se
+   não estiver referenciada em outra tabela). */
+export async function removerAcesso(usuarioId) {
+  const { data: u } = await supabase.from("usuarios").select("pessoa_id").eq("id", usuarioId).maybeSingle();
+  await supabase.from("usuario_perfis").delete().eq("usuario_id", usuarioId);
+  await q(supabase.from("usuarios").delete().eq("id", usuarioId), "usuarios");
+  if (u?.pessoa_id) {
+    await supabase.from("pessoa_vinculos").delete().eq("pessoa_id", u.pessoa_id);
+    await supabase.from("pessoas").delete().eq("id", u.pessoa_id).then(() => {}, () => {});
+  }
+}
+
+/* Login dos demais perfis pela tabela usuarios. Morador entra pelo nome;
+   os outros, pelo e-mail. Retorna null quando não confere. */
+export async function loginUsuario(role, { email, nome, senha }) {
+  const hash = await sha256(senha);
+  if (role === "morador") {
+    const rows = await q(supabase.from("usuarios")
+      .select("senha_hash, pessoas!inner(nome, pessoa_vinculos(papel, unidades(numero, blocos(nome)))), usuario_perfis(perfis(nome))")
+      .ilike("pessoas.nome", (nome || "").trim()), "usuarios");
+    const conta = rows.find((r) => r.senha_hash === hash &&
+      (r.usuario_perfis || []).some((up) => up.perfis?.nome === "morador"));
+    if (!conta) return null;
+    const vinc = (conta.pessoas?.pessoa_vinculos || []).find((v) => v.papel === "morador");
+    return {
+      nome: conta.pessoas.nome,
+      unidade: vinc?.unidades ? `${vinc.unidades.numero}-${vinc.unidades.blocos?.nome || "?"}` : null,
+    };
+  }
+  const { data } = await supabase.from("usuarios")
+    .select("id, senha_hash, usuario_perfis(perfis(nome))")
+    .eq("email", (email || "").trim().toLowerCase()).maybeSingle();
+  if (!data || data.senha_hash !== hash) return null;
+  if (!(data.usuario_perfis || []).some((up) => up.perfis?.nome === role)) return null;
+  return { id: data.id };
+}
+
 /* "Já tem prédio cadastrado": confere e-mail e senha na tabela usuarios
    e exige que a conta tenha o perfil de diretor em algum condomínio. */
 export async function loginDiretor(email, senha) {
