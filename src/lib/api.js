@@ -366,6 +366,34 @@ export async function listarPlanos() {
   return data || [];
 }
 
+/* Cadastro do diretor na tela de login: grava a conta na tabela usuarios
+   (pessoa + usuário + perfil de diretor). Se o banco ainda não tem condomínio,
+   devolve null — nesse caso criarCondominio fará a gravação logo em seguida. */
+export async function registrarDiretor({ nome, email, senha }) {
+  const { data: existente, error: eBusca } = await supabase
+    .from("usuarios").select("id").eq("email", email).maybeSingle();
+  if (eBusca) throw new Error(eBusca.message);
+  if (existente) throw new Error("Este e-mail já está cadastrado. Use a opção de entrar com e-mail e senha.");
+
+  const { data: conds } = await supabase.from("condominios").select("id").order("criado_em").limit(1);
+  const cond = conds?.[0];
+  if (!cond) return null; // banco vazio: o fluxo de primeiro acesso cria tudo
+
+  const [pessoa] = await q(supabase.from("pessoas").insert({
+    condominio_id: cond.id, nome, tipo_pessoa: "fisica",
+    cpf_cnpj: `P-${crypto.randomUUID().slice(0, 12)}`, // pendente — o diretor completa depois em Pessoas
+    email,
+  }).select(), "pessoas");
+  const [usuario] = await q(supabase.from("usuarios").insert({
+    pessoa_id: pessoa.id, email, senha_hash: await sha256(senha),
+  }).select(), "usuarios");
+  const perfil = await q(supabase.from("perfis").select("id").eq("nome", "diretor").single(), "perfis");
+  await q(supabase.from("usuario_perfis").insert({
+    usuario_id: usuario.id, condominio_id: cond.id, perfil_id: perfil.id,
+  }).select(), "usuario_perfis");
+  return { id: usuario.id };
+}
+
 /* "Já tem prédio cadastrado": confere e-mail e senha na tabela usuarios
    e exige que a conta tenha o perfil de diretor em algum condomínio. */
 export async function loginDiretor(email, senha) {

@@ -15,7 +15,7 @@ import {
 import {
   loadAll, criarCondominio, criarUnidade, criarPessoa, criarLancamento, criarPenalidade, decidirPenalidade,
   criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, loginDiretor, pagarComCommet,
-  assinarLicencaCommet, verificarLicencaCommet, listarPlanos,
+  assinarLicencaCommet, verificarLicencaCommet, listarPlanos, registrarDiretor,
 } from "./src/lib/api.js";
 
 /* Abre o checkout do Commet em nova aba; avisa se o backend ainda não estiver no ar */
@@ -336,14 +336,21 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
   const [jaCadastrado, setJaCadastrado] = useState(false); // pula o cadastro quando o prédio já existe
   const [verificando, setVerificando] = useState(false);
 
-  /* primeiro acesso: cria a conta que dará acesso ao perfil Diretor */
-  const registrar = (e) => {
+  /* primeiro acesso: cria a conta que dará acesso ao perfil Diretor —
+     gravada na tabela usuarios do Supabase (e no navegador, para conveniência) */
+  const registrar = async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.currentTarget));
     if (f.senha.length < 4) return setErro(L("A senha deve ter pelo menos 4 caracteres."));
     if (f.senha !== f.confirma) return setErro(L("As senhas não conferem."));
     const conta = { nome: f.nome.trim(), email: f.email.trim().toLowerCase(), senha: f.senha };
-    saveJSON(K_DIRETOR, conta); setDiretor(conta); setErro("");
+    setVerificando(true);
+    try {
+      await registrarDiretor(conta);
+      saveJSON(K_DIRETOR, conta); setDiretor(conta); setErro("");
+    } catch (err) {
+      setErro(err.message || L("Não foi possível concluir o cadastro agora."));
+    } finally { setVerificando(false); }
   };
 
   const entrar = async (e) => {
@@ -401,7 +408,8 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
               <Field t={t} label="Senha"><input name="senha" type="password" required placeholder={L("Mínimo 4 caracteres")} style={inputStyle(t)} /></Field>
               <Field t={t} label="Confirmar senha"><input name="confirma" type="password" required placeholder={L("Repita a senha")} style={inputStyle(t)} /></Field>
               {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
-              <Btn t={t} kind="primary" type="submit" className="w-full"><UserPlus size={15} /> Criar conta e continuar</Btn>
+              <Btn t={t} kind="primary" type="submit" className="w-full" disabled={verificando}>
+                <UserPlus size={15} /> {verificando ? L("Salvando cadastro…") : L("Criar conta e continuar")}</Btn>
               <div className="pt-1 text-center">
                 <button type="button" onClick={() => { setJaCadastrado(true); setRole("diretor"); setErro(""); }}
                   className="text-xs font-semibold" style={{ color: t.gold }}>
