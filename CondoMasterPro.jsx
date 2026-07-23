@@ -176,6 +176,21 @@ const Btn = ({ t, kind = "ghost", children, className = "", ...rest }) => {
 };
 
 const inputStyle = (t) => ({ background: t.surface2, color: t.text, border: `1px solid ${t.borderSoft}`, borderRadius: 10, padding: "8px 10px", width: "100%", fontSize: 14 });
+
+/* Campo de senha com o "olho" para revelar/ocultar o que foi digitado */
+const PasswordInput = ({ t, ...rest }) => {
+  const [ver, setVer] = useState(false);
+  return (
+    <div className="relative">
+      <input {...rest} type={ver ? "text" : "password"} style={{ ...inputStyle(t), paddingRight: 36 }} />
+      <button type="button" tabIndex={-1} onClick={() => setVer((v) => !v)}
+        aria-label={ver ? L("Ocultar senha") : L("Mostrar senha")}
+        className="absolute inset-y-0 right-0 flex items-center px-2.5" style={{ color: t.dim, background: "transparent", border: "none" }}>
+        {ver ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+    </div>
+  );
+};
+
 const Field = ({ t, label, children }) => (
   <label className="block space-y-1 text-sm"><div className="text-xs font-medium" style={{ color: t.dim }}>{L(label)}</div>{children}</label>
 );
@@ -405,8 +420,8 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
                 {L(", que poderá cadastrar os e-mails e senhas dos demais perfis em Gerenciar Emails.")}</div>
               <Field t={t} label="Nome completo"><input name="nome" required placeholder={L("Seu nome")} style={inputStyle(t)} /></Field>
               <Field t={t} label="E-mail"><input name="email" type="email" required placeholder={L("voce@exemplo.com")} style={inputStyle(t)} /></Field>
-              <Field t={t} label="Senha"><input name="senha" type="password" required placeholder={L("Mínimo 4 caracteres")} style={inputStyle(t)} /></Field>
-              <Field t={t} label="Confirmar senha"><input name="confirma" type="password" required placeholder={L("Repita a senha")} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Senha"><PasswordInput t={t} name="senha" required placeholder={L("Mínimo 4 caracteres")} /></Field>
+              <Field t={t} label="Confirmar senha"><PasswordInput t={t} name="confirma" required placeholder={L("Repita a senha")} /></Field>
               {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
               <Btn t={t} kind="primary" type="submit" className="w-full" disabled={verificando}>
                 <UserPlus size={15} /> {verificando ? L("Salvando cadastro…") : L("Criar conta e continuar")}</Btn>
@@ -451,7 +466,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
                 ) : (
                   <Field t={t} label="E-mail"><input name="email" type="email" required placeholder={L("voce@exemplo.com")} style={inputStyle(t)} /></Field>
                 )}
-                <Field t={t} label="Senha"><input name="senha" type="password" required placeholder="••••••••" style={inputStyle(t)} /></Field>
+                <Field t={t} label="Senha"><PasswordInput t={t} name="senha" required placeholder="••••••••" /></Field>
                 {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
                 {!temAcesso && <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
                   {L("Nenhum acesso de")} {L(PROFILES[role].label)} {L("foi criado ainda. Peça ao diretor para cadastrá-lo em Gerenciar Emails.")}</div>}
@@ -1403,7 +1418,7 @@ function GerenciarEmails({ t }) {
               ) : (
                 <Field t={t} label="E-mail"><input name="email" type="email" required placeholder="pessoa@exemplo.com" style={inputStyle(t)} /></Field>
               )}
-              <Field t={t} label="Senha"><input name="senha" required placeholder="Mínimo 4 caracteres" style={inputStyle(t)} /></Field>
+              <Field t={t} label="Senha"><PasswordInput t={t} name="senha" required placeholder="Mínimo 4 caracteres" /></Field>
               {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
             </div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovo(false)}>Cancelar</Btn>
