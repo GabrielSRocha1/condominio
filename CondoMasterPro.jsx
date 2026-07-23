@@ -16,7 +16,7 @@ import {
   loadAll, criarCondominio, criarUnidade, criarPessoa, criarLancamento, criarPenalidade, decidirPenalidade,
   criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, loginDiretor, pagarComCommet,
   assinarLicencaCommet, verificarLicencaCommet, listarPlanos, registrarDiretor,
-  criarAcesso, listarAcessos, removerAcesso, loginUsuario,
+  criarAcesso, listarAcessos, removerAcesso, loginUsuario, setAuthToken,
 } from "./src/lib/api.js";
 
 /* Abre o checkout do Commet em nova aba; avisa se o backend ainda não estiver no ar */
@@ -75,6 +75,7 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 const K_SESSAO = "cm_sessao";
 const lerSessao = () => { try { return JSON.parse(localStorage.getItem(K_SESSAO)) || null; } catch { return null; } };
 const salvarSessao = (s) => { try { s ? localStorage.setItem(K_SESSAO, JSON.stringify(s)) : localStorage.removeItem(K_SESSAO); } catch { /* sem storage */ } };
+setAuthToken(lerSessao()?.token || null); // restaura o token do RLS antes da primeira consulta
 
 /* ══════════════ PERFIS E NAVEGAÇÃO ══════════════ */
 const PROFILES = {
@@ -380,7 +381,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
       setVerificando(true);
       try {
         const conta = await loginUsuario("morador", { nome, senha: f.senha });
-        if (conta) { setErro(""); return onEnter(role, { nome: conta.nome, unidade: conta.unidade || null }, null, conta.condominioId); }
+        if (conta) { setErro(""); return onEnter(role, { nome: conta.nome, unidade: conta.unidade || null }, null, conta.condominioId, conta.token); }
         setErro(L("Nome ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails."));
       } catch (err) {
         setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -389,12 +390,12 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     }
     const email = f.email.trim().toLowerCase();
     if (role === "diretor") {
-      if (diretor && email === diretor.email && f.senha === diretor.senha) { setErro(""); return onEnter(role, null, diretor, diretor.condominioId || null); }
+      if (diretor && email === diretor.email && f.senha === diretor.senha) { setErro(""); return onEnter(role, null, diretor, diretor.condominioId || null, diretor.token); }
       /* confere e-mail e senha na tabela usuarios */
       setVerificando(true);
       try {
         const conta = await loginDiretor(email, f.senha);
-        if (conta) { setDiretor(conta); setErro(""); return onEnter(role, null, conta, conta.condominioId || null); }
+        if (conta) { setDiretor(conta); setErro(""); return onEnter(role, null, conta, conta.condominioId || null, conta.token); }
         setErro(L("E-mail ou senha incorretos."));
       } catch (err) {
         setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -404,7 +405,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     setVerificando(true);
     try {
       const conta = await loginUsuario(role, { email, senha: f.senha });
-      if (conta) { setErro(""); return onEnter(role, null, null, conta.condominioId); }
+      if (conta) { setErro(""); return onEnter(role, null, null, conta.condominioId, conta.token); }
       setErro(L("E-mail ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails."));
     } catch (err) {
       setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -501,7 +502,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
 
 /* ══════════════ PRIMEIRO ACESSO — BANCO VAZIO ══════════════ */
 function SetupCondominio({ t, role, diretor, onCriado, onSair, dark, setDark }) {
-  const [salvar, saving] = useSubmit(async (f) => { const novoId = await criarCondominio(f, diretor); await onCriado(novoId); });
+  const [salvar, saving] = useSubmit(async (f) => { const r = await criarCondominio(f); await onCriado(r.id, r.token); });
   const [planos, setPlanos] = useState([]);
   useEffect(() => { listarPlanos().then(setPlanos).catch(() => {}); }, []);
   return (
@@ -1846,15 +1847,16 @@ export default function App() {
     `}</style>
   );
 
-  const sair = useCallback(() => { salvarSessao(null); setMorador(null); setDiretorConta(null); setCondId(null); setRole(null); }, []);
-  const entrar = useCallback((r, m, d, cId) => {
-    salvarSessao({ role: r, morador: m || null, diretor: d ? { nome: d.nome, email: d.email } : null, condominioId: cId || null });
+  const sair = useCallback(() => { salvarSessao(null); setAuthToken(null); setMorador(null); setDiretorConta(null); setCondId(null); setRole(null); }, []);
+  const entrar = useCallback((r, m, d, cId, token) => {
+    salvarSessao({ role: r, morador: m || null, diretor: d ? { nome: d.nome, email: d.email } : null, condominioId: cId || null, token: token || null });
     setMorador(m || null); setDiretorConta(d || null); setCondId(cId || null); setRole(r);
     setScreen(r === "administradora" ? "saas" : "dashboard");
   }, []);
-  /* condomínio recém-criado no 1º acesso: amarra à sessão desta conta */
-  const aoCriarCondominio = useCallback((novoId) => {
-    salvarSessao({ ...(lerSessao() || { role: "diretor" }), condominioId: novoId || null });
+  /* condomínio recém-criado no 1º acesso: amarra à sessão desta conta,
+     com o token novo (que carrega o condominio_id para o RLS) */
+  const aoCriarCondominio = useCallback((novoId, novoToken) => {
+    salvarSessao({ ...(lerSessao() || { role: "diretor" }), condominioId: novoId || null, token: novoToken || lerSessao()?.token || null });
     setCondId(novoId || null);
   }, []);
 
