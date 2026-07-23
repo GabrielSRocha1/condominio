@@ -380,7 +380,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
       setVerificando(true);
       try {
         const conta = await loginUsuario("morador", { nome, senha: f.senha });
-        if (conta) { setErro(""); return onEnter(role, { nome: conta.nome, unidade: conta.unidade || null }); }
+        if (conta) { setErro(""); return onEnter(role, { nome: conta.nome, unidade: conta.unidade || null }, null, conta.condominioId); }
         setErro(L("Nome ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails."));
       } catch (err) {
         setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -389,12 +389,12 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     }
     const email = f.email.trim().toLowerCase();
     if (role === "diretor") {
-      if (diretor && email === diretor.email && f.senha === diretor.senha) { setErro(""); return onEnter(role, null, diretor); }
+      if (diretor && email === diretor.email && f.senha === diretor.senha) { setErro(""); return onEnter(role, null, diretor, diretor.condominioId || null); }
       /* confere e-mail e senha na tabela usuarios */
       setVerificando(true);
       try {
         const conta = await loginDiretor(email, f.senha);
-        if (conta) { setDiretor(conta); setErro(""); return onEnter(role, null, conta); }
+        if (conta) { setDiretor(conta); setErro(""); return onEnter(role, null, conta, conta.condominioId || null); }
         setErro(L("E-mail ou senha incorretos."));
       } catch (err) {
         setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -404,7 +404,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     setVerificando(true);
     try {
       const conta = await loginUsuario(role, { email, senha: f.senha });
-      if (conta) { setErro(""); return onEnter(role); }
+      if (conta) { setErro(""); return onEnter(role, null, null, conta.condominioId); }
       setErro(L("E-mail ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails."));
     } catch (err) {
       setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -501,7 +501,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
 
 /* ══════════════ PRIMEIRO ACESSO — BANCO VAZIO ══════════════ */
 function SetupCondominio({ t, role, diretor, onCriado, onSair, dark, setDark }) {
-  const [salvar, saving] = useSubmit(async (f) => { await criarCondominio(f, diretor); await onCriado(); });
+  const [salvar, saving] = useSubmit(async (f) => { const novoId = await criarCondominio(f, diretor); await onCriado(novoId); });
   const [planos, setPlanos] = useState([]);
   useEffect(() => { listarPlanos().then(setPlanos).catch(() => {}); }, []);
   return (
@@ -1812,6 +1812,7 @@ export default function App() {
   const [role, setRole] = useState(() => lerSessao()?.role || null);
   const [morador, setMorador] = useState(() => lerSessao()?.morador || null); // { nome, unidade } do morador logado
   const [diretorConta, setDiretorConta] = useState(() => lerSessao()?.diretor || null); // conta do diretor logado (para o 1º acesso)
+  const [condId, setCondId] = useState(() => lerSessao()?.condominioId || null); // condomínio da conta logada (multi-tenant)
   const [screen, setScreen] = useState(() => (lerSessao()?.role === "administradora" ? "saas" : "dashboard"));
   const [sideOpen, setSideOpen] = useState(false);
   const t = dark ? THEMES.dark : THEMES.light;
@@ -1822,9 +1823,9 @@ export default function App() {
   const [dbErr, setDbErr] = useState(null);
   const reload = useCallback(async () => {
     setDbErr(null);
-    try { setDb(await loadAll()); }
+    try { setDb(await loadAll(condId)); }
     catch (e) { console.error("[Supabase]", e); setDbErr(e); }
-  }, []);
+  }, [condId]);
   useEffect(() => { reload(); }, [reload]);
   const dataValue = useMemo(() => ({ db, reload }), [db, reload]);
 
@@ -1845,17 +1846,24 @@ export default function App() {
     `}</style>
   );
 
-  const sair = useCallback(() => { salvarSessao(null); setMorador(null); setDiretorConta(null); setRole(null); }, []);
-  const entrar = useCallback((r, m, d) => {
-    salvarSessao({ role: r, morador: m || null, diretor: d ? { nome: d.nome, email: d.email } : null });
-    setMorador(m || null); setDiretorConta(d || null); setRole(r);
+  const sair = useCallback(() => { salvarSessao(null); setMorador(null); setDiretorConta(null); setCondId(null); setRole(null); }, []);
+  const entrar = useCallback((r, m, d, cId) => {
+    salvarSessao({ role: r, morador: m || null, diretor: d ? { nome: d.nome, email: d.email } : null, condominioId: cId || null });
+    setMorador(m || null); setDiretorConta(d || null); setCondId(cId || null); setRole(r);
     setScreen(r === "administradora" ? "saas" : "dashboard");
+  }, []);
+  /* condomínio recém-criado no 1º acesso: amarra à sessão desta conta */
+  const aoCriarCondominio = useCallback((novoId) => {
+    salvarSessao({ ...(lerSessao() || { role: "diretor" }), condominioId: novoId || null });
+    setCondId(novoId || null);
   }, []);
 
   if (!role) return <DataCtx.Provider value={dataValue}>{globalStyle}<Login t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} onEnter={entrar} /></DataCtx.Provider>;
-  if (db?.vazio) return (
+  /* conta sem condomínio próprio (diretor recém-cadastrado) vai direto para o
+     primeiro acesso — nunca enxerga o prédio de outra conta */
+  if (db?.vazio || (role !== "administradora" && !condId)) return (
     <DataCtx.Provider value={dataValue}>{globalStyle}
-      <SetupCondominio t={t} role={role} diretor={diretorConta} dark={dark} setDark={setDark} onCriado={reload} onSair={sair} />
+      <SetupCondominio t={t} role={role} diretor={diretorConta} dark={dark} setDark={setDark} onCriado={aoCriarCondominio} onSair={sair} />
     </DataCtx.Provider>);
 
   /* ── PAYWALL: sem assinatura ativa, nenhum perfil do condomínio entra ──

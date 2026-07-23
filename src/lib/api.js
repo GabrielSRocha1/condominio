@@ -67,14 +67,18 @@ const ACESSO_UI = {
 };
 
 /* ─────────── carga completa ─────────── */
-export async function loadAll() {
+export async function loadAll(condominioId) {
   const tenantsRaw = await q(
     supabase.from("condominios").select("id, nome_fantasia, saas_assinaturas(status, renovacao, saas_planos(nome, preco_mensal)), unidades(count)").order("criado_em"),
     "condominios"
   );
   if (!tenantsRaw.length) return { vazio: true }; // banco em branco: o app mostra o fluxo de primeiro acesso
-  /* condomínio principal = o que tem mais unidades cadastradas */
-  const principal = [...tenantsRaw].sort((a, b) => (b.unidades?.[0]?.count ?? 0) - (a.unidades?.[0]?.count ?? 0))[0];
+  /* multi-tenant: cada conta enxerga SOMENTE o condomínio dela (vindo do
+     login). Sem id — administradora, dona do SaaS — usa o maior só p/ stats. */
+  const principal = condominioId
+    ? tenantsRaw.find((t) => t.id === condominioId)
+    : [...tenantsRaw].sort((a, b) => (b.unidades?.[0]?.count ?? 0) - (a.unidades?.[0]?.count ?? 0))[0];
+  if (!principal) return { vazio: true }; // conta ainda sem condomínio próprio → fluxo de primeiro acesso
   const cid = principal.id;
 
   const [
@@ -86,7 +90,7 @@ export async function loadAll() {
     q(supabase.from("vagas").select("id, unidade_id, tipo, status").eq("condominio_id", cid), "vagas"),
     q(supabase.from("pessoas").select("*").eq("condominio_id", cid).order("nome"), "pessoas"),
     q(supabase.from("pessoa_vinculos").select("*").eq("condominio_id", cid).is("fim", null), "pessoa_vinculos"),
-    q(supabase.from("usuarios").select("id, pessoa_id").order("criado_em").limit(1), "usuarios"),
+    q(supabase.from("usuario_perfis").select("usuario_id").eq("condominio_id", cid).limit(1), "usuario_perfis"),
     q(supabase.from("categorias_financeiras").select("id, nome, tipo").eq("condominio_id", cid).eq("ativa", true), "categorias"),
     q(supabase.from("fundos").select("nome, saldo").eq("condominio_id", cid), "fundos"),
     q(supabase.from("lancamentos").select("*, categorias_financeiras(nome)").eq("condominio_id", cid).order("data", { ascending: false }), "lancamentos"),
@@ -308,7 +312,7 @@ export async function loadAll() {
   /* contexto para escritas */
   const ctx = {
     condominioId: cid, condominioNome: principal.nome_fantasia,
-    usuarioId: usuarios[0]?.id || null,
+    usuarioId: usuarios[0]?.usuario_id || null,
     blocos, categorias,
     unidades: unidadesRaw.map((u) => ({ id: u.id, label: uLabel(u), responsavelId: u.responsavel_financeiro_id, fracao: num(u.fracao_ideal) })),
     pessoas: pessoasRaw.map((p) => ({ id: p.id, nome: p.nome })),
@@ -364,6 +368,7 @@ export async function criarCondominio(f, diretor) {
     condominio_id: cond.id, plano_id: planoIni.id, status: "teste",
     inicio: new Date().toISOString().slice(0, 10), forma_pagamento: "verum_pay",
   });
+  return cond.id; // o App guarda na sessão — cada conta abre só o próprio prédio
 }
 
 /* Planos ativos do SaaS — usados no cadastro para a escolha da licença */
@@ -381,32 +386,15 @@ export async function registrarDiretor({ nome, email, senha }) {
   if (eBusca) throw new Error(eBusca.message);
   if (existente) throw new Error("Este e-mail já está cadastrado. Use a opção de entrar com e-mail e senha.");
 
-  const { data: conds } = await supabase.from("condominios").select("id").order("criado_em").limit(1);
-  const cond = conds?.[0];
-  if (!cond) {
-    /* banco vazio: ainda não existe condomínio para vincular a pessoa —
-       grava a conta já, e criarCondominio completa pessoa + perfil depois */
-    const { data: novo, error } = await supabase.from("usuarios")
-      .insert({ email, senha_hash: await sha256(senha), pessoa_id: null }).select().single();
-    if (error) throw new Error(error.message.includes("not-null")
-      ? "O banco precisa de um ajuste: rode no Supabase (SQL Editor): alter table usuarios alter column pessoa_id drop not null;"
-      : error.message);
-    return { id: novo.id, pendente: true };
-  }
-
-  const [pessoa] = await q(supabase.from("pessoas").insert({
-    condominio_id: cond.id, nome, tipo_pessoa: "fisica",
-    cpf_cnpj: `P-${crypto.randomUUID().slice(0, 12)}`, // pendente — o diretor completa depois em Pessoas
-    email,
-  }).select(), "pessoas");
-  const [usuario] = await q(supabase.from("usuarios").insert({
-    pessoa_id: pessoa.id, email, senha_hash: await sha256(senha),
-  }).select(), "usuarios");
-  const perfil = await q(supabase.from("perfis").select("id").eq("nome", "diretor").single(), "perfis");
-  await q(supabase.from("usuario_perfis").insert({
-    usuario_id: usuario.id, condominio_id: cond.id, perfil_id: perfil.id,
-  }).select(), "usuario_perfis");
-  return { id: usuario.id };
+  /* multi-tenant: a conta nasce SEM vínculo com condomínio nenhum — o
+     condomínio DELA é criado no passo seguinte (criarCondominio), nunca
+     aproveitando o prédio de outra conta */
+  const { data: novo, error } = await supabase.from("usuarios")
+    .insert({ email, senha_hash: await sha256(senha), pessoa_id: null }).select().single();
+  if (error) throw new Error(error.message.includes("not-null")
+    ? "O banco precisa de um ajuste: rode no Supabase (SQL Editor): alter table usuarios alter column pessoa_id drop not null;"
+    : error.message);
+  return { id: novo.id, pendente: true };
 }
 
 /* ─────────── acessos (Gerenciar Emails) — gravados na tabela usuarios ─────────── */
@@ -484,7 +472,7 @@ export async function loginUsuario(role, { email, nome, senha }) {
   const hash = await sha256(senha);
   if (role === "morador") {
     const rows = await q(supabase.from("usuarios")
-      .select("senha_hash, pessoas!inner(nome, pessoa_vinculos(papel, unidades(numero, blocos(nome)))), usuario_perfis(perfis(nome))")
+      .select("senha_hash, pessoas!inner(nome, pessoa_vinculos(papel, unidades(numero, blocos(nome)))), usuario_perfis(condominio_id, perfis(nome))")
       .ilike("pessoas.nome", (nome || "").trim()), "usuarios");
     const conta = rows.find((r) => r.senha_hash === hash &&
       (r.usuario_perfis || []).some((up) => up.perfis?.nome === "morador"));
@@ -493,14 +481,16 @@ export async function loginUsuario(role, { email, nome, senha }) {
     return {
       nome: conta.pessoas.nome,
       unidade: vinc?.unidades ? `${vinc.unidades.numero}-${vinc.unidades.blocos?.nome || "?"}` : null,
+      condominioId: (conta.usuario_perfis || []).find((up) => up.perfis?.nome === "morador")?.condominio_id || null,
     };
   }
   const { data } = await supabase.from("usuarios")
-    .select("id, senha_hash, usuario_perfis(perfis(nome))")
+    .select("id, senha_hash, usuario_perfis(condominio_id, perfis(nome))")
     .eq("email", (email || "").trim().toLowerCase()).maybeSingle();
   if (!data || data.senha_hash !== hash) return null;
-  if (!(data.usuario_perfis || []).some((up) => up.perfis?.nome === role)) return null;
-  return { id: data.id };
+  const vinculo = (data.usuario_perfis || []).find((up) => up.perfis?.nome === role);
+  if (!vinculo) return null;
+  return { id: data.id, condominioId: vinculo.condominio_id || null };
 }
 
 /* "Já tem prédio cadastrado": confere e-mail e senha na tabela usuarios
@@ -508,17 +498,19 @@ export async function loginUsuario(role, { email, nome, senha }) {
 export async function loginDiretor(email, senha) {
   const { data, error } = await supabase
     .from("usuarios")
-    .select("id, email, senha_hash, pessoas(nome), usuario_perfis(perfis(nome))")
+    .select("id, email, senha_hash, pessoas(nome), usuario_perfis(condominio_id, perfis(nome))")
     .eq("email", email)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data || data.senha_hash !== (await sha256(senha))) return null;
-  /* conta sem perfil ainda = cadastro feito com o banco vazio, aguardando
-     a criação do condomínio — também é diretor */
-  const ehDiretor = !(data.usuario_perfis || []).length ||
-    (data.usuario_perfis || []).some((up) => up.perfis?.nome === "diretor");
-  if (!ehDiretor) return null;
-  return { nome: data.pessoas?.nome || "Diretor", email: data.email, senha };
+  /* conta sem perfil ainda = cadastro recém-feito, aguardando a criação do
+     condomínio dela — também é diretor */
+  const vinculoDiretor = (data.usuario_perfis || []).find((up) => up.perfis?.nome === "diretor");
+  if ((data.usuario_perfis || []).length && !vinculoDiretor) return null;
+  return {
+    nome: data.pessoas?.nome || "Diretor", email: data.email, senha,
+    condominioId: vinculoDiretor?.condominio_id || null, // null = ainda vai criar o prédio
+  };
 }
 
 /* Checkout Commet: pede ao backend (/api/commet/checkout) o link de pagamento.
