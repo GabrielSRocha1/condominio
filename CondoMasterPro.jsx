@@ -69,10 +69,8 @@ const BRL = (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 /* ══════════════ CONTAS DE ACESSO (salvas neste navegador — modo demo) ══════════════ */
-const loadJSON = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } };
-const saveJSON = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-const K_DIRETOR = "cm_diretor";   // { nome, email, senha }
-const K_USUARIOS = "cm_usuarios"; // [{ id, email?, nome?, senha, role }] — morador usa nome; demais usam e-mail
+/* Todos os dados de contas e acessos vivem na tabela usuarios do Supabase —
+   nada é gravado em localStorage; a sessão dura enquanto a aba estiver aberta. */
 
 /* ══════════════ PERFIS E NAVEGAÇÃO ══════════════ */
 const PROFILES = {
@@ -346,14 +344,14 @@ const useLoad = (screen) => {
 
 /* ══════════════ LOGIN ══════════════ */
 function Login({ t, onEnter, dark, setDark, lang, onLang }) {
-  const [diretor, setDiretor] = useState(() => loadJSON(K_DIRETOR, null));
+  const [diretor, setDiretor] = useState(null); // conta do diretor desta sessão (a fonte é o banco)
   const [role, setRole] = useState(null);
   const [erro, setErro] = useState("");
   const [jaCadastrado, setJaCadastrado] = useState(false); // pula o cadastro quando o prédio já existe
   const [verificando, setVerificando] = useState(false);
 
   /* primeiro acesso: cria a conta que dará acesso ao perfil Diretor —
-     gravada na tabela usuarios do Supabase (e no navegador, para conveniência) */
+     gravada na tabela usuarios do Supabase */
   const registrar = async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.currentTarget));
@@ -363,7 +361,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     setVerificando(true);
     try {
       await registrarDiretor(conta);
-      saveJSON(K_DIRETOR, conta); setDiretor(conta); setErro("");
+      setDiretor(conta); setErro("");
     } catch (err) {
       setErro(err.message || L("Não foi possível concluir o cadastro agora."));
     } finally { setVerificando(false); }
@@ -379,20 +377,20 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
       try {
         const conta = await loginUsuario("morador", { nome, senha: f.senha });
         if (conta) { setErro(""); return onEnter(role, { nome: conta.nome, unidade: conta.unidade || null }); }
-      } catch { /* sem conexão: tenta o acesso local abaixo */ }
-      finally { setVerificando(false); }
-      const local = loadJSON(K_USUARIOS, []).find((u) => u.role === "morador" && (u.nome || "").toLowerCase() === nome.toLowerCase());
-      if (local && local.senha === f.senha) { setErro(""); return onEnter(role, { nome: local.nome, unidade: local.unidade || null }); }
-      return setErro(L("Nome ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails."));
+        setErro(L("Nome ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails."));
+      } catch (err) {
+        setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
+      } finally { setVerificando(false); }
+      return;
     }
     const email = f.email.trim().toLowerCase();
     if (role === "diretor") {
-      if (diretor && email === diretor.email && f.senha === diretor.senha) { setErro(""); return onEnter(role); }
-      /* conta não está neste navegador: confere e-mail e senha no banco */
+      if (diretor && email === diretor.email && f.senha === diretor.senha) { setErro(""); return onEnter(role, null, diretor); }
+      /* confere e-mail e senha na tabela usuarios */
       setVerificando(true);
       try {
         const conta = await loginDiretor(email, f.senha);
-        if (conta) { saveJSON(K_DIRETOR, conta); setDiretor(conta); setErro(""); return onEnter(role); }
+        if (conta) { setDiretor(conta); setErro(""); return onEnter(role, null, conta); }
         setErro(L("E-mail ou senha incorretos."));
       } catch (err) {
         setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -403,11 +401,10 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     try {
       const conta = await loginUsuario(role, { email, senha: f.senha });
       if (conta) { setErro(""); return onEnter(role); }
-    } catch { /* sem conexão: tenta o acesso local abaixo */ }
-    finally { setVerificando(false); }
-    const ok = loadJSON(K_USUARIOS, []).some((u) => u.role === role && u.email === email && u.senha === f.senha);
-    if (ok) { setErro(""); onEnter(role); }
-    else setErro(L("E-mail ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails."));
+      setErro(L("E-mail ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails."));
+    } catch (err) {
+      setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
+    } finally { setVerificando(false); }
   };
 
   const temAcesso = true; // acessos agora vivem no banco — a validação é feita no envio
@@ -499,8 +496,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
 }
 
 /* ══════════════ PRIMEIRO ACESSO — BANCO VAZIO ══════════════ */
-function SetupCondominio({ t, role, onCriado, onSair, dark, setDark }) {
-  const diretor = loadJSON(K_DIRETOR, null);
+function SetupCondominio({ t, role, diretor, onCriado, onSair, dark, setDark }) {
   const [salvar, saving] = useSubmit(async (f) => { await criarCondominio(f, diretor); await onCriado(); });
   const [planos, setPlanos] = useState([]);
   useEffect(() => { listarPlanos().then(setPlanos).catch(() => {}); }, []);
@@ -955,7 +951,10 @@ function Cobrancas({ t }) {
   const [q, setQ] = useState(""); const [st, setSt] = useState("todos"); const [qr, setQr] = useState(null); const [nova, setNova] = useState(false);
   const [pagarOnline, pagando] = usePagarCommet();
   const [destino, setDestino] = useState(""); // "" = rateio para todas; senão, id da unidade
-  const moradores = loadJSON(K_USUARIOS, []).filter((u) => u.role === "morador");
+  const [moradores, setMoradores] = useState([]);
+  useEffect(() => {
+    listarAcessos(db.ctx).then((a) => setMoradores(a.filter((x) => x.role === "morador"))).catch(() => {});
+  }, [db.ctx]);
   const moradorDa = (label) => moradores.find((m) => m.unidade === label)?.nome;
   const [gerar, gerando] = useSubmit(async (f) => {
     if (f.unidade) f.moradorNome = moradorDa(db.ctx.unidades.find((x) => x.id === f.unidade)?.label) || "";
@@ -1808,6 +1807,7 @@ export default function App() {
   const onLang = useCallback((l) => { setLang(l); setLangState(l); }, []);
   const [role, setRole] = useState(null);
   const [morador, setMorador] = useState(null); // { nome, unidade } do morador logado
+  const [diretorConta, setDiretorConta] = useState(null); // conta do diretor logado (para o 1º acesso)
   const [screen, setScreen] = useState("dashboard");
   const [sideOpen, setSideOpen] = useState(false);
   const t = dark ? THEMES.dark : THEMES.light;
@@ -1841,10 +1841,10 @@ export default function App() {
     `}</style>
   );
 
-  if (!role) return <DataCtx.Provider value={dataValue}>{globalStyle}<Login t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} onEnter={(r, m) => { setMorador(m || null); setRole(r); setScreen(r === "administradora" ? "saas" : "dashboard"); }} /></DataCtx.Provider>;
+  if (!role) return <DataCtx.Provider value={dataValue}>{globalStyle}<Login t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} onEnter={(r, m, d) => { setMorador(m || null); setDiretorConta(d || null); setRole(r); setScreen(r === "administradora" ? "saas" : "dashboard"); }} /></DataCtx.Provider>;
   if (db?.vazio) return (
     <DataCtx.Provider value={dataValue}>{globalStyle}
-      <SetupCondominio t={t} role={role} dark={dark} setDark={setDark} onCriado={reload} onSair={() => setRole(null)} />
+      <SetupCondominio t={t} role={role} diretor={diretorConta} dark={dark} setDark={setDark} onCriado={reload} onSair={() => setRole(null)} />
     </DataCtx.Provider>);
 
   /* ── PAYWALL: sem assinatura ativa, nenhum perfil do condomínio entra ──
