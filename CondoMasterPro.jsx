@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import QRCodeLib from "qrcode";
 import {
   LayoutDashboard, Building2, Home, Users, Wallet, QrCode, Gavel, Megaphone,
-  FileText, Wrench, ShieldCheck, Briefcase, LogOut, Sun, Moon, Search, Plus,
+  FileText, Wrench, ShieldCheck, LogOut, Sun, Moon, Search, Plus,
   ChevronRight, ChevronLeft, X, Check, Clock, AlertCircle, CheckCircle2,
   Download, Filter, Bell, Menu, Eye, Send, Printer, RefreshCw, TrendingUp,
   TrendingDown, CircleDot, User, KeyRound, Car, Package, DoorOpen, Star,
-  CalendarClock, ListChecks, MoreHorizontal, Pencil, Ban, ArrowUpRight,
-  Mail, EyeOff, Trash2, UserPlus
+  CalendarClock, ListChecks, MoreHorizontal, Pencil, Ban,
+  Mail, EyeOff, Trash2, UserPlus, Upload, Copy, MapPin
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -17,6 +18,9 @@ import {
   criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, loginDiretor, pagarComCommet,
   assinarLicencaCommet, verificarLicencaCommet, listarPlanos, registrarDiretor,
   criarAcesso, listarAcessos, removerAcesso, loginUsuario, setAuthToken,
+  salvarLogoCondominio, obterCondominio, salvarCondominio, salvarAreaUnidade,
+  atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
+  gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
 } from "./src/lib/api.js";
 
 /* Abre o checkout do Commet em nova aba; avisa se o backend ainda não estiver no ar */
@@ -73,6 +77,7 @@ const uid = () => Math.random().toString(36).slice(2, 9);
    O localStorage guarda APENAS a sessão (perfil e nome de quem entrou — nunca
    a senha), para a pessoa não precisar logar de novo ao recarregar a página. */
 const K_SESSAO = "cm_sessao";
+const K_TELA = "cm_tela"; // tela ativa — sobrevive ao recarregar a página (por aba)
 const lerSessao = () => { try { return JSON.parse(localStorage.getItem(K_SESSAO)) || null; } catch { return null; } };
 const salvarSessao = (s) => { try { s ? localStorage.setItem(K_SESSAO, JSON.stringify(s)) : localStorage.removeItem(K_SESSAO); } catch { /* sem storage */ } };
 setAuthToken(lerSessao()?.token || null); // restaura o token do RLS antes da primeira consulta
@@ -82,12 +87,11 @@ const PROFILES = {
   diretor:       { label: "Diretor",        icon: Star,        desc: "Visão estratégica, aprovações e auditoria" },
   sindico:       { label: "Síndico",        icon: ShieldCheck, desc: "Operação, multas, comunicados e manutenção" },
   tesouraria:    { label: "Tesouraria",     icon: Wallet,      desc: "Financeiro, cobranças e conciliação" },
-  administradora:{ label: "Administradora", icon: Briefcase,   desc: "Gestão SaaS: clientes, planos e licenças" },
   morador:       { label: "Morador",        icon: Home,        desc: "Boletos, comprovantes, comunicados e chamados" },
 };
 
 const NAV = [
-  { id: "dashboard",  label: "Dashboard",       icon: LayoutDashboard, roles: ["diretor","sindico","tesouraria","administradora"] },
+  { id: "dashboard",  label: "Dashboard",       icon: LayoutDashboard, roles: ["diretor","sindico","tesouraria"] },
   { id: "condominio", label: "Condomínio",      icon: Building2,       roles: ["diretor","sindico"] },
   { id: "unidades",   label: "Unidades",        icon: Home,            roles: ["diretor","sindico","tesouraria"] },
   { id: "pessoas",    label: "Pessoas",         icon: Users,           roles: ["diretor","sindico"] },
@@ -98,20 +102,21 @@ const NAV = [
   { id: "documentos", label: "Documentos",      icon: FileText,        roles: ["diretor","sindico","tesouraria"] },
   { id: "chamados",   label: "Manutenção",      icon: Wrench,          roles: ["diretor","sindico"] },
   { id: "portaria",   label: "Portaria",        icon: DoorOpen,        roles: ["diretor","sindico"] },
-  { id: "emails",     label: "Gerenciar Emails",icon: Mail,            roles: ["diretor"] },
-  { id: "saas",       label: "Painel SaaS",     icon: Briefcase,       roles: ["administradora"] },
+  { id: "emails",     label: "Gerenciar Acessos",icon: Mail,            roles: ["diretor"] },
 ];
 
 /* ══════════════ DADOS (Supabase) ══════════════ */
 const DataCtx = React.createContext(null);
 const useData = () => React.useContext(DataCtx);
 
-/* Envia um formulário: coleta os campos com FormData, executa a ação e trata erros */
+/* Envia um formulário: coleta os campos com FormData, executa a ação e trata erros.
+   Campos repetidos (ex.: input de arquivo com "multiple") viram array. */
 const useSubmit = (action) => {
   const [saving, setSaving] = useState(false);
   const onSubmit = async (e) => {
     e.preventDefault();
-    const f = Object.fromEntries(new FormData(e.currentTarget));
+    const f = {};
+    for (const [k, v] of new FormData(e.currentTarget).entries()) f[k] = k in f ? [].concat(f[k], v) : v;
     setSaving(true);
     try { await action(f); } catch (err) { alert("Não foi possível salvar: " + (err?.message || err)); }
     finally { setSaving(false); }
@@ -119,10 +124,34 @@ const useSubmit = (action) => {
   return [onSubmit, saving];
 };
 
-/* Série ilustrativa do gráfico de MRR (histórico mensal ainda não é rastreado no banco) */
-const M_MRR = [
-  { m: "Jan", v: 1800 }, { m: "Fev", v: 2290 }, { m: "Mar", v: 2290 }, { m: "Abr", v: 2570 }, { m: "Mai", v: 2570 }, { m: "Jun", v: 2570 },
-];
+/* Campo de valor monetário: formata enquanto digita, na moeda de gestão do
+   condomínio. O valor submetido (input oculto) sai como "1234,56" — o formato
+   que o parseBRL da camada de dados entende, independente da moeda exibida. */
+const LOCALE_MOEDA = { BRL: "pt-BR", USD: "en-US", EUR: "de-DE", GBP: "en-GB", ARS: "es-AR", PYG: "es-PY" };
+function MoneyInput({ t, name, moeda = "BRL", required, defaultCents = null }) {
+  const [cents, setCents] = useState(defaultCents);
+  const fmt = (c) => (c / 100).toLocaleString(LOCALE_MOEDA[moeda] || "pt-BR", { style: "currency", currency: moeda });
+  return (<>
+    <input inputMode="numeric" required={required} placeholder={fmt(0)}
+      value={cents == null ? "" : fmt(cents)}
+      onChange={(e) => { const dig = e.target.value.replace(/\D/g, "").slice(0, 15); setCents(dig ? parseInt(dig, 10) : null); }}
+      style={inputStyle(t)} />
+    <input type="hidden" name={name} value={cents == null ? "" : (cents / 100).toFixed(2).replace(".", ",")} />
+  </>);
+}
+
+/* Campo de anexo: input de arquivo real com o visual tracejado do app */
+function FileField({ t, name, accept, multiple, height = 42, hint = "Anexar arquivo" }) {
+  const [sel, setSel] = useState("");
+  return (
+    <label className="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-dashed px-2 text-xs"
+      style={{ height, borderColor: sel ? t.gold : t.borderSoft, color: sel ? t.gold : t.dim }}>
+      <input name={name} type="file" accept={accept} multiple={multiple} className="hidden"
+        onChange={(e) => { const fs = [...(e.target.files || [])]; setSel(fs.length > 1 ? `${fs.length} arquivos selecionados` : fs[0]?.name || ""); }} />
+      <Upload size={13} /> <span className="max-w-full truncate">{sel || hint}</span>
+    </label>
+  );
+}
 
 const STATUS_META = {
   pago:{c:"ok",l:"Pago"}, parcial:{c:"warn",l:"Parcial"}, aberto:{c:"info",l:"Em aberto"},
@@ -130,6 +159,8 @@ const STATUS_META = {
   ocupada:{c:"ok",l:"Ocupada"}, alugada:{c:"info",l:"Alugada"}, vaga:{c:"warn",l:"Vaga"},
   ativo:{c:"ok",l:"Ativo"}, teste:{c:"warn",l:"Em teste"}, inadimplente:{c:"danger",l:"Inadimplente"},
   aguardando_defesa:{c:"warn",l:"Prazo de defesa"}, aprovada:{c:"danger",l:"Multa aplicada"}, advertencia:{c:"info",l:"Advertência"},
+  pendente:{c:"warn",l:"Pendente — revisão do síndico"}, aprovada_envio:{c:"gold",l:"Aprovada — enviar ao responsável"},
+  entregue:{c:"info",l:"Entregue"}, encerrada:{c:"ok",l:"Encerrada"}, paga:{c:"ok",l:"Paga"},
   andamento:{c:"info",l:"Em andamento"}, concluido:{c:"ok",l:"Concluído"},
   dentro:{c:"info",l:"No condomínio"}, saiu:{c:"ok",l:"Saiu"}, retirado:{c:"ok",l:"Retirado"}, ocorrencia:{c:"warn",l:"Ocorrência"},
   cancelada:{c:"danger",l:"Cancelada"}, cancelado:{c:"danger",l:"Cancelado"}, vendida:{c:"info",l:"Vendida"}, reservada:{c:"warn",l:"Reservada"}, inativa:{c:"danger",l:"Inativa"},
@@ -157,8 +188,8 @@ const StatCard = ({ t, icon: Ic, label, value, trend, color }) => (
           {trend >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}{Math.abs(trend)}%
         </span>)}
     </div>
-    <div className="mt-2 text-xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: color || t.text }}>{value}</div>
-    <div className="text-xs" style={{ color: t.dim }}>{L(label)}</div>
+    <div className="mt-2 min-w-0 truncate text-lg font-bold sm:text-xl" title={String(value)} style={{ fontFamily: "'Sora',sans-serif", color: color || t.text }}>{value}</div>
+    <div className="truncate text-xs" title={L(label)} style={{ color: t.dim }}>{L(label)}</div>
   </Card>
 );
 
@@ -313,14 +344,19 @@ const QRMock = ({ seed = "verum", size = 148 }) => {
   );
 };
 
-/* Documento timbrado — assinatura visual do produto */
-const Timbrado = ({ t, tipo, corpo, unidade, valor, prazo }) => (
+/* Documento timbrado — cabeçalho, CNPJ e assinatura vêm do cadastro do próprio condomínio */
+const Timbrado = ({ t, tipo, corpo, unidade, valor, prazo }) => {
+  const c = useData()?.db?.cond || {};
+  const iniciais = (c.nome || "—").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+  return (
   <div className="overflow-hidden rounded-xl border" style={{ borderColor: t.border, background: "#FDFCF7", color: "#1A1A1A" }}>
     <div className="flex items-center gap-3 px-5 pt-5">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold" style={{ background: "#0A0E1A", color: "#D4AF37" }}>AC</div>
+      {c.logoUrl
+        ? <img src={c.logoUrl} alt="Logo" className="h-10 w-10 rounded-full object-contain" style={{ background: "#0A0E1A" }} />
+        : <div className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold" style={{ background: "#0A0E1A", color: "#D4AF37" }}>{iniciais || "?"}</div>}
       <div>
-        <div className="text-sm font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>Residencial Águas Claras</div>
-        <div className="text-[11px]" style={{ color: "#666" }}>CNPJ 12.345.678/0001-90 · Av. das Palmeiras, 1200 — Foz do Iguaçu/PR</div>
+        <div className="text-sm font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{c.nome || "—"}</div>
+        <div className="text-[11px]" style={{ color: "#666" }}>{[c.cnpj && `CNPJ ${c.cnpj}`, c.endereco].filter(Boolean).join(" · ") || "Complete o cadastro do condomínio"}</div>
       </div>
     </div>
     <div className="mx-5 mt-3 h-[2px]" style={{ background: "linear-gradient(90deg,#D4AF37,transparent)" }} />
@@ -331,14 +367,15 @@ const Timbrado = ({ t, tipo, corpo, unidade, valor, prazo }) => (
         <div><b>Unidade:</b> {unidade}</div>
         {valor != null && <div><b>Valor:</b> {BRL(valor)}</div>}
         {prazo && <div><b>Prazo para defesa:</b> {prazo}</div>}
-        <div><b>Data de emissão:</b> 18/06/2026</div>
+        <div><b>Data de emissão:</b> {new Date().toLocaleDateString("pt-BR")}</div>
       </div>
       <div className="mt-5 border-t pt-3 text-center text-xs" style={{ borderColor: "#DDD", color: "#666" }}>
-        Roberto Silva — Síndico · assinatura eletrônica registrada na plataforma
+        {c.sindico || "Síndico"} — Síndico · assinatura eletrônica registrada na plataforma
       </div>
     </div>
   </div>
-);
+  );
+};
 
 /* Hook: simula ciclo de carregamento por tela */
 const useLoad = (screen) => {
@@ -376,13 +413,13 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.currentTarget));
     if (role === "morador") {
-      /* morador entra com o nome cadastrado pelo diretor em Gerenciar Emails */
+      /* morador entra com o nome cadastrado pelo diretor em Gerenciar Acessos */
       const nome = (f.nome || "").trim();
       setVerificando(true);
       try {
         const conta = await loginUsuario("morador", { nome, senha: f.senha });
         if (conta) { setErro(""); return onEnter(role, { nome: conta.nome, unidade: conta.unidade || null }, null, conta.condominioId, conta.token); }
-        setErro(L("Nome ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails."));
+        setErro(L("Nome ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Acessos."));
       } catch (err) {
         setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
       } finally { setVerificando(false); }
@@ -406,7 +443,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     try {
       const conta = await loginUsuario(role, { email, senha: f.senha });
       if (conta) { setErro(""); return onEnter(role, null, null, conta.condominioId, conta.token); }
-      setErro(L("E-mail ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Emails."));
+      setErro(L("E-mail ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Acessos."));
     } catch (err) {
       setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
     } finally { setVerificando(false); }
@@ -431,7 +468,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
               <div className="text-sm font-semibold">{L("Criar acesso do diretor")}</div>
               <div className="text-xs" style={{ color: t.dim }}>
                 {L("Este é o primeiro acesso. A conta criada aqui será usada para entrar como")} <b style={{ color: t.text }}>{L("Diretor")}</b>
-                {L(", que poderá cadastrar os e-mails e senhas dos demais perfis em Gerenciar Emails.")}</div>
+                {L(", que poderá cadastrar os e-mails e senhas dos demais perfis em Gerenciar Acessos.")}</div>
               <Field t={t} label="Nome completo"><input name="nome" required placeholder={L("Seu nome")} style={inputStyle(t)} /></Field>
               <Field t={t} label="E-mail"><input name="email" type="email" required placeholder={L("voce@exemplo.com")} style={inputStyle(t)} /></Field>
               <Field t={t} label="Senha"><PasswordInput t={t} name="senha" required placeholder={L("Mínimo 4 caracteres")} /></Field>
@@ -483,7 +520,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
                 <Field t={t} label="Senha"><PasswordInput t={t} name="senha" required placeholder="••••••••" /></Field>
                 {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
                 {!temAcesso && <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
-                  {L("Nenhum acesso de")} {L(PROFILES[role].label)} {L("foi criado ainda. Peça ao diretor para cadastrá-lo em Gerenciar Emails.")}</div>}
+                  {L("Nenhum acesso de")} {L(PROFILES[role].label)} {L("foi criado ainda. Peça ao diretor para cadastrá-lo em Gerenciar Acessos.")}</div>}
                 <Btn t={t} kind="primary" type="submit" disabled={verificando} className="w-full">
                   <KeyRound size={15} /> {verificando ? "Verificando conta..." : "Entrar"}</Btn>
               </form>
@@ -674,49 +711,78 @@ function Dashboard({ t, role, go }) {
         </Card>
       </div>
 
-      {/* pendências e alertas */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card t={t}>
-          <SectionTitle t={t} action={<button onClick={() => go("cobrancas")} className="text-xs" style={{ color: t.gold }}>{L("Ver todas →")}</button>}>
-            {role === "diretor" ? "Aprovações pendentes" : "Alertas do dia"}</SectionTitle>
-          <div className="space-y-2 text-sm">
-            {(() => {
-              const multaPend = db.multas.find((m) => m.status === "aguardando_defesa");
-              const vencidas = db.cobr.filter((c) => c.status === "vencida");
-              const semResp = db.chamados.find((c) => c.status === "aberto" && c.resp === "—");
-              const alertas = [
-                multaPend && [Gavel, `${L("Multa")} ${multaPend.num} ${L("aguarda decisão do síndico")}`, "danger", "multas"],
-                vencidas.length > 0 && [QrCode, `${vencidas.length} ${L("cobrança(s) vencida(s) somando")} ` + BRL(vencidas.reduce((s, c) => s + c.valor, 0)), "warn", "cobrancas"],
-                semResp && [Wrench, `${semResp.num} (${semResp.cat.toLowerCase()}) ${L("sem responsável designado")}`, "warn", "chamados"],
-              ].filter(Boolean);
-              if (!alertas.length) return <div className="text-xs" style={{ color: t.dim }}>Nenhuma pendência no momento. Tudo em dia! 🎉</div>;
-              return alertas.map(([Ic, txt, c, s], i) => (
-                <button key={i} onClick={() => go(s)} className="flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left"
+      {/* pendências + todas as atividades recentes, tudo clicável */}
+      <Card t={t}>
+        <SectionTitle t={t} action={<button onClick={() => go("cobrancas")} className="text-xs" style={{ color: t.gold }}>{L("Ver todas →")}</button>}>
+          {role === "diretor" ? "Aprovações pendentes" : "Alertas do dia"}</SectionTitle>
+        <div className="space-y-2 text-sm">
+          {(() => {
+            const multaPend = db.multas.find((m) => m.status === "pendente");
+            const vencidas = db.cobr.filter((c) => c.status === "vencida");
+            const semResp = db.chamados.find((c) => c.status === "aberto" && c.resp === "—");
+            const alertas = [
+              multaPend && [Gavel, `${L("Multa")} ${multaPend.num} ${L("aguarda decisão do síndico")}`, "danger", "multas"],
+              vencidas.length > 0 && [QrCode, `${vencidas.length} ${L("cobrança(s) vencida(s) somando")} ` + BRL(vencidas.reduce((s, c) => s + c.valor, 0)), "warn", "cobrancas"],
+              semResp && [Wrench, `${semResp.num} (${semResp.cat.toLowerCase()}) ${L("sem responsável designado")}`, "warn", "chamados"],
+            ].filter(Boolean);
+            const podeVer = (s) => NAV.some((n) => n.id === s && n.roles.includes(role));
+            const atividades = db.atividades.filter(([, , s]) => !s || podeVer(s));
+            if (!alertas.length && !atividades.length)
+              return <div className="text-xs" style={{ color: t.dim }}>Nenhuma pendência no momento. Tudo em dia! 🎉</div>;
+            return (<>
+              {alertas.map(([Ic, txt, c, s], i) => (
+                <button key={`p${i}`} onClick={() => go(s)} className="flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left"
                   style={{ borderColor: t[c] + "44", background: t[c] + "0D" }}>
-                  <Ic size={15} color={t[c]} /><span className="flex-1 text-xs">{txt}</span>
-                  <ChevronRight size={14} color={t.dim} /></button>));
-            })()}
-          </div>
-        </Card>
-        <Card t={t}>
-          <SectionTitle t={t}>Atividade recente</SectionTitle>
-          <div className="space-y-2.5 text-xs">
-            {db.atividades.map(([txt, ts], i) => (
-              <div key={i} className="flex gap-2">
-                <div className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: t.gold }} />
-                <div><div>{txt}</div><div style={{ color: t.dim }}>{ts}</div></div>
-              </div>))}
-          </div>
-        </Card>
-      </div>
+                  <Ic size={15} color={t[c]} /><span className="min-w-0 flex-1 truncate text-xs">{txt}</span>
+                  <ChevronRight size={14} color={t.dim} /></button>))}
+              {atividades.map(([txt, ts, s], i) => (
+                <button key={`a${i}`} onClick={() => s && go(s)} className="flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left"
+                  style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: t.gold }} />
+                  <span className="min-w-0 flex-1 truncate text-xs">{txt}</span>
+                  <span className="text-[11px]" style={{ color: t.dim }}>{ts}</span>
+                  <ChevronRight size={14} color={t.dim} /></button>))}
+            </>);
+          })()}
+        </div>
+      </Card>
     </div>
   );
 }
 
-/* ══════════════ CADASTRO DO CONDOMÍNIO ══════════════ */
-function Condominio({ t }) {
+/* ══════════════ CADASTRO DO CONDOMÍNIO ══════════════
+   Carrega e grava os dados reais do condomínio da conta logada (escopo por
+   condominio_id do token — cada diretor só vê e edita o próprio prédio). */
+function Condominio({ t, role }) {
+  const { db } = useData();
+  /* síndico enxerga o cadastro somente leitura; apenas o diretor edita */
+  const somenteLeitura = role !== "diretor";
   const [tab, setTab] = useState("dados");
   const [saved, setSaved] = useState(false);
+  const [cond, setCond] = useState(null);
+  const [formKey, setFormKey] = useState(0);
+  const [logo, setLogo] = useState(null);
+  const [subindoLogo, setSubindoLogo] = useState(false);
+  const carregar = () => obterCondominio(db.ctx)
+    .then((c) => { setCond(c); setLogo(c.logoUrl); setFormKey((k) => k + 1); })
+    .catch((e) => alert("Não foi possível carregar o cadastro: " + (e?.message || e)));
+  useEffect(() => { carregar(); }, [db.ctx]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [salvar, saving] = useSubmit(async (f) => {
+    await salvarCondominio(db.ctx, f);
+    setSaved(true); setTimeout(() => setSaved(false), 1800);
+  });
+  const enviarLogo = async (e) => {
+    const arq = e.target.files?.[0];
+    if (!arq) return;
+    setSubindoLogo(true);
+    try { setLogo(await salvarLogoCondominio(db.ctx, arq)); }
+    catch (err) { alert("Não foi possível enviar o logo: " + (err?.message || err)); }
+    finally { setSubindoLogo(false); }
+  };
+  const tenant = (db.tenants || []).find((x) => x.id === db.ctx.condominioId);
+  /* as abas ficam sempre montadas (só escondidas) para o salvar enviar o formulário inteiro */
+  const mostra = (k) => ({ display: tab === k ? undefined : "none" });
+  if (!cond) return <div className="vfade max-w-3xl text-xs" style={{ color: t.dim }}>{L("Carregando cadastro do condomínio…")}</div>;
   return (
     <div className="vfade max-w-3xl space-y-4">
       <div className="flex gap-1 overflow-x-auto">
@@ -724,78 +790,117 @@ function Condominio({ t }) {
           <button key={k} onClick={() => setTab(k)} className="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium"
             style={{ background: tab===k ? t.goldSoft : "transparent", color: tab===k ? t.gold : t.dim, border: `1px solid ${tab===k ? t.border : "transparent"}` }}>{l}</button>))}
       </div>
-      <Card t={t} className="space-y-3 p-5">
-        {tab === "dados" && (<>
+      {somenteLeitura && (
+        <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.borderSoft, background: t.surface2, color: t.dim }}>
+          <Eye size={12} className="mr-1 inline" /> {L("Somente leitura — alterações no cadastro do condomínio são feitas pelo diretor.")}</div>
+      )}
+      <form onSubmit={salvar} key={formKey}>
+      <Card t={t} className="p-5">
+      <fieldset disabled={somenteLeitura} className="space-y-3" style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
+        <div className="space-y-3" style={mostra("dados")}>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field t={t} label="Nome fantasia"><input defaultValue="Residencial Águas Claras" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Razão social"><input defaultValue="Condomínio Residencial Águas Claras" style={inputStyle(t)} /></Field>
-            <Field t={t} label="CNPJ"><input defaultValue="12.345.678/0001-90" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Inscrição municipal"><input placeholder="Quando houver" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Tipo"><select style={inputStyle(t)}><option>Residencial</option><option>Comercial</option><option>Misto</option></select></Field>
-            <Field t={t} label="Porte"><select style={inputStyle(t)}><option>Alto padrão</option><option>Médio padrão</option><option>Baixo padrão</option></select></Field>
-            <Field t={t} label="Torres / blocos"><input defaultValue="2 torres (A, B) + térreo comercial" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Unidades / vagas"><input defaultValue="96 unidades · 148 vagas" style={inputStyle(t)} /></Field>
+            <Field t={t} label="Nome fantasia"><input name="nome" required defaultValue={cond.nome} style={inputStyle(t)} /></Field>
+            <Field t={t} label="Razão social"><input name="razao" defaultValue={cond.razao} style={inputStyle(t)} /></Field>
+            <Field t={t} label="CNPJ"><input name="cnpj" required defaultValue={cond.cnpj} style={inputStyle(t)} /></Field>
+            <Field t={t} label="Inscrição municipal"><input name="inscricao" defaultValue={cond.inscricao} placeholder="Quando houver" style={inputStyle(t)} /></Field>
+            <Field t={t} label="Tipo"><select name="tipo" defaultValue={cond.tipo} style={inputStyle(t)}><option>Residencial</option><option>Comercial</option><option>Misto</option></select></Field>
+            <Field t={t} label="Porte"><select name="porte" defaultValue={cond.porte} style={inputStyle(t)}><option>Alto padrão</option><option>Médio padrão</option><option>Baixo padrão</option></select></Field>
+            <Field t={t} label="Torres / blocos"><input name="torres" defaultValue={cond.torres} placeholder={L("Ex.: 2 torres (A, B)")} style={inputStyle(t)} /></Field>
+            <Field t={t} label="Unidades / vagas"><input name="resumo" defaultValue={cond.resumo} placeholder={L("Ex.: 96 unidades · 148 vagas")} style={inputStyle(t)} /></Field>
+            <Field t={t} label="Moeda de gestão">
+              <select name="moeda" defaultValue={cond.moeda} style={inputStyle(t)}>
+                {[["BRL","Real (R$)"],["USD","Dólar (US$)"],["EUR","Euro (€)"],["GBP","Libra (£)"],["ARS","Peso argentino ($)"],["PYG","Guarani (₲)"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+              </select></Field>
           </div>
-          <Field t={t} label="Endereço completo"><input defaultValue="Av. das Palmeiras, 1200 — Foz do Iguaçu/PR" style={inputStyle(t)} /></Field>
-        </>)}
-        {tab === "gestao" && (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field t={t} label="Administradora responsável"><input defaultValue="Verum Administradora" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Síndico atual"><input defaultValue="Roberto Silva" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Diretor administrativo"><input defaultValue="—" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Tesouraria"><input defaultValue="Helena Duarte" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Início da gestão"><input type="date" defaultValue="2026-01-01" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Status do contrato SaaS"><select style={inputStyle(t)}><option>Ativo — plano Premium</option><option>Em teste</option><option>Suspenso</option></select></Field>
-          </div>)}
-        {tab === "regras" && (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field t={t} label="Horário de silêncio"><input defaultValue="22h — 8h" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Mudanças"><input defaultValue="Seg–Sáb, 8h–17h, com agendamento" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Obras"><input defaultValue="Seg–Sex, 8h–17h" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Visitantes"><input defaultValue="Pré-autorização pelo portal" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Animais"><input defaultValue="Permitidos com coleira nas áreas comuns" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Áreas comuns"><input defaultValue="Reserva com 48h de antecedência" style={inputStyle(t)} /></Field>
-          </div>)}
-        {tab === "visual" && (
-          <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field t={t} label="Logo (upload)"><div className="flex h-20 items-center justify-center rounded-xl border border-dashed text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>Arraste ou clique para enviar</div></Field>
-              <Field t={t} label="Cor primária do portal"><input type="color" defaultValue="#D4AF37" style={{ ...inputStyle(t), height: 42, padding: 4 }} /></Field>
-            </div>
-            <div className="text-xs" style={{ color: t.dim }}>A identidade acima é aplicada aos documentos timbrados e ao portal do morador.</div>
-          </div>)}
-        <div className="flex justify-end gap-2 pt-2">
-          <Btn t={t}>Cancelar</Btn>
-          <Btn t={t} kind="primary" onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 1800); }}>
-            {saved ? <><CheckCircle2 size={15} /> Salvo</> : <><Check size={15} /> Salvar alterações</>}</Btn>
+          <Field t={t} label="Endereço completo"><input name="endereco" defaultValue={cond.endereco} style={inputStyle(t)} /></Field>
         </div>
+        <div className="grid gap-3 sm:grid-cols-2" style={mostra("gestao")}>
+          <Field t={t} label="Administradora responsável"><input name="administradora" defaultValue={cond.administradora} style={inputStyle(t)} /></Field>
+          <Field t={t} label="Síndico atual"><input name="sindico" defaultValue={cond.sindico} style={inputStyle(t)} /></Field>
+          <Field t={t} label="Diretor administrativo"><input name="diretorAdm" defaultValue={cond.diretorAdm} style={inputStyle(t)} /></Field>
+          <Field t={t} label="Tesouraria"><input name="tesouraria" defaultValue={cond.tesouraria} style={inputStyle(t)} /></Field>
+          <Field t={t} label="Início da gestão"><input name="inicioGestao" type="date" defaultValue={cond.inicioGestao} style={inputStyle(t)} /></Field>
+          {role === "diretor" && (
+          <Field t={t} label="Plano contratado (somente visualização)">
+            <div className="flex h-[42px] items-center gap-2 rounded-xl border px-3 text-sm" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+              {tenant ? (<>
+                <b>{tenant.plano}</b>
+                <Badge t={t} s={tenant.status} />
+              </>) : <span style={{ color: t.dim }}>{L("Sem assinatura registrada")}</span>}
+            </div>
+            <div className="mt-1 text-[11px]" style={{ color: t.dim }}>{L("Definido pela assinatura da licença — o plano acompanha o pagamento feito no checkout.")}</div>
+          </Field>)}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2" style={mostra("regras")}>
+          <Field t={t} label="Horário de silêncio"><input name="silencio" defaultValue={cond.silencio} placeholder={L("Ex.: 22h — 8h")} style={inputStyle(t)} /></Field>
+          <Field t={t} label="Mudanças"><input name="mudancas" defaultValue={cond.mudancas} placeholder={L("Ex.: Seg–Sáb, 8h–17h, com agendamento")} style={inputStyle(t)} /></Field>
+          <Field t={t} label="Obras"><input name="obras" defaultValue={cond.obras} placeholder={L("Ex.: Seg–Sex, 8h–17h")} style={inputStyle(t)} /></Field>
+          <Field t={t} label="Visitantes"><input name="visitantes" defaultValue={cond.visitantes} placeholder={L("Ex.: Pré-autorização pelo portal")} style={inputStyle(t)} /></Field>
+          <Field t={t} label="Animais"><input name="animais" defaultValue={cond.animais} placeholder={L("Ex.: Permitidos com coleira nas áreas comuns")} style={inputStyle(t)} /></Field>
+          <Field t={t} label="Áreas comuns"><input name="areas" defaultValue={cond.areas} placeholder={L("Ex.: Reserva com 48h de antecedência")} style={inputStyle(t)} /></Field>
+        </div>
+        <div className="space-y-3" style={mostra("visual")}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field t={t} label="Logo (upload)">
+              <label className={`flex h-20 items-center justify-center gap-1.5 rounded-xl border border-dashed px-2 text-xs ${somenteLeitura ? "" : "cursor-pointer"}`}
+                style={{ borderColor: logo ? t.gold : t.borderSoft, color: logo ? t.gold : t.dim }}>
+                <input type="file" accept="image/*" className="hidden" disabled={somenteLeitura} onChange={enviarLogo} />
+                {subindoLogo ? "Enviando…" : logo
+                  ? <><img src={logo} alt="Logo do condomínio" className="max-h-16 max-w-[60%] rounded object-contain" />{!somenteLeitura && <span>Trocar logo</span>}</>
+                  : somenteLeitura ? <span>{L("Sem logo cadastrado")}</span>
+                  : <><Upload size={13} /> Clique para enviar (salva na hora)</>}
+              </label>
+            </Field>
+            <Field t={t} label="Cor primária do portal"><input name="cor" type="color" defaultValue={cond.cor} style={{ ...inputStyle(t), height: 42, padding: 4 }} /></Field>
+          </div>
+          <div className="text-xs" style={{ color: t.dim }}>A identidade acima é aplicada aos documentos timbrados e ao portal do morador.</div>
+        </div>
+        {!somenteLeitura && (
+        <div className="flex justify-end gap-2 pt-2">
+          <Btn t={t} onClick={carregar}>Descartar alterações</Btn>
+          <Btn t={t} kind="primary" type="submit" disabled={saving}>
+            {saved ? <><CheckCircle2 size={15} /> Salvo</> : <><Check size={15} /> {saving ? "Salvando…" : "Salvar alterações"}</>}</Btn>
+        </div>)}
+      </fieldset>
       </Card>
+      </form>
     </div>
   );
 }
 
 /* ══════════════ UNIDADES ══════════════ */
-function Unidades({ t }) {
+function Unidades({ t, role }) {
   const { db, reload } = useData();
+  /* síndico e tesouraria editam e consultam históricos, mas só o diretor cria unidades */
+  const podeCriar = role === "diretor";
   const [q, setQ] = useState(""); const [st, setSt] = useState("todos"); const [sel, setSel] = useState(null); const [novo, setNovo] = useState(false);
   const [salvar, saving] = useSubmit(async (f) => { await criarUnidade(db.ctx, f); await reload(); setNovo(false); });
+  const areaRef = React.useRef(null);
+  const [salvandoArea, setSalvandoArea] = useState(false);
+  const [hist, setHist] = useState(null); // histórico aberto no modal: pagamentos | multas | moradores
+  const salvarUnidade = async () => {
+    setSalvandoArea(true);
+    try { await salvarAreaUnidade(db.ctx, sel.id, areaRef.current?.value); await reload(); setSel(null); }
+    catch (err) { alert("Não foi possível salvar: " + (err?.message || err)); }
+    finally { setSalvandoArea(false); }
+  };
   const rows = db.unidades.filter((u) => (st === "todos" || u.status === st) &&
     (u.num + u.bloco + u.tipo + u.resp).toLowerCase().includes(q.toLowerCase()));
   const cols = [{k:"num",l:"Unidade"},{k:"tipo",l:"Tipo"},{k:"status",l:"Status"},{k:"resp",l:"Responsável financeiro"},{k:"fracao",l:"Fração ideal"},{k:"saldo",l:"Saldo"}];
   return (
     <div className="vfade">
       <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por número, bloco ou responsável…"
-        action={<Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Unidade</Btn>}>
+        action={podeCriar ? <Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Unidade</Btn> : null}>
         <Sel t={t} value={st} onChange={setSt} opts={[["todos","Todos os status"],["ocupada","Ocupada"],["alugada","Alugada"],["vaga","Vaga"]]} />
       </Toolbar>
-      <Tbl t={t} cols={cols} rows={rows} onRowClick={setSel}
+      <Tbl t={t} cols={cols} rows={rows} onRowClick={(r) => { setSel(r); setHist(null); }}
         empty={<EmptyState t={t} icon={Home} title="Nenhuma unidade encontrada"
-          hint="Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio."
-          action={<Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={14} /> Cadastrar unidade</Btn>} />}
+          hint={podeCriar ? "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio." : "Ajuste a busca ou os filtros. O cadastro de novas unidades é feito pelo diretor."}
+          action={podeCriar ? <Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={14} /> Cadastrar unidade</Btn> : null} />}
         renderCell={(r, k) => {
           if (k === "num") return <b>{r.num} · Bloco {r.bloco}</b>;
           if (k === "status") return <Badge t={t} s={r.status} />;
-          if (k === "fracao") return r.fracao.toFixed(2) + "%";
+          if (k === "fracao") return (<span>{r.fracao.toFixed(2)}%{r.area > 0 && <span style={{ color: t.dim }}> · {String(r.area).replace(".", ",")} m²</span>}</span>);
           if (k === "saldo") return <span style={{ color: r.saldo < 0 ? t.danger : t.ok }}>{r.saldo < 0 ? BRL(r.saldo) : "Em dia"}</span>;
           return r[k];
         }} />
@@ -806,20 +911,51 @@ function Unidades({ t }) {
             <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.goldSoft, color: t.gold }}>{sel.tipo}</span>
             <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.surface2, color: t.dim }}>{sel.vagas} vaga(s)</span></div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field t={t} label="Responsável financeiro"><input defaultValue={sel.resp} style={inputStyle(t)} /></Field>
-            <Field t={t} label="Fração ideal (%)"><input defaultValue={sel.fracao} style={inputStyle(t)} /></Field>
-            <Field t={t} label="Área privativa (m²)"><input defaultValue="86" style={inputStyle(t)} /></Field>
-            <Field t={t} label="Vagas vinculadas"><input defaultValue={sel.vagas} style={inputStyle(t)} /></Field>
+            <Field t={t} label="Responsável financeiro"><input readOnly value={sel.resp} style={{ ...inputStyle(t), opacity: 0.7 }} /></Field>
+            <Field t={t} label="Fração ideal (calculada)"><input readOnly value={`${sel.fracao.toFixed(4).replace(".", ",")}%`} title={L("Área privativa da unidade ÷ área total do edifício")} style={{ ...inputStyle(t), opacity: 0.7 }} /></Field>
+            <Field t={t} label="Área privativa (m²)"><input ref={areaRef} key={sel.id} defaultValue={sel.area || ""} placeholder={L("Ex.: 86,50")} style={inputStyle(t)} /></Field>
+            <Field t={t} label="Vagas vinculadas"><input readOnly value={sel.vagas} style={{ ...inputStyle(t), opacity: 0.7 }} /></Field>
           </div>
+          <div className="mt-2 text-xs" style={{ color: t.dim }}>
+            {L("Alterar a área privativa recalcula a fração ideal de todas as unidades — é ela que define a proporção de cada unidade no rateio das despesas comuns.")}</div>
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
-            {[["Histórico de pagamentos", Wallet], ["Histórico de multas", Gavel], ["Moradores autorizados", Users]].map(([l, Ic]) => (
-              <button key={l} className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-xs"
-                style={{ borderColor: t.borderSoft, background: t.surface2 }}><Ic size={14} color={t.gold} /> {l}</button>))}
+            {[["pagamentos", "Histórico de pagamentos", Wallet], ["multas", "Histórico de multas", Gavel], ["moradores", "Moradores autorizados", Users]].map(([k, l, Ic]) => (
+              <button key={k} onClick={() => setHist(hist === k ? null : k)}
+                className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-xs"
+                style={{ borderColor: hist === k ? t.gold : t.borderSoft, background: hist === k ? t.goldSoft : t.surface2, color: hist === k ? t.gold : t.text }}>
+                <Ic size={14} color={t.gold} /> {l}</button>))}
           </div>
+          {hist && (() => {
+            const vazio = (msg) => (
+              <div className="mt-3 rounded-xl border border-dashed px-4 py-5 text-center text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+                <AlertCircle size={16} className="mx-auto mb-1.5" color={t.dim} /> {L("Nada consta")} — {msg}</div>);
+            const linha = (key, children) => (
+              <div key={key} className="flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.borderSoft }}>{children}</div>);
+            if (hist === "pagamentos") {
+              const itens = db.cobr.filter((c) => c.unidadeId === sel.id);
+              return itens.length === 0 ? vazio(L("nenhuma cobrança registrada para esta unidade.")) : (
+                <div className="mt-3 space-y-1.5">{itens.map((c) => linha(c.id, <>
+                  <b>{c.comp}</b><span style={{ color: t.dim }}>{L("venc.")} {c.vencFull}</span>
+                  <span className="ml-auto font-semibold">{BRL(c.valor)}</span><Badge t={t} s={c.status} /></>))}</div>);
+            }
+            if (hist === "multas") {
+              const itens = db.multas.filter((m) => m.unidadeId === sel.id);
+              return itens.length === 0 ? vazio(L("nenhuma multa ou advertência para esta unidade.")) : (
+                <div className="mt-3 space-y-1.5">{itens.map((m) => linha(m.id, <>
+                  <b>Nº {m.num}</b><span>{m.categoria}</span><span style={{ color: t.dim }}>{m.data}</span>
+                  <span className="ml-auto font-semibold">{m.valor > 0 ? BRL(m.valor) : L("advertência")}</span><Badge t={t} s={m.status} /></>))}</div>);
+            }
+            const itens = db.pessoas.filter((p) => p.unidadeId === sel.id);
+            return itens.length === 0 ? vazio(L("nenhum morador ou responsável vinculado a esta unidade.")) : (
+              <div className="mt-3 space-y-1.5">{itens.map((p) => linha(p.id, <>
+                <b>{p.nome}</b>
+                <span className="rounded-full px-2 py-0.5" style={{ background: t.surface2, color: t.text }}>{p.papel}</span>
+                <span className="ml-auto" style={{ color: t.dim }}>{p.tel !== "—" ? p.tel : ""}</span></>))}</div>);
+          })()}
           <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setSel(null)}>Fechar</Btn>
-            <Btn t={t} kind="primary"><Check size={14} /> Salvar alterações</Btn></div>
+            <Btn t={t} kind="primary" disabled={salvandoArea} onClick={salvarUnidade}><Check size={14} /> {salvandoArea ? "Salvando…" : "Salvar alterações"}</Btn></div>
         </Modal>)}
-      {novo && (
+      {novo && podeCriar && (
         <Modal t={t} onClose={() => setNovo(false)} wide>
           <ModalHeader t={t} title="Nova unidade" onClose={() => setNovo(false)} />
           <form onSubmit={salvar}>
@@ -830,10 +966,12 @@ function Unidades({ t }) {
               <Field t={t} label="Até o número (opcional)"><input name="numeroAte" placeholder={L("Ex.: 100 ou 4D — vazio cria só uma")} style={inputStyle(t)} /></Field>
               <Field t={t} label="Andar"><input name="andar" type="number" style={inputStyle(t)} /></Field>
               <Field t={t} label="Status"><select name="status" style={inputStyle(t)}>{["Ocupada","Vaga","Alugada","Vendida","Reservada","Inativa"].map((x)=><option key={x}>{x}</option>)}</select></Field>
-              <Field t={t} label="Fração ideal (%)"><input name="fracao" required placeholder="0,00" style={inputStyle(t)} /></Field>
+              <Field t={t} label="Área privativa (m²)"><input name="area" placeholder={L("Ex.: 86,50")} style={inputStyle(t)} /></Field>
             </div>
             <div className="mt-3 text-xs" style={{ color: t.dim }}>
-              {L("Preencha \"Até o número\" para criar várias unidades de uma vez: 1 até 100 cria 1, 2… 100; 1D até 4D cria 1D, 2D, 3D e 4D. Números que já existem no bloco são pulados. Tipo, andar, status e fração valem para todas.")}</div>
+              {L("A fração ideal é calculada automaticamente: área privativa da unidade ÷ área total do edifício. Ela define a proporção de cada unidade no rateio das despesas comuns e é refeita para o prédio inteiro a cada unidade criada ou alterada.")}</div>
+            <div className="mt-3 text-xs" style={{ color: t.dim }}>
+              {L("Preencha \"Até o número\" para criar várias unidades de uma vez: 1 até 100 cria 1, 2… 100; 1D até 4D cria 1D, 2D, 3D e 4D. Números que já existem no bloco são pulados. Tipo, andar, status e área valem para todas.")}</div>
             <div className="mt-1 text-xs" style={{ color: t.dim }}>O responsável financeiro é vinculado depois, na tela Pessoas (papel proprietário/inquilino).</div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovo(false)}>Cancelar</Btn>
               <Btn t={t} kind="primary" type="submit" disabled={saving}><Check size={14} /> {saving ? "Salvando…" : "Criar unidade"}</Btn></div>
@@ -847,7 +985,20 @@ function Unidades({ t }) {
 function Pessoas({ t }) {
   const { db, reload } = useData();
   const [q, setQ] = useState(""); const [papel, setPapel] = useState("todos"); const [novo, setNovo] = useState(false);
-  const [salvar, saving] = useSubmit(async (f) => { await criarPessoa(db.ctx, f); await reload(); setNovo(false); });
+  const [edit, setEdit] = useState(null); // pessoa em edição — reutiliza o mesmo popup de criar
+  const fechar = () => { setNovo(false); setEdit(null); };
+  const [salvar, saving] = useSubmit(async (f) => {
+    if (edit) await atualizarPessoa(db.ctx, edit, f); else await criarPessoa(db.ctx, f);
+    await reload(); fechar();
+  });
+  const [excluindo, setExcluindo] = useState(false);
+  const excluir = async () => {
+    if (!confirm(`${L("Excluir o cadastro de")} ${edit.nome}? ${L("Esta ação não pode ser desfeita.")}`)) return;
+    setExcluindo(true);
+    try { await removerPessoa(db.ctx, edit.id); await reload(); fechar(); }
+    catch (err) { alert(err?.message || err); }
+    finally { setExcluindo(false); }
+  };
   const papeis = ["Proprietário","Inquilino","Morador","Dependente","Síndico","Funcionário","Prestador","Visitante recorrente"];
   const rows = db.pessoas.filter((p) => (papel === "todos" || p.papel === papel) && p.nome.toLowerCase().includes(q.toLowerCase()));
   return (
@@ -856,33 +1007,41 @@ function Pessoas({ t }) {
         action={<Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Pessoa</Btn>}>
         <Sel t={t} value={papel} onChange={setPapel} opts={[["todos","Todos os papéis"], ...papeis.map((p) => [p, p])]} />
       </Toolbar>
-      <Tbl t={t} cols={[{k:"nome",l:"Nome"},{k:"papel",l:"Papel"},{k:"unidade",l:"Unidade"},{k:"doc",l:"CPF/CNPJ"},{k:"tel",l:"Telefone"},{k:"status",l:"Status"}]}
-        rows={rows}
+      <Tbl t={t} cols={[{k:"nome",l:"Nome"},{k:"papel",l:"Papel"},{k:"unidade",l:"Unidade"},{k:"doc",l:"CPF/CNPJ"},{k:"tel",l:"Telefone"},{k:"arquivo",l:"Documento"},{k:"status",l:"Status"}]}
+        rows={rows} onRowClick={setEdit}
         empty={<EmptyState t={t} icon={Users} title="Nenhuma pessoa encontrada"
           hint="Cadastre proprietários, inquilinos, funcionários e prestadores com papéis separados para evitar confusão operacional." />}
         renderCell={(r, k) => {
           if (k === "nome") return (<span className="flex items-center gap-2">
             <span className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold" style={{ background: t.goldSoft, color: t.gold }}>{r.nome[0]}</span><b>{r.nome}</b></span>);
           if (k === "papel") return <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.surface2, color: t.text }}>{r.papel}</span>;
+          if (k === "arquivo") return r.documentoUrl
+            ? (<a href={r.documentoUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: t.gold }}>
+                <Eye size={13} /> Ver documento</a>)
+            : "—";
           if (k === "status") return <Badge t={t} s={r.status} />;
           return r[k];
         }} />
-      {novo && (
-        <Modal t={t} onClose={() => setNovo(false)} wide>
-          <ModalHeader t={t} title="Nova pessoa" onClose={() => setNovo(false)} />
-          <form onSubmit={salvar}>
+      {(novo || edit) && (
+        <Modal t={t} onClose={fechar} wide>
+          <ModalHeader t={t} title={edit ? "Editar pessoa" : "Nova pessoa"} onClose={fechar} />
+          <form onSubmit={salvar} key={edit?.id || "nova"}>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field t={t} label="Nome completo"><input name="nome" required style={inputStyle(t)} /></Field>
-              <Field t={t} label="CPF ou CNPJ"><input name="doc" required style={inputStyle(t)} /></Field>
-              <Field t={t} label="Papel no condomínio"><select name="papel" style={inputStyle(t)}>{papeis.map((p)=><option key={p}>{p}</option>)}</select></Field>
-              <Field t={t} label="Unidade vinculada"><select name="unidade" style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
-              <Field t={t} label="Telefone"><input name="tel" style={inputStyle(t)} /></Field>
-              <Field t={t} label="E-mail"><input name="email" type="email" style={inputStyle(t)} /></Field>
-              <Field t={t} label="Data de entrada"><input name="inicio" type="date" style={inputStyle(t)} /></Field>
-              <Field t={t} label="Documento (upload)"><div className="flex h-[42px] items-center justify-center rounded-xl border border-dashed text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>Anexar arquivo</div></Field>
+              <Field t={t} label="Nome completo"><input name="nome" required defaultValue={edit?.nome || ""} style={inputStyle(t)} /></Field>
+              <Field t={t} label="CPF ou CNPJ"><input name="doc" required defaultValue={edit?.docRaw || ""} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Papel no condomínio"><select name="papel" defaultValue={papeis.includes(edit?.papel) ? edit.papel : "Morador"} style={inputStyle(t)}>{papeis.map((p)=><option key={p}>{p}</option>)}</select></Field>
+              <Field t={t} label="Unidade vinculada"><select name="unidade" defaultValue={edit?.unidadeId || ""} style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
+              <Field t={t} label="Telefone"><input name="tel" defaultValue={edit?.telRaw || ""} style={inputStyle(t)} /></Field>
+              <Field t={t} label="E-mail"><input name="email" type="email" defaultValue={edit?.email || ""} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Data de entrada"><input name="inicio" type="date" defaultValue={edit?.inicio || ""} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Documento (upload)"><FileField t={t} name="arquivo" accept="image/*,application/pdf"
+                hint={edit?.documentoUrl ? L("Trocar documento (mantém o atual se vazio)") : "Anexar arquivo"} /></Field>
             </div>
-            <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovo(false)}>Cancelar</Btn>
-              <Btn t={t} kind="primary" type="submit" disabled={saving}><Check size={14} /> {saving ? "Salvando…" : "Cadastrar"}</Btn></div>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              {edit && <Btn t={t} kind="danger" disabled={excluindo || saving} onClick={excluir} className="mr-auto"><Trash2 size={14} /> {excluindo ? "Excluindo…" : "Excluir"}</Btn>}
+              <Btn t={t} onClick={fechar}>Cancelar</Btn>
+              <Btn t={t} kind="primary" type="submit" disabled={saving || excluindo}><Check size={14} /> {saving ? "Salvando…" : edit ? "Salvar alterações" : "Cadastrar"}</Btn></div>
           </form>
         </Modal>)}
     </div>
@@ -896,6 +1055,22 @@ function Financeiro({ t }) {
   const [tab, setTab] = useState("lanc"); const [q, setQ] = useState(""); const [novo, setNovo] = useState(false);
   const [salvar, saving] = useSubmit(async (f) => { await criarLancamento(db.ctx, f); await reload(); setNovo(false); });
   const rows = db.lanc.filter((l) => (l.desc + l.cat).toLowerCase().includes(q.toLowerCase()));
+  /* dados das demais abas — tudo já escopado pelo condomínio da sessão */
+  const [baixando, setBaixando] = useState(null);
+  const darBaixa = async (id) => {
+    setBaixando(id);
+    try { await marcarLancamentoPago(db.ctx, id); await reload(); }
+    catch (err) { alert("Não foi possível dar baixa: " + (err?.message || err)); }
+    finally { setBaixando(null); }
+  };
+  const aPagar = db.lanc.filter((l) => l.tipo === "despesa" && (l.status === "aguardando" || l.status === "aberto"));
+  const aReceber = db.cobr.filter((c) => c.status === "emitida" || c.status === "vencida");
+  const compAtual = new Date().toISOString().slice(0, 7);
+  const despComp = db.lanc.filter((l) => l.tipo === "despesa" && l.competencia === compAtual && l.status !== "cancelado")
+    .reduce((s, l) => s + l.valor, 0);
+  const somaFracao = db.ctx.unidades.reduce((s, u) => s + (u.fracao || 0), 0) || 1;
+  const [uniExtrato, setUniExtrato] = useState("");
+  const extrato = uniExtrato ? db.cobr.filter((c) => c.unidadeId === uniExtrato) : [];
   return (
     <div className="vfade space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -912,19 +1087,87 @@ function Financeiro({ t }) {
       {tab === "lanc" ? (<>
         <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar lançamento…"
           action={<><Btn t={t}><Download size={14} /> Exportar</Btn><Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Lançamento</Btn></>} />
-        <Tbl t={t} cols={[{k:"data",l:"Data"},{k:"tipo",l:"Tipo"},{k:"cat",l:"Categoria"},{k:"desc",l:"Descrição"},{k:"valor",l:"Valor"},{k:"status",l:"Status"}]}
+        <Tbl t={t} cols={[{k:"data",l:"Data"},{k:"tipo",l:"Tipo"},{k:"cat",l:"Categoria"},{k:"desc",l:"Descrição"},{k:"valor",l:"Valor"},{k:"nf",l:"NF"},{k:"status",l:"Status"}]}
           rows={rows}
           empty={<EmptyState t={t} icon={Wallet} title="Nenhum lançamento neste período"
             hint="Registre a primeira receita ou despesa da competência para começar a acompanhar o caixa." />}
           renderCell={(r, k) => {
             if (k === "tipo") return <span style={{ color: r.tipo === "receita" ? t.ok : t.info }}>{r.tipo === "receita" ? "Receita" : "Despesa"}</span>;
             if (k === "valor") return <b style={{ color: r.tipo === "receita" ? t.ok : t.text }}>{r.tipo === "receita" ? "+" : "−"}{BRL(r.valor)}</b>;
+            if (k === "nf") return r.nf
+              ? (<a href={r.nf} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: t.gold }}>
+                  <FileText size={13} /> Ver NF</a>)
+              : "—";
             if (k === "status") return <Badge t={t} s={r.status} />;
             return r[k];
           }} />
-      </>) : (
-        <EmptyState t={t} icon={ListChecks} title={`Módulo "${{pagar:"Contas a pagar",receber:"Contas a receber",rateio:"Rateio por unidade",extrato:"Extrato por unidade"}[tab]}" pronto para receber dados`}
-          hint="Esta aba segue a mesma estrutura de tabela, filtros e ações — será populada quando o back-end estiver conectado." />)}
+      </>) : tab === "pagar" ? (<>
+        <div className="text-xs" style={{ color: t.dim }}>
+          {L("Despesas lançadas e ainda não pagas.")} {L("Total em aberto:")} <b style={{ color: t.text }}>{BRL(aPagar.reduce((s, l) => s + l.valor, 0))}</b></div>
+        <Tbl t={t} cols={[{k:"data",l:"Data"},{k:"cat",l:"Categoria"},{k:"desc",l:"Descrição"},{k:"valor",l:"Valor"},{k:"status",l:"Status"},{k:"acao",l:""}]}
+          rows={aPagar}
+          empty={<EmptyState t={t} icon={CheckCircle2} title="Nada consta — nenhuma conta a pagar"
+            hint="Todas as despesas lançadas já foram pagas. Novas despesas aparecem aqui até receberem baixa." />}
+          renderCell={(r, k) => {
+            if (k === "valor") return <b>{BRL(r.valor)}</b>;
+            if (k === "status") return <Badge t={t} s={r.status} />;
+            if (k === "acao") return (
+              <Btn t={t} kind="soft" disabled={baixando === r.id} onClick={(e) => { e.stopPropagation(); darBaixa(r.id); }}>
+                <Check size={13} /> {baixando === r.id ? "Baixando…" : "Marcar pago"}</Btn>);
+            return r[k];
+          }} />
+      </>) : tab === "receber" ? (<>
+        <div className="text-xs" style={{ color: t.dim }}>
+          {L("Cobranças emitidas e ainda não pagas pelas unidades.")} {L("Total em aberto:")} <b style={{ color: t.text }}>{BRL(aReceber.reduce((s, c) => s + c.valor, 0))}</b></div>
+        <Tbl t={t} cols={[{k:"comp",l:"Competência"},{k:"unidade",l:"Unidade"},{k:"resp",l:"Responsável"},{k:"valor",l:"Valor"},{k:"vencFull",l:"Vencimento"},{k:"status",l:"Status"}]}
+          rows={aReceber}
+          empty={<EmptyState t={t} icon={CheckCircle2} title="Nada consta — nenhuma cobrança em aberto"
+            hint="Todas as cobranças emitidas foram pagas. Gere novas cobranças na tela Cobranças QR." />}
+          renderCell={(r, k) => {
+            if (k === "valor") return <b>{BRL(r.valor)}</b>;
+            if (k === "status") return <Badge t={t} s={r.status} />;
+            return r[k];
+          }} />
+      </>) : tab === "rateio" ? (<>
+        <div className="text-xs" style={{ color: t.dim }}>
+          {L("Proporção de cada unidade nas despesas comuns, pela fração ideal (área privativa ÷ área total).")}{" "}
+          {L("Despesas da competência atual:")} <b style={{ color: t.text }}>{BRL(despComp)}</b>. {L("A emissão das cobranças é feita na tela Cobranças QR.")}</div>
+        {despComp === 0 && (
+          <div className="rounded-xl border border-dashed px-4 py-3 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+            <AlertCircle size={14} className="mr-1.5 inline" /> {L("Nada consta — nenhuma despesa lançada nesta competência; as cotas abaixo estão zeradas.")}</div>)}
+        <Tbl t={t} cols={[{k:"label",l:"Unidade"},{k:"fracao",l:"Fração ideal"},{k:"cota",l:"Cota da competência"}]}
+          rows={db.ctx.unidades}
+          empty={<EmptyState t={t} icon={Home} title="Nenhuma unidade cadastrada"
+            hint="Cadastre as unidades para calcular o rateio pela fração ideal." />}
+          renderCell={(r, k) => {
+            if (k === "fracao") return `${(r.fracao || 0).toFixed(4).replace(".", ",")}%`;
+            if (k === "cota") return <b>{BRL(despComp * (r.fracao || 0) / somaFracao)}</b>;
+            return r[k];
+          }} />
+      </>) : (<>
+        <div className="flex flex-wrap items-center gap-2">
+          <Sel t={t} value={uniExtrato} onChange={setUniExtrato}
+            opts={[["", L("Escolha a unidade…")], ...db.ctx.unidades.map((u) => [u.id, u.label])]} />
+          {uniExtrato && (
+            <div className="text-xs" style={{ color: t.dim }}>
+              {L("Pago:")} <b style={{ color: t.ok }}>{BRL(extrato.filter((c) => c.status === "pago").reduce((s, c) => s + c.valor, 0))}</b>{" · "}
+              {L("Em aberto:")} <b style={{ color: t.warn }}>{BRL(extrato.filter((c) => c.status === "emitida" || c.status === "vencida").reduce((s, c) => s + c.valor, 0))}</b></div>)}
+        </div>
+        {!uniExtrato ? (
+          <EmptyState t={t} icon={Search} title="Escolha uma unidade"
+            hint="Selecione a unidade acima para ver todas as cobranças dela: pagas, em aberto e vencidas." />
+        ) : (
+          <Tbl t={t} cols={[{k:"comp",l:"Competência"},{k:"valor",l:"Valor"},{k:"vencFull",l:"Vencimento"},{k:"status",l:"Status"},{k:"tx",l:"Transação"}]}
+            rows={extrato}
+            empty={<EmptyState t={t} icon={FileText} title="Nada consta para esta unidade"
+              hint="Nenhuma cobrança foi emitida para esta unidade até agora." />}
+            renderCell={(r, k) => {
+              if (k === "valor") return <b>{BRL(r.valor)}</b>;
+              if (k === "status") return <Badge t={t} s={r.status} />;
+              return r[k];
+            }} />)}
+      </>)}
       {novo && (
         <Modal t={t} onClose={() => setNovo(false)} wide>
           <ModalHeader t={t} title="Novo lançamento" onClose={() => setNovo(false)} />
@@ -940,7 +1183,7 @@ function Financeiro({ t }) {
               <Field t={t} label="Rateio"><select style={inputStyle(t)}><option>Não ratear</option><option>Por fração ideal</option><option>Igual por unidade</option><option>Por bloco/torre</option></select></Field>
             </div>
             <Field t={t} label="Descrição"><input name="desc" required style={{ ...inputStyle(t), marginTop: 4 }} /></Field>
-            <div className="mt-3"><Field t={t} label="Nota fiscal (anexo)"><div className="flex h-14 items-center justify-center rounded-xl border border-dashed text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>Arraste a NF ou clique para anexar</div></Field></div>
+            <div className="mt-3"><Field t={t} label="Nota fiscal (anexo)"><FileField t={t} name="nota" accept="image/*,application/pdf" height={56} hint="Clique para anexar a NF (imagem ou PDF)" /></Field></div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovo(false)}>Cancelar</Btn>
               <Btn t={t} kind="primary" type="submit" disabled={saving}><Check size={14} /> {saving ? "Salvando…" : "Lançar e enviar para aprovação"}</Btn></div>
           </form>
@@ -956,6 +1199,8 @@ function Cobrancas({ t }) {
   const [q, setQ] = useState(""); const [st, setSt] = useState("todos"); const [qr, setQr] = useState(null); const [nova, setNova] = useState(false);
   const [pagarOnline, pagando] = usePagarCommet();
   const [destino, setDestino] = useState(""); // "" = rateio para todas; senão, id da unidade
+  const [base, setBase] = useState("fracao"); // fracao (proporcional à área) | igual (partes iguais)
+  const moeda = db.cond?.moeda || "BRL"; // moeda de gestão definida no Cadastro do Condomínio
   const [moradores, setMoradores] = useState([]);
   useEffect(() => {
     listarAcessos(db.ctx).then((a) => setMoradores(a.filter((x) => x.role === "morador"))).catch(() => {});
@@ -1027,8 +1272,15 @@ function Cobrancas({ t }) {
                 </select>
               </Field>
               <Field t={t} label="Competência"><input name="competencia" type="month" defaultValue="2026-07" style={inputStyle(t)} /></Field>
-              <Field t={t} label={destino ? "Valor da cobrança (R$)" : "Valor total a ratear (R$)"}><input name="total" required placeholder="Ex.: 88.900,00" style={inputStyle(t)} /></Field>
-              {!destino && <Field t={t} label="Base de cálculo"><select style={inputStyle(t)}><option>Rateio por fração ideal</option></select></Field>}
+              <Field t={t} label={`${destino ? L("Valor da cobrança") : L("Valor total a ratear")} (${moeda})`}>
+                <MoneyInput t={t} name="total" moeda={moeda} required /></Field>
+              {!destino && (
+                <Field t={t} label="Base de cálculo">
+                  <select name="base" value={base} onChange={(e) => setBase(e.target.value)} style={inputStyle(t)}>
+                    <option value="fracao">{L("Rateio por fração ideal (proporcional à área)")}</option>
+                    <option value="igual">{L("Dividir igual por unidade")}</option>
+                  </select>
+                </Field>)}
               <Field t={t} label="Vencimento"><input name="vencimento" type="date" defaultValue="2026-07-10" style={inputStyle(t)} /></Field>
               <Field t={t} label="Canais de envio"><div className="flex flex-wrap gap-2">{["Portal","E-mail","WhatsApp"].map((c) => (
                 <label key={c} className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs" style={{ borderColor: t.borderSoft }}>
@@ -1036,7 +1288,7 @@ function Cobrancas({ t }) {
               <div className="rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.gold }}>
                 {destino
                   ? `${L("Será gerada 1 cobrança para")} ${db.ctx.unidades.find((x) => x.id === destino)?.label}${moradorDa(db.ctx.unidades.find((x) => x.id === destino)?.label) ? ` (${moradorDa(db.ctx.unidades.find((x) => x.id === destino)?.label)})` : ""}. ${L("O morador verá o aviso no portal dele.")}`
-                  : `${L("Serão geradas")} ${nAlvo} ${L("cobranças (unidades com responsável financeiro), rateadas por fração ideal.")}`}</div>
+                  : `${L("Serão geradas")} ${nAlvo} ${L("cobranças (unidades com responsável financeiro)")} — ${base === "igual" ? L("valor dividido em partes iguais entre as unidades") : L("rateadas pela fração ideal de cada unidade")}.`}</div>
             </div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNova(false)}>Cancelar</Btn>
               <Btn t={t} kind="primary" type="submit" disabled={gerando}><QrCode size={14} /> {gerando ? "Gerando…" : (destino ? L("Gerar cobrança") : `${L("Gerar")} ${nAlvo} ${L("cobranças")}`)}</Btn></div>
@@ -1057,6 +1309,46 @@ function Multas({ t, role }) {
     try { await decidirPenalidade(db.ctx, sel.id, aprovar); await reload(); setSel(null); }
     catch (err) { alert("Não foi possível salvar: " + err.message); }
     finally { setDecidindo(false); }
+  };
+  const [enviando, setEnviando] = useState(false);
+  const enviarResp = async () => {
+    setEnviando(true);
+    try { await enviarPenalidade(db.ctx, sel); await reload(); setSel(null); }
+    catch (err) { alert(err?.message || err); }
+    finally { setEnviando(false); }
+  };
+  /* janela de impressão com o timbrado — o navegador salva como PDF */
+  const imprimirPdf = (m) => {
+    const c = db.cond || {};
+    const w = window.open("", "_blank", "width=800,height=900");
+    if (!w) { alert(L("Libere pop-ups do site para imprimir o documento.")); return; }
+    const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${m.valor > 0 ? "Multa" : "Advertência"} ${esc(m.num)}</title>
+      <style>body{font-family:Georgia,'Times New Roman',serif;background:#fff;color:#1A1A1A;margin:48px auto;max-width:640px;line-height:1.6}
+      .topo{display:flex;align-items:center;gap:14px;border-bottom:2px solid #D4AF37;padding-bottom:14px}
+      .logo{width:52px;height:52px;border-radius:50%;background:#0A0E1A;color:#D4AF37;display:flex;align-items:center;justify-content:center;font-weight:bold}
+      .logo img{max-width:100%;max-height:100%;border-radius:50%}
+      .tipo{margin-top:22px;font-size:13px;letter-spacing:3px;color:#9E7C14;font-weight:bold;text-transform:uppercase}
+      table{margin-top:14px;font-size:14px} td{padding:3px 14px 3px 0}
+      .ass{margin-top:56px;border-top:1px solid #999;padding-top:6px;text-align:center;font-size:13px;color:#555;max-width:320px;margin-left:auto;margin-right:auto}
+      .rod{margin-top:40px;font-size:11px;color:#888;text-align:center}</style></head><body>
+      <div class="topo"><div class="logo">${c.logoUrl ? `<img src="${esc(c.logoUrl)}">` : esc((c.nome || "?").split(" ").slice(0, 2).map((x) => x[0]).join("").toUpperCase())}</div>
+        <div><b style="font-size:17px">${esc(c.nome)}</b><br><span style="font-size:12px;color:#666">${esc([c.cnpj && `CNPJ ${c.cnpj}`, c.endereco].filter(Boolean).join(" · "))}</span></div></div>
+      <div class="tipo">${m.valor > 0 ? "Notificação de multa" : "Advertência formal"} — Nº ${esc(m.num)}</div>
+      <p>${esc(m.descricao || m.categoria)}</p>
+      <table>
+        <tr><td><b>Unidade:</b></td><td>${esc(m.unidade)}</td></tr>
+        <tr><td><b>Categoria:</b></td><td>${esc(m.categoria)}</td></tr>
+        <tr><td><b>Base normativa:</b></td><td>${esc(m.base || "Regimento interno")}</td></tr>
+        <tr><td><b>Data da ocorrência:</b></td><td>${esc(m.data)}</td></tr>
+        ${m.valor > 0 ? `<tr><td><b>Valor:</b></td><td>${BRL(m.valor)}</td></tr>` : ""}
+        ${m.prazo !== "—" ? `<tr><td><b>Prazo para defesa:</b></td><td>${esc(m.prazo)}</td></tr>` : ""}
+        <tr><td><b>Emitido em:</b></td><td>${new Date().toLocaleDateString("pt-BR")}</td></tr>
+      </table>
+      <div class="ass">${esc(c.sindico || "Síndico")} — Síndico<br>assinatura eletrônica registrada na plataforma</div>
+      <div class="rod">Documento gerado pelo CondoMaster Pro</div>
+      <script>window.onload = () => window.print()</` + `script></body></html>`);
+    w.document.close();
   };
   return (
     <div className="vfade space-y-4">
@@ -1091,15 +1383,29 @@ function Multas({ t, role }) {
             <div>Registrada por: <b style={{ color: t.text }}>Síndico — via painel</b></div>
             <div>Reincidência: <b style={{ color: t.text }}>{sel.reincidencia ? `${sel.reincidencia}ª ocorrência anterior` : "primeira ocorrência"}</b></div>
           </div>
+          {sel.provas?.length > 0 && (<>
+            <div className="mb-2 text-xs font-semibold" style={{ color: t.dim }}>PROVAS ANEXADAS · {sel.provas.length}</div>
+            <div className="mb-3 flex flex-wrap gap-2">
+              {sel.provas.map((p, i) => (
+                <a key={p.id} href={p.url} target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium"
+                  style={{ borderColor: t.border, background: t.goldSoft, color: t.gold }}>
+                  <Eye size={12} /> {({ foto: "Foto", video: "Vídeo", audio: "Áudio", documento: "Documento" }[p.tipo] || "Arquivo")} {i + 1}
+                </a>))}
+            </div>
+          </>)}
           <div className="mb-2 text-xs font-semibold" style={{ color: t.dim }}>PRÉVIA DO DOCUMENTO TIMBRADO</div>
           <Timbrado t={t} tipo={sel.valor > 0 ? "Notificação de multa" : "Advertência formal"} unidade={sel.unidade}
             valor={sel.valor > 0 ? sel.valor : null} prazo={sel.prazo !== "—" ? sel.prazo : null}
             corpo={`Fica a unidade ${sel.unidade} notificada pela infração "${sel.categoria}", registrada em ${sel.data}, conforme base normativa do regimento interno. ${sel.valor > 0 ? "O valor abaixo será lançado na próxima competência caso não haja defesa acolhida." : "Em caso de reincidência, será aplicada multa conforme tabela vigente."}`} />
           <div className="mt-4 flex flex-wrap justify-end gap-2">
-            <Btn t={t}><Printer size={14} /> Imprimir PDF</Btn>
-            <Btn t={t}><Send size={14} /> Enviar ao responsável</Btn>
-            {role !== "morador" && sel.status === "aguardando_defesa" && (<>
-              <Btn t={t} kind="danger" disabled={decidindo} onClick={() => decidir(false)}><Ban size={14} /> Cancelar multa</Btn>
+            <Btn t={t} onClick={() => imprimirPdf(sel)}><Printer size={14} /> Imprimir PDF</Btn>
+            {role !== "morador" && sel.status === "aprovada_envio" && (
+              <Btn t={t} kind="primary" disabled={enviando} onClick={enviarResp}>
+                <Send size={14} /> {enviando ? "Enviando…" : sel.valor > 0 ? L("Enviar ao responsável (emite a cobrança)") : "Enviar ao responsável"}</Btn>)}
+            {sel.entregueEm && <span className="self-center text-xs" style={{ color: t.dim }}>{L("Entregue ao responsável em")} {sel.entregueEm}</span>}
+            {role !== "morador" && sel.status === "pendente" && (<>
+              <Btn t={t} kind="danger" disabled={decidindo} onClick={() => decidir(false)}><Ban size={14} /> {sel.valor > 0 ? "Cancelar multa" : L("Cancelar advertência")}</Btn>
               <Btn t={t} kind="primary" disabled={decidindo} onClick={() => decidir(true)}><Check size={14} /> {decidindo ? "Salvando…" : "Aprovar (síndico)"}</Btn></>)}
           </div>
         </Modal>)}
@@ -1118,7 +1424,7 @@ function Multas({ t, role }) {
             <Field t={t} label="Base normativa"><input name="base" placeholder="Ex.: Regimento interno, art. 12" style={{ ...inputStyle(t), marginTop: 4 }} /></Field>
             <Field t={t} label="Descrição detalhada"><textarea name="desc" rows={3} style={{ ...inputStyle(t), marginTop: 4, resize: "vertical" }} /></Field>
             <div className="mt-3"><Field t={t} label="Provas (foto, vídeo, áudio ou documento)">
-              <div className="flex h-16 items-center justify-center rounded-xl border border-dashed text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>Arraste os arquivos de prova</div></Field></div>
+              <FileField t={t} name="provas" multiple accept="image/*,video/*,audio/*,application/pdf" height={64} hint="Clique para anexar os arquivos de prova" /></Field></div>
             <div className="mt-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
               O registro segue para aprovação do síndico. O documento timbrado só é emitido após a decisão.</div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNova(false)}>Cancelar</Btn>
@@ -1144,13 +1450,17 @@ function Comunicados({ t }) {
               <div className="rounded-xl p-2" style={{ background: t.goldSoft }}><Megaphone size={16} color={t.gold} /></div>
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold">{c.titulo}</div>
-                <div className="text-xs" style={{ color: t.dim }}>{c.tipo} · {c.data} · enviado por {c.canal}</div>
+                <div className="text-xs" style={{ color: t.dim }}>{c.tipo} · {c.data} · {L(c.publico)} · enviado por {c.canal}</div>
               </div>
               <div className="text-right">
                 <div className="text-sm font-bold" style={{ color: c.leitura > 80 ? t.ok : t.warn, fontFamily: "'Sora',sans-serif" }}>{c.leitura}%</div>
                 <div className="text-[10px]" style={{ color: t.dim }}>leitura confirmada</div>
               </div>
-              <Btn t={t} className="!px-2 !py-1 text-xs"><Eye size={13} /> Ver</Btn>
+              {c.pdfUrl
+                ? (<a href={c.pdfUrl} target="_blank" rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-xl border px-2 py-1 text-xs font-semibold"
+                    style={{ borderColor: t.border, background: t.goldSoft, color: t.gold }}><Eye size={13} /> {L("Ver comunicado")}</a>)
+                : (<Btn t={t} className="!px-2 !py-1 text-xs" onClick={() => alert(L("Este comunicado foi publicado sem a versão em PDF. Os novos são arquivados automaticamente no módulo Documentos."))}><Eye size={13} /> Ver</Btn>)}
             </div>
           </Card>))}
       </div>
@@ -1161,14 +1471,23 @@ function Comunicados({ t }) {
             <div className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field t={t} label="Tipo"><select name="tipo" style={inputStyle(t)}>{["Comunicado geral","Convocação de assembleia","Circular","Aviso de manutenção","Informe de emergência"].map((x)=><option key={x}>{x}</option>)}</select></Field>
-                <Field t={t} label="Destinatários"><select name="segmento" style={inputStyle(t)}><option>Todas as unidades</option><option>Bloco A</option><option>Bloco B</option><option>Lojas</option><option>Somente inadimplentes</option></select></Field>
+                <Field t={t} label="Destinatários">
+                  <select name="segmento" style={inputStyle(t)}>
+                    <option value="todas">{L("Todas as unidades")}</option>
+                    {db.ctx.blocos.map((b) => <option key={b.id} value={`bloco:${b.nome}`}>{L("Bloco")} {b.nome}</option>)}
+                    {db.ctx.tiposUnidade.map((x) => <option key={x} value={`tipo:${x}`}>
+                      {({ apartamento: "Apartamentos", sala: "Salas comerciais", loja: "Lojas", cobertura: "Coberturas", box: "Boxes", deposito: "Depósitos" }[x] || x)}</option>)}
+                    {db.ctx.andares.map((a) => <option key={a} value={`andar:${a}`}>{L("Andar")} {a}</option>)}
+                    <option value="inadimplentes">{L("Somente inadimplentes")}</option>
+                  </select>
+                </Field>
               </div>
               <Field t={t} label="Título"><input name="titulo" required style={inputStyle(t)} /></Field>
               <Field t={t} label="Mensagem"><textarea name="corpo" rows={4} style={{ ...inputStyle(t), resize: "vertical" }} /></Field>
               <Field t={t} label="Canais"><div className="flex flex-wrap gap-2">{["Portal","E-mail","WhatsApp","Impressão"].map((c) => (
                 <label key={c} className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs" style={{ borderColor: t.borderSoft }}>
                   <input type="checkbox" name={`canal_${c}`} defaultChecked={c !== "Impressão"} /> {c}</label>))}</div></Field>
-              <label className="flex items-center gap-2 text-xs" style={{ color: t.dim }}><input type="checkbox" defaultChecked /> Gerar versão timbrada em PDF e arquivar no módulo Documentos</label>
+              <label className="flex items-center gap-2 text-xs" style={{ color: t.dim }}><input type="checkbox" name="gerarPdf" defaultChecked /> Gerar versão timbrada em PDF e arquivar no módulo Documentos</label>
             </div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovo(false)}>Cancelar</Btn>
               <Btn t={t} kind="primary" type="submit" disabled={saving}><Send size={14} /> {saving ? "Publicando…" : "Publicar e enviar"}</Btn></div>
@@ -1180,15 +1499,23 @@ function Comunicados({ t }) {
 
 /* ══════════════ DOCUMENTOS TIMBRADOS ══════════════ */
 function Documentos({ t }) {
-  const { db } = useData();
+  const { db, reload } = useData();
   const tipos = ["Todos","Comunicados","Convocações","Atas","Advertências","Multas","Recibos","Extratos","Autorizações","Ordens de serviço"];
   const [tipo, setTipo] = useState("Todos"); const [preview, setPreview] = useState(false);
-  const docs = db.docs.filter((d) => tipo === "Todos" || d.tipo === tipo);
+  const [gerar, gerando] = useSubmit(async (f) => {
+    const url = await criarDocumento(db.ctx, f);
+    await reload(); setPreview(false);
+    window.open(url, "_blank"); // abre o PDF recém-gerado
+  });
+  /* anos reais dos documentos arquivados deste condomínio */
+  const anos = [...new Set(db.docs.map((d) => d.data.slice(-4)))].sort().reverse();
+  const [ano, setAno] = useState("todos");
+  const docs = db.docs.filter((d) => (tipo === "Todos" || d.tipo === tipo) && (ano === "todos" || d.data.endsWith(ano)));
   return (
     <div className="vfade space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <Sel t={t} value={tipo} onChange={setTipo} opts={tipos.map((x) => [x, x])} />
-        <Sel t={t} value="2026" onChange={() => {}} opts={[["2026","2026"],["2025","2025"]]} />
+        <Sel t={t} value={ano} onChange={setAno} opts={[["todos", L("Todos os anos")], ...anos.map((a) => [a, a])]} />
         <div className="ml-auto"><Btn t={t} kind="primary" onClick={() => setPreview(true)}><Plus size={15} /> Criar documento timbrado</Btn></div>
       </div>
       {docs.length ? (
@@ -1200,8 +1527,12 @@ function Documentos({ t }) {
                 <div className="text-sm font-semibold">{d.nome}</div>
                 <div className="text-xs" style={{ color: t.dim }}>{d.tipo} · {d.data} · {d.envios}</div>
               </div>
-              <Btn t={t} className="!px-2 !py-1 text-xs"><Eye size={13} /> Ver</Btn>
-              <Btn t={t} className="!px-2 !py-1 text-xs"><Download size={13} /> PDF</Btn>
+              {d.url ? (<>
+                <a href={d.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-xl border px-2 py-1 text-xs"
+                  style={{ borderColor: t.borderSoft, color: t.dim }}><Eye size={13} /> Ver</a>
+                <a href={d.url} target="_blank" rel="noreferrer" download className="inline-flex items-center gap-1 rounded-xl border px-2 py-1 text-xs font-semibold"
+                  style={{ borderColor: t.border, background: t.goldSoft, color: t.gold }}><Download size={13} /> PDF</a>
+              </>) : <span className="text-xs" style={{ color: t.dim }}>—</span>}
             </div>
           </Card>))}</div>
       ) : (
@@ -1210,15 +1541,18 @@ function Documentos({ t }) {
       {preview && (
         <Modal t={t} onClose={() => setPreview(false)} wide>
           <ModalHeader t={t} title="Novo documento timbrado" onClose={() => setPreview(false)} />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field t={t} label="Tipo"><select style={inputStyle(t)}>{tipos.slice(1).map((x)=><option key={x}>{x}</option>)}</select></Field>
-            <Field t={t} label="Unidade (se aplicável)"><select style={inputStyle(t)}><option>—</option>{db.ctx.unidades.map((u)=><option key={u.id}>{u.label}</option>)}</select></Field>
-          </div>
-          <Field t={t} label="Conteúdo"><textarea rows={3} defaultValue="Texto do documento…" style={{ ...inputStyle(t), marginTop: 4, resize: "vertical" }} /></Field>
-          <div className="mb-2 mt-4 text-xs font-semibold" style={{ color: t.dim }}>PRÉVIA COM PAPEL TIMBRADO</div>
-          <Timbrado t={t} tipo="Autorização" unidade="—" corpo="Texto do documento… O cabeçalho, logo, CNPJ, rodapé e assinatura são aplicados automaticamente pela identidade visual configurada no cadastro do condomínio." />
-          <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setPreview(false)}>Cancelar</Btn>
-            <Btn t={t} kind="primary" onClick={() => setPreview(false)}><Printer size={14} /> Gerar PDF</Btn></div>
+          <form onSubmit={gerar}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field t={t} label="Tipo"><select name="tipo" style={inputStyle(t)}>{tipos.slice(1).map((x)=><option key={x}>{x}</option>)}</select></Field>
+              <Field t={t} label="Unidade (se aplicável)"><select name="unidade" style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
+            </div>
+            <Field t={t} label="Título"><input name="titulo" required placeholder={L("Ex.: Autorização de mudança")} style={{ ...inputStyle(t), marginTop: 4 }} /></Field>
+            <Field t={t} label="Conteúdo"><textarea name="corpo" required rows={3} placeholder={L("Texto do documento…")} style={{ ...inputStyle(t), marginTop: 4, resize: "vertical" }} /></Field>
+            <div className="mb-2 mt-4 text-xs font-semibold" style={{ color: t.dim }}>PRÉVIA COM PAPEL TIMBRADO</div>
+            <Timbrado t={t} tipo="Autorização" unidade="—" corpo="O cabeçalho, logo, CNPJ, rodapé e assinatura são aplicados automaticamente pela identidade visual configurada no cadastro do condomínio." />
+            <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setPreview(false)}>Cancelar</Btn>
+              <Btn t={t} kind="primary" type="submit" disabled={gerando}><Printer size={14} /> {gerando ? "Gerando…" : "Gerar PDF"}</Btn></div>
+          </form>
         </Modal>)}
     </div>
   );
@@ -1228,7 +1562,10 @@ function Documentos({ t }) {
 function Chamados({ t }) {
   const { db, reload } = useData();
   const [novo, setNovo] = useState(false); const [st, setSt] = useState("todos");
+  const [sel, setSel] = useState(null); // chamado aberto no popup de detalhes/gestão
   const [salvar, saving] = useSubmit(async (f) => { await criarChamado(db.ctx, f); await reload(); setNovo(false); });
+  const [salvarGestao, salvandoGestao] = useSubmit(async (f) => { await atualizarChamado(db.ctx, sel.id, f); await reload(); setSel(null); });
+  const PRIO_LABEL = { baixa: "Baixa", media: "Média", alta: "Alta" };
   const rows = db.chamados.filter((c) => st === "todos" || c.status === st);
   const cols3 = [["aberto", "Abertos"], ["andamento", "Em andamento"], ["concluido", "Concluídos"]];
   return (
@@ -1247,10 +1584,19 @@ function Chamados({ t }) {
               <div className="space-y-2">
                 {list.length === 0 && <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>{L("Nenhum chamado aqui")}</div>}
                 {list.map((c) => (
-                  <Card t={t} key={c.id}>
+                  <Card t={t} key={c.id} className="cursor-pointer vhover" onClick={() => setSel(c)}>
                     <div className="flex items-center justify-between text-xs" style={{ color: t.dim }}>
                       <span>{c.num} · {c.cat}</span><Badge t={t} s={c.prio} /></div>
                     <div className="mt-1 text-sm font-medium">{c.desc}</div>
+                    {c.midias?.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {c.midias.map((m, i) => (
+                          <a key={i} href={m.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium"
+                            style={{ borderColor: t.border, background: t.goldSoft, color: t.gold }}>
+                            <Eye size={11} /> {m.tipo?.startsWith("video/") ? L("Vídeo") : L("Foto")} {i + 1}
+                          </a>))}
+                      </div>)}
                     <div className="mt-2 flex items-center justify-between text-xs" style={{ color: t.dim }}>
                       <span><User size={11} className="mr-1 inline" />{c.resp}</span>
                       <span>{c.custo > 0 ? BRL(c.custo) : L("sem custo lançado")}</span></div>
@@ -1259,6 +1605,54 @@ function Chamados({ t }) {
             </div>);
         })}
       </div>
+      {sel && (
+        <Modal t={t} onClose={() => setSel(null)} wide>
+          <ModalHeader t={t} title={`${sel.num} — ${sel.cat}`} onClose={() => setSel(null)} />
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Badge t={t} s={sel.status} /><Badge t={t} s={sel.prio} />
+            {sel.fechado && <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.surface2, color: t.dim }}>{L("Fechado em")} {sel.fechado}</span>}
+          </div>
+          <div className="mb-3 grid grid-cols-2 gap-2 rounded-xl border p-3 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+            <div>{L("Aberto em")}: <b style={{ color: t.text }}>{sel.abertoFull}</b></div>
+            <div>{L("Responsável atual")}: <b style={{ color: t.text }}>{sel.resp}</b></div>
+            <div>{L("Custo estimado")}: <b style={{ color: t.text }}>{sel.custoEstimado > 0 ? BRL(sel.custoEstimado) : "—"}</b></div>
+            <div>{L("Custo realizado")}: <b style={{ color: t.text }}>{sel.custoRealizado > 0 ? BRL(sel.custoRealizado) : "—"}</b></div>
+          </div>
+          <div className="mb-1 text-xs font-semibold" style={{ color: t.dim }}>{L("DESCRIÇÃO DO PROBLEMA")}</div>
+          <p className="text-sm leading-relaxed" style={{ whiteSpace: "pre-wrap" }}>{sel.desc}</p>
+          {sel.midias?.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {sel.midias.map((m, i) => (
+                <a key={i} href={m.url} target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium"
+                  style={{ borderColor: t.border, background: t.goldSoft, color: t.gold }}>
+                  <Eye size={12} /> {m.tipo?.startsWith("video/") ? L("Vídeo") : L("Foto")} {i + 1}</a>))}
+            </div>)}
+          <form onSubmit={salvarGestao} key={sel.id}>
+            <div className="mb-1 mt-4 text-xs font-semibold" style={{ color: t.dim }}>{L("GERENCIAR CHAMADO")}</div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field t={t} label="Responsável">
+                <select name="responsavel" defaultValue={sel.respId} style={inputStyle(t)}>
+                  <option value="">{L("Designar depois")}</option>
+                  {db.ctx.operacionais.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                </select></Field>
+              <Field t={t} label="Status">
+                <select name="status" defaultValue={sel.status} style={inputStyle(t)}>
+                  {[["aberto","Aberto"],["andamento","Em andamento"],["concluido","Concluído"],["cancelado","Cancelado"]].map(([v, l]) => <option key={v} value={v}>{L(l)}</option>)}
+                </select></Field>
+              <Field t={t} label="Prioridade">
+                <select name="prioridade" defaultValue={PRIO_LABEL[sel.prio] || "Média"} style={inputStyle(t)}>
+                  <option>Baixa</option><option>Média</option><option>Alta</option>
+                </select></Field>
+              <Field t={t} label="Prazo"><input name="prazo" type="date" defaultValue={sel.prazo} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Custo realizado (R$)"><input name="custo" defaultValue={sel.custoRealizado > 0 ? String(sel.custoRealizado).replace(".", ",") : ""} placeholder="0,00" style={inputStyle(t)} /></Field>
+            </div>
+            {!db.ctx.operacionais.length && (
+              <div className="mt-2 text-xs" style={{ color: t.dim }}>{L("Nenhum funcionário ou prestador cadastrado — cadastre na tela Pessoas para poder designar um responsável.")}</div>)}
+            <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setSel(null)}>Fechar</Btn>
+              <Btn t={t} kind="primary" type="submit" disabled={salvandoGestao}><Check size={14} /> {salvandoGestao ? "Salvando…" : "Salvar alterações"}</Btn></div>
+          </form>
+        </Modal>)}
       {novo && (
         <Modal t={t} onClose={() => setNovo(false)} wide>
           <ModalHeader t={t} title="Abrir chamado de manutenção" onClose={() => setNovo(false)} />
@@ -1269,7 +1663,7 @@ function Chamados({ t }) {
               <Field t={t} label="Responsável"><select name="responsavel" style={inputStyle(t)}><option value="">Designar depois</option>{db.ctx.operacionais.map((o)=><option key={o.id} value={o.id}>{o.label}</option>)}</select></Field>
               <Field t={t} label="Prazo"><input name="prazo" type="date" style={inputStyle(t)} /></Field>
               <Field t={t} label="Custo estimado"><input name="custo" placeholder="R$ 0,00" style={inputStyle(t)} /></Field>
-              <Field t={t} label="Fotos / vídeos"><div className="flex h-[42px] items-center justify-center rounded-xl border border-dashed text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>Anexar mídia</div></Field>
+              <Field t={t} label="Fotos / vídeos"><FileField t={t} name="midias" multiple accept="image/*,video/*" hint="Anexar mídia" /></Field>
             </div>
             <Field t={t} label="Descrição do problema"><textarea name="desc" required rows={3} style={{ ...inputStyle(t), marginTop: 4, resize: "vertical" }} /></Field>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovo(false)}>Cancelar</Btn>
@@ -1281,11 +1675,70 @@ function Chamados({ t }) {
 }
 
 /* ══════════════ PORTARIA E SEGURANÇA ══════════════ */
+/* QR Code real (biblioteca qrcode) — o conteúdo é o token validável na portaria */
+function QRReal({ value, size = 180 }) {
+  const [src, setSrc] = useState(null);
+  useEffect(() => { QRCodeLib.toDataURL(value, { width: size, margin: 1 }).then(setSrc).catch(() => setSrc(null)); }, [value, size]);
+  return src ? <img src={src} width={size} height={size} alt="QR Code" className="rounded-xl bg-white p-1" /> : null;
+}
+
+/* Câmera + leitor nativo (BarcodeDetector); sem suporte/câmera, digita-se o código */
+function LeitorQr({ t, onLer }) {
+  const videoRef = React.useRef(null);
+  const [aviso, setAviso] = useState("");
+  useEffect(() => {
+    let stream, timer, ativo = true;
+    (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        if (!ativo) { stream.getTracks().forEach((x) => x.stop()); return; }
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        if ("BarcodeDetector" in window) {
+          const det = new window.BarcodeDetector({ formats: ["qr_code"] });
+          timer = setInterval(async () => {
+            try { const codes = await det.detect(videoRef.current); if (codes[0]?.rawValue) onLer(codes[0].rawValue); } catch { /* frame inválido */ }
+          }, 400);
+        } else setAviso(L("Este navegador não tem leitor nativo de QR — aponte por outro dispositivo ou digite o código abaixo."));
+      } catch { setAviso(L("Câmera indisponível — digite o código abaixo.")); }
+    })();
+    return () => { ativo = false; clearInterval(timer); stream?.getTracks().forEach((x) => x.stop()); };
+  }, [onLer]);
+  return (<div className="space-y-2">
+    <video ref={videoRef} muted playsInline className="w-full rounded-xl" style={{ maxHeight: 240, background: "#000" }} />
+    {aviso && <div className="text-xs" style={{ color: t.warn }}>{aviso}</div>}
+  </div>);
+}
+
 function Portaria({ t }) {
   const { db, reload } = useData();
   const S = db.stats;
   const [novo, setNovo] = useState(false);
-  const [salvar, saving] = useSubmit(async (f) => { await criarPreAutorizacao(db.ctx, f); await reload(); setNovo(false); });
+  const [gerarQr, setGerarQr] = useState(false);
+  const [qrView, setQrView] = useState(null); // QR gerado (pré-autorização ou acesso rápido)
+  const [leitor, setLeitor] = useState(false);
+  const [resultado, setResultado] = useState(null); // resultado da validação do QR
+  const [confirmado, setConfirmado] = useState(false);
+  const [ocorrencia, setOcorrencia] = useState(false);
+  const [entrega, setEntrega] = useState(false);
+  const [salvar, saving] = useSubmit(async (f) => { const r = await criarPreAutorizacao(db.ctx, f); await reload(); setNovo(false); setQrView(r); });
+  const [gerar, gerando] = useSubmit(async (f) => { const r = await gerarQrAcesso(db.ctx, f); setGerarQr(false); setQrView(r); });
+  const [salvarOcorrencia, salvandoOc] = useSubmit(async (f) => { await registrarOcorrencia(db.ctx, f); await reload(); setOcorrencia(false); });
+  const [salvarEntrega, salvandoEnt] = useSubmit(async (f) => { await registrarEntrega(db.ctx, f); await reload(); setEntrega(false); });
+  const validandoRef = React.useRef(false);
+  const lerCodigo = useCallback(async (codigo) => {
+    if (validandoRef.current) return;
+    validandoRef.current = true;
+    try { setResultado(await validarQrAcesso(db.ctx, codigo)); }
+    catch (e) { setResultado({ permitido: false, motivo: e?.message || String(e) }); }
+    finally { validandoRef.current = false; }
+  }, [db.ctx]);
+  const confirmarEntrada = async () => {
+    try { await confirmarEntradaQr(db.ctx, resultado); await reload(); setConfirmado(true); }
+    catch (e) { alert(e?.message || e); }
+  };
+  const fecharLeitor = () => { setLeitor(false); setResultado(null); setConfirmado(false); };
+  const agoraLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
   const icons = { visitante: User, prestador: Wrench, entrega: Package, recorrente: RefreshCw };
   return (
     <div className="vfade space-y-4">
@@ -1297,8 +1750,10 @@ function Portaria({ t }) {
       </div>
       <div className="flex flex-wrap gap-2">
         <Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Pré-autorizar entrada</Btn>
-        <Btn t={t} kind="soft"><QrCode size={14} /> Gerar QR de acesso</Btn>
-        <Btn t={t}><AlertCircle size={14} /> Registrar ocorrência</Btn>
+        <Btn t={t} kind="soft" onClick={() => setGerarQr(true)}><QrCode size={14} /> Gerar QR de acesso</Btn>
+        <Btn t={t} kind="soft" onClick={() => setLeitor(true)}><Search size={14} /> {L("Ler QR de acesso")}</Btn>
+        <Btn t={t} onClick={() => setOcorrencia(true)}><AlertCircle size={14} /> Registrar ocorrência</Btn>
+        <Btn t={t} onClick={() => setEntrega(true)}><Package size={14} /> {L("Registrar entrega")}</Btn>
       </div>
       <Card t={t} pad={false}>
         <div className="border-b px-4 py-3 text-sm font-semibold" style={{ borderColor: t.borderSoft, fontFamily: "'Sora',sans-serif" }}>{L("Movimentação de hoje")}</div>
@@ -1323,6 +1778,7 @@ function Portaria({ t }) {
             <div className="space-y-3">
               <Field t={t} label="Tipo"><select name="tipo" style={inputStyle(t)}><option>Visitante</option><option>Prestador de serviço</option><option>Entrega</option><option>Visitante recorrente</option></select></Field>
               <Field t={t} label="Nome / empresa"><input name="nome" required style={inputStyle(t)} /></Field>
+              <Field t={t} label="E-mail do visitante (recebe o QR Code)"><input name="email" type="email" placeholder="visitante@email.com" style={inputStyle(t)} /></Field>
               <Field t={t} label="Unidade de destino"><select name="unidade" required style={inputStyle(t)}>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field t={t} label="Data"><input name="data" type="date" style={inputStyle(t)} /></Field>
@@ -1330,17 +1786,123 @@ function Portaria({ t }) {
               </div>
               <Field t={t} label="Veículo (opcional)"><input name="placa" placeholder="Placa" style={inputStyle(t)} /></Field>
               <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.gold }}>
-                Um QR Code de acesso será enviado ao visitante e validado pela portaria na entrada.</div>
+                O QR Code aparece na tela ao autorizar — envie ao visitante pelo e-mail informado; a portaria valida na entrada.</div>
             </div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovo(false)}>Cancelar</Btn>
               <Btn t={t} kind="primary" type="submit" disabled={saving}><QrCode size={14} /> {saving ? "Autorizando…" : "Autorizar e gerar QR"}</Btn></div>
+          </form>
+        </Modal>)}
+      {gerarQr && (
+        <Modal t={t} onClose={() => setGerarQr(false)}>
+          <ModalHeader t={t} title="Gerar QR de acesso" onClose={() => setGerarQr(false)} />
+          <form onSubmit={gerar}>
+            <div className="space-y-3">
+              <Field t={t} label="Nome de quem vai acessar"><input name="nome" required style={inputStyle(t)} /></Field>
+              <Field t={t} label="Unidade que irá acessar"><select name="unidade" required style={inputStyle(t)}>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
+              <Field t={t} label="Janela de horário (a partir de agora)">
+                <select name="janela" style={inputStyle(t)}>
+                  <option value="1h-2h">1h — 2h</option>
+                  <option value="2h-5h">2h — 5h</option>
+                  <option value="6h-9h">6h — 9h</option>
+                </select></Field>
+              <Field t={t} label="E-mail (opcional, para enviar o QR)"><input name="email" type="email" style={inputStyle(t)} /></Field>
+              <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+                {L("Gerado em")}: <b style={{ color: t.text }}>{new Date().toLocaleString("pt-BR")}</b></div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setGerarQr(false)}>Cancelar</Btn>
+              <Btn t={t} kind="primary" type="submit" disabled={gerando}><QrCode size={14} /> {gerando ? "Gerando…" : "Gerar QR de acesso"}</Btn></div>
+          </form>
+        </Modal>)}
+      {qrView && (
+        <Modal t={t} onClose={() => setQrView(null)}>
+          <ModalHeader t={t} title="QR Code de acesso" onClose={() => setQrView(null)} />
+          <div className="flex flex-col items-center gap-3 text-center">
+            <QRReal value={qrView.codigo} />
+            <div>
+              <div className="text-sm font-semibold">{qrView.nome}</div>
+              <div className="text-xs" style={{ color: t.dim }}>
+                {L("Unidade")} {qrView.unidade} · {L("janela")} {qrView.janela}<br />
+                {L("Gerado em")} {qrView.geradoEm} · {L("válido até")} {qrView.validaAte}</div>
+            </div>
+            <div className="w-full break-all rounded-lg px-3 py-2 text-[11px]" style={{ background: t.surface2, color: t.dim }}>{qrView.codigo}</div>
+            <div className="flex flex-wrap justify-center gap-2">
+              <Btn t={t} kind="soft" onClick={() => { navigator.clipboard?.writeText(qrView.codigo); }}><Check size={14} /> {L("Copiar código")}</Btn>
+              {qrView.email && (
+                <a className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold" style={{ background: t.gold, color: "#131313" }}
+                  href={`mailto:${qrView.email}?subject=${encodeURIComponent(`QR de acesso — ${db.cond?.nome || "Condomínio"}`)}&body=${encodeURIComponent(`Olá ${qrView.nome},\n\nApresente este código na portaria: ${qrView.codigo}\nUnidade: ${qrView.unidade}\nVálido até: ${qrView.validaAte}\n\n${db.cond?.nome || ""}`)}`}>
+                  <Send size={14} /> {L("Enviar por e-mail")}</a>)}
+            </div>
+          </div>
+        </Modal>)}
+      {leitor && (
+        <Modal t={t} onClose={fecharLeitor}>
+          <ModalHeader t={t} title="Ler QR de acesso" onClose={fecharLeitor} />
+          {!resultado ? (<>
+            <LeitorQr t={t} onLer={lerCodigo} />
+            <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); lerCodigo(new FormData(e.currentTarget).get("codigo")); }}>
+              <input name="codigo" placeholder={L("Ou digite/cole o código do QR…")} style={{ ...inputStyle(t), flex: 1 }} />
+              <Btn t={t} kind="primary" type="submit">{L("Validar")}</Btn>
+            </form>
+          </>) : (
+            <div className="space-y-3">
+              <div className="rounded-xl border px-4 py-3 text-center" style={{
+                borderColor: resultado.permitido ? t.ok : t.danger,
+                background: (resultado.permitido ? t.ok : t.danger) + "14",
+                color: resultado.permitido ? t.ok : t.danger }}>
+                <div className="text-lg font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>
+                  {resultado.permitido ? L("ACESSO PERMITIDO") : L("ACESSO NEGADO")}</div>
+                {!resultado.permitido && <div className="text-xs">{resultado.motivo}</div>}
+              </div>
+              {resultado.nome && (
+                <div className="grid grid-cols-1 gap-1.5 rounded-xl border p-3 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+                  <div>{L("Nome")}: <b style={{ color: t.text }}>{resultado.nome}</b></div>
+                  <div>{L("Tipo")}: <b style={{ color: t.text }}>{resultado.tipo}</b></div>
+                  <div>{L("Unidade de destino")}: <b style={{ color: t.text }}>{resultado.unidade}</b></div>
+                  <div>{L("Janela de validade")}: <b style={{ color: t.text }}>{resultado.janela}</b></div>
+                </div>)}
+              {confirmado && <div className="rounded-xl px-3 py-2 text-center text-xs" style={{ background: t.ok + "14", color: t.ok }}>{L("Entrada registrada na movimentação de hoje.")}</div>}
+              <div className="flex justify-end gap-2">
+                <Btn t={t} onClick={() => { setResultado(null); setConfirmado(false); }}>{L("Ler outro")}</Btn>
+                {resultado.permitido && !confirmado && (
+                  <Btn t={t} kind="primary" onClick={confirmarEntrada}><Check size={14} /> {L("Confirmar entrada")}</Btn>)}
+                <Btn t={t} kind={confirmado ? "primary" : "ghost"} onClick={fecharLeitor}>{L("Fechar")}</Btn>
+              </div>
+            </div>)}
+        </Modal>)}
+      {ocorrencia && (
+        <Modal t={t} onClose={() => setOcorrencia(false)}>
+          <ModalHeader t={t} title="Registrar ocorrência" onClose={() => setOcorrencia(false)} />
+          <form onSubmit={salvarOcorrencia}>
+            <div className="space-y-3">
+              <Field t={t} label="Título"><input name="titulo" required placeholder={L("Ex.: Portão da garagem aberto")} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Descrição do fato"><textarea name="descricao" required rows={3} style={{ ...inputStyle(t), resize: "vertical" }} /></Field>
+              <Field t={t} label="Data e hora do ocorrido"><input name="quando" type="datetime-local" defaultValue={agoraLocal()} style={inputStyle(t)} /></Field>
+              <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+                {L("Registro feito em")}: <b style={{ color: t.text }}>{new Date().toLocaleString("pt-BR")}</b></div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setOcorrencia(false)}>Cancelar</Btn>
+              <Btn t={t} kind="primary" type="submit" disabled={salvandoOc}><AlertCircle size={14} /> {salvandoOc ? "Registrando…" : "Registrar ocorrência"}</Btn></div>
+          </form>
+        </Modal>)}
+      {entrega && (
+        <Modal t={t} onClose={() => setEntrega(false)}>
+          <ModalHeader t={t} title="Registrar entrega" onClose={() => setEntrega(false)} />
+          <form onSubmit={salvarEntrega}>
+            <div className="space-y-3">
+              <Field t={t} label="Nome do morador"><input name="morador" required style={inputStyle(t)} /></Field>
+              <Field t={t} label="Unidade correspondente"><select name="unidade" style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
+              <Field t={t} label="Data e hora da entrega"><input name="quando" type="datetime-local" defaultValue={agoraLocal()} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Observação (opcional)"><input name="obs" placeholder={L("Ex.: caixa dos Correios, retirada na portaria")} style={inputStyle(t)} /></Field>
+            </div>
+            <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setEntrega(false)}>Cancelar</Btn>
+              <Btn t={t} kind="primary" type="submit" disabled={salvandoEnt}><Package size={14} /> {salvandoEnt ? "Registrando…" : "Registrar entrega"}</Btn></div>
           </form>
         </Modal>)}
     </div>
   );
 }
 
-/* ══════════════ GERENCIAR EMAILS (exclusivo do diretor) ══════════════ */
+/* ══════════════ Gerenciar Acessos (exclusivo do diretor) ══════════════ */
 function GerenciarEmails({ t }) {
   const { db } = useData();
   const unidades = db.ctx.unidades; // unidades cadastradas na tela Unidades
@@ -1349,7 +1911,7 @@ function GerenciarEmails({ t }) {
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [perfil, setPerfil] = useState("sindico");
-  const perfis = ["sindico", "tesouraria", "administradora", "morador"];
+  const perfis = ["sindico", "tesouraria", "morador"];
 
   const recarregar = useCallback(
     () => listarAcessos(db.ctx).then(setUsuarios).catch((e) => setErro(e.message)),
@@ -1385,7 +1947,7 @@ function GerenciarEmails({ t }) {
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-xs" style={{ color: t.dim }}>
-          Os acessos criados aqui são o que cada pessoa usará na tela de entrada. Síndico, tesouraria e administradora entram com e-mail; o morador entra com o nome cadastrado.</div>
+          Os acessos criados aqui são o que cada pessoa usará na tela de entrada. Síndico e tesouraria entram com e-mail; o morador entra com o nome cadastrado.</div>
         <Btn t={t} kind="primary" onClick={() => { setErro(""); setNovo(true); }}><Plus size={15} /> Adicionar acesso</Btn>
       </div>
       {usuarios === null ? (
@@ -1407,7 +1969,7 @@ function GerenciarEmails({ t }) {
         </div>
       ) : (
         <EmptyState t={t} icon={Mail} title="Nenhum acesso criado ainda"
-          hint="Cadastre o primeiro e-mail e senha para que síndico, tesouraria, administradora e moradores consigam entrar."
+          hint="Cadastre o primeiro e-mail e senha para que síndico, tesouraria e moradores consigam entrar."
           action={<Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={14} /> Adicionar acesso</Btn>} />)}
       <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
         Os acessos são gravados no banco de dados com senha criptografada — a pessoa consegue entrar de qualquer navegador.</div>
@@ -1448,117 +2010,92 @@ function GerenciarEmails({ t }) {
   );
 }
 
-/* ══════════════ PAINEL SAAS DA ADMINISTRADORA ══════════════ */
-function SaaS({ t }) {
-  const { db } = useData();
-  const S = db.stats;
-  const [novo, setNovo] = useState(false);
-  return (
-    <div className="vfade space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard t={t} icon={Building2} label="Condomínios ativos" value={String(S.tenantsAtivos)} />
-        <StatCard t={t} icon={Wallet} label="Receita recorrente (MRR)" value={BRL(S.mrr)} color={t.ok} />
-        <StatCard t={t} icon={Clock} label="Em período de teste" value={String(S.tenantsTeste)} color={t.warn} />
-        <StatCard t={t} icon={AlertCircle} label="Licenças inadimplentes" value={String(S.tenantsInadimplentes)} color={t.danger} />
-      </div>
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card t={t} className="lg:col-span-2">
-          <SectionTitle t={t}>Evolução da receita recorrente</SectionTitle>
-          <div style={{ height: 190 }}>
-            <ResponsiveContainer><AreaChart data={M_MRR}>
-              <defs><linearGradient id="gm" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={t.gold} stopOpacity={0.35} /><stop offset="100%" stopColor={t.gold} stopOpacity={0} />
-              </linearGradient></defs>
-              <CartesianGrid stroke={t.borderSoft} vertical={false} />
-              <XAxis dataKey="m" tick={{ fill: t.dim, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: t.dim, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => "R$" + v} />
-              <RTooltip {...chartTip(t)} formatter={(v) => BRL(v)} />
-              <Area dataKey="v" stroke={t.gold} strokeWidth={2.5} fill="url(#gm)" />
-            </AreaChart></ResponsiveContainer>
-          </div>
-        </Card>
-        <Card t={t}>
-          <SectionTitle t={t}>Planos</SectionTitle>
-          <div className="space-y-2 text-sm">
-            {[["Essencial","até 40 unidades · módulos básicos", BRL(290)],
-              ["Standard","até 80 unidades · + portaria e chamados", BRL(490)],
-              ["Premium","ilimitado · todos os módulos + WhatsApp", BRL(890)]].map(([n, d, p]) => (
-              <div key={n} className="rounded-xl border p-3" style={{ borderColor: n === "Premium" ? t.border : t.borderSoft, background: n === "Premium" ? t.goldSoft : "transparent" }}>
-                <div className="flex items-center justify-between">
-                  <b style={{ color: n === "Premium" ? t.gold : t.text }}>{n}</b>
-                  <span className="text-xs font-semibold">{p}/mês</span></div>
-                <div className="text-xs" style={{ color: t.dim }}>{d}</div>
-              </div>))}
-          </div>
-        </Card>
-      </div>
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>Condomínios contratantes</h2>
-        <Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Novo cliente</Btn>
-      </div>
-      <Tbl t={t} cols={[{k:"nome",l:"Condomínio"},{k:"plano",l:"Plano"},{k:"unidades",l:"Unidades"},{k:"mrr",l:"Mensalidade"},{k:"venc",l:"Renovação"},{k:"status",l:"Status"},{k:"acao",l:""}]}
-        rows={db.tenants} empty={null}
-        renderCell={(r, k) => {
-          if (k === "mrr") return r.mrr ? BRL(r.mrr) : "—";
-          if (k === "status") return <Badge t={t} s={r.status} />;
-          if (k === "acao") return r.status === "inadimplente"
-            ? <Btn t={t} kind="danger" className="!px-2 !py-1 text-xs"><Ban size={12} /> Bloquear acesso</Btn>
-            : <Btn t={t} className="!px-2 !py-1 text-xs"><ArrowUpRight size={12} /> Abrir painel</Btn>;
-          return r[k];
-        }} />
-      {novo && (
-        <Modal t={t} onClose={() => setNovo(false)} wide>
-          <ModalHeader t={t} title="Contratar novo condomínio" onClose={() => setNovo(false)} />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field t={t} label="Razão social"><input style={inputStyle(t)} /></Field>
-            <Field t={t} label="Nome fantasia"><input style={inputStyle(t)} /></Field>
-            <Field t={t} label="CNPJ"><input style={inputStyle(t)} /></Field>
-            <Field t={t} label="Responsável"><input style={inputStyle(t)} /></Field>
-            <Field t={t} label="Plano"><select style={inputStyle(t)}><option>Essencial</option><option>Standard</option><option>Premium</option></select></Field>
-            <Field t={t} label="Forma de pagamento da licença"><select style={inputStyle(t)}><option>QR Verum Pay mensal</option><option>Transferência</option></select></Field>
-          </div>
-          <div className="mt-3 space-y-1.5 rounded-xl border p-3 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
-            <div className="font-semibold" style={{ color: t.text }}>Checklist de implantação</div>
-            {["Aceite do contrato","Verificação de documentos","Carga inicial de unidades e pessoas","Configuração da identidade visual","Ativação dos módulos do plano"].map((s) => (
-              <label key={s} className="flex items-center gap-2"><input type="checkbox" /> {s}</label>))}
-          </div>
-          <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovo(false)}>Cancelar</Btn>
-            <Btn t={t} kind="primary" onClick={() => setNovo(false)}><Check size={14} /> Iniciar implantação</Btn></div>
-        </Modal>)}
-    </div>
-  );
-}
-
 /* ══════════════ PORTAL DO MORADOR ══════════════ */
 function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
   const { db, reload } = useData();
-  const [tab, setTab] = useState("inicio"); const [qr, setQr] = useState(null); const [chamado, setChamado] = useState(false);
+  /* recarregar mantém a aba do portal onde o morador estava */
+  const [tab, setTab] = useState(() => { try { return sessionStorage.getItem("cm_tela_portal") || "inicio"; } catch { return "inicio"; } });
+  useEffect(() => { try { sessionStorage.setItem("cm_tela_portal", tab); } catch { /* sem storage */ } }, [tab]);
+  const [qr, setQr] = useState(null); const [chamado, setChamado] = useState(false);
   const [aviso, setAviso] = useState(null); // comunicado aberto para leitura completa
   const [multa, setMulta] = useState(null); // multa aberta para ver os detalhes
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [infoPredio, setInfoPredio] = useState(false); // modal com os dados do edifício + morador
+  const [copiado, setCopiado] = useState(false);
   const [pagarOnline, pagando] = usePagarCommet();
-  const [enviarChamado, enviando] = useSubmit(async (f) => { await criarChamado(db.ctx, f); await reload(); setChamado(false); });
-  /* unidade do morador logado (escolhida pelo diretor em Gerenciar Emails); fallback: demo 102-A */
+  /* unidade do morador logado (escolhida pelo diretor em Gerenciar Acessos); fallback: demo 102-A */
   const unidade = morador?.unidade || (db.unidades.find((u) => u.num === "102") ? "102-A" : (db.unidades[0] ? `${db.unidades[0].num}-${db.unidades[0].bloco}` : "—"));
+  const unidadeId = db.ctx.unidades.find((u) => u.label === unidade)?.id || null;
+  const [enviarChamado, enviando] = useSubmit(async (f) => { await criarChamado(db.ctx, { ...f, unidadeId }); await reload(); setChamado(false); });
   const boletos = morador?.unidade
     ? db.cobr.filter((c) => c.unidade === unidade).map((c) => ({ id: c.id, comp: c.comp, desc: "Taxa condominial", valor: c.valor, venc: c.vencFull, status: c.status }))
     : db.boletos;
   const pend = boletos.find((b) => b.status === "vencida") || boletos.find((b) => b.status === "emitida");
   const abertas = boletos.filter((b) => b.status === "vencida" || b.status === "emitida").length;
   const minhasMultasLista = db.multas.filter((m) => m.unidade === unidade);
-  const minhasMultas = minhasMultasLista.filter((m) => m.status === "aguardando_defesa").length;
-  const meusChamados = db.chamados.filter((c) => c.status === "aberto" || c.status === "andamento").length;
+  const minhasMultas = minhasMultasLista.filter((m) => m.status === "pendente").length;
+  /* "minha situação" conta somente o que é da unidade do morador logado */
+  const meusChamadosLista = db.chamados.filter((c) => c.unidade === unidade);
+  const meusChamados = meusChamadosLista.filter((c) => c.status === "aberto" || c.status === "andamento").length;
+  const minhasEncomendas = db.acessos.filter((a) => a.tipo === "entrega" && a.destino === unidade).length;
+  /* notificações do sino: tudo o que pede atenção do morador, clicável */
+  const notifs = useMemo(() => [
+    ...boletos.filter((b) => b.status === "vencida").map((b) => ({ txt: `${L("Cobrança de")} ${b.comp} ${L("vencida")} — ${BRL(b.valor)}`, c: "danger", go: () => setTab("pagamentos") })),
+    ...boletos.filter((b) => b.status === "emitida").map((b) => ({ txt: `${L("Nova cobrança de")} ${b.comp} — ${BRL(b.valor)} · ${L("vence em")} ${b.venc}`, c: "warn", go: () => setTab("pagamentos") })),
+    ...minhasMultasLista.filter((m) => m.status === "pendente").map((m) => ({ txt: `${m.valor > 0 ? L("Multa") : L("Advertência")} ${m.num} — ${L("prazo de defesa até")} ${m.prazo}`, c: "warn", go: () => setMulta(m) })),
+    ...meusChamadosLista.filter((c) => c.status === "aberto" || c.status === "andamento").map((c) => ({ txt: `${L("Chamado")} ${c.num} ${c.status === "andamento" ? L("em andamento") : L("aberto")} — ${c.desc}`, c: "info" })),
+    ...db.comunic.slice(0, 2).map((c) => ({ txt: `${L("Comunicado")}: ${c.titulo}`, c: "info", go: () => setAviso(c) })),
+  ], [boletos, minhasMultasLista, meusChamadosLista, db.comunic]); // eslint-disable-line react-hooks/exhaustive-deps
+  const textoEndereco = [db.cond?.nome, db.cond?.endereco, `${morador?.nome || L("Morador")} — ${L("Unidade")} ${unidade}`].filter(Boolean).join("\n");
+  const copiarEndereco = async () => {
+    try { await navigator.clipboard.writeText(textoEndereco); }
+    catch { const ta = document.createElement("textarea"); ta.value = textoEndereco; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+    setCopiado(true); setTimeout(() => setCopiado(false), 1800);
+  };
   return (
     <div style={{ background: t.bg, color: t.text, minHeight: "100vh", fontFamily: "'Inter',system-ui,sans-serif" }}>
       <header className="sticky top-0 z-30 border-b px-4 py-3 backdrop-blur-md" style={{ background: t.glass, borderColor: t.borderSoft }}>
-        <div className="mx-auto flex max-w-lg items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl text-xs font-bold" style={{ background: t.goldSoft, color: t.gold, fontFamily: "'Sora',sans-serif" }}>AC</div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>Residencial Águas Claras</div>
+        <div className="mx-auto max-w-lg">
+          <div className="flex items-start gap-2">
+            <button onClick={() => setInfoPredio(true)} title={L("Dados do edifício")} className="shrink-0">
+              {db.cond?.logoUrl
+                ? <img src={db.cond.logoUrl} alt="Logo" className="h-9 w-9 rounded-xl object-contain" style={{ background: t.goldSoft }} />
+                : <div className="flex h-9 w-9 items-center justify-center rounded-xl text-xs font-bold" style={{ background: t.goldSoft, color: t.gold, fontFamily: "'Sora',sans-serif" }}>
+                    {(db.cond?.nome || "—").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("")}</div>}
+            </button>
+            <div className="flex-1" />
+            <div className="relative">
+              <button onClick={() => setNotifOpen((v) => !v)} className="relative rounded-lg p-2" style={{ background: t.surface2 }} title={L("Notificações")}>
+                <Bell size={15} color={notifs.length ? t.gold : t.dim} />
+                {notifs.length > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold"
+                    style={{ background: t.danger, color: "#fff" }}>{notifs.length}</span>)}
+              </button>
+              {notifOpen && (<>
+                <div className="fixed inset-0 z-30" onClick={() => setNotifOpen(false)} />
+                <div className="absolute right-0 z-40 mt-2 w-80 max-w-[85vw] rounded-2xl border p-2 shadow-xl" style={{ background: t.surface, borderColor: t.border }}>
+                  <div className="px-2 py-1.5 text-xs font-semibold" style={{ color: t.dim, fontFamily: "'Sora',sans-serif" }}>{L("NOTIFICAÇÕES")}</div>
+                  {notifs.length === 0 ? (
+                    <div className="px-2 py-3 text-xs" style={{ color: t.dim }}>{L("Nenhuma notificação — tudo em dia!")}</div>
+                  ) : notifs.map((n, i) => (
+                    <button key={i} onClick={() => { setNotifOpen(false); n.go?.(); }}
+                      className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left hover:opacity-80">
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: t[n.c] }} />
+                      <span className="min-w-0 flex-1 text-xs">{n.txt}</span>
+                      {n.go && <ChevronRight size={13} color={t.dim} />}
+                    </button>))}
+                </div>
+              </>)}
+            </div>
+            <LangSel t={t} lang={lang} onLang={onLang} />
+            <button onClick={() => setDark(!dark)} className="rounded-lg p-2" style={{ background: t.surface2 }}>{dark ? <Sun size={15} color={t.gold} /> : <Moon size={15} color={t.gold} />}</button>
+            <button onClick={onLogout} className="rounded-lg p-2" style={{ background: t.surface2 }} title={L("Sair")}><LogOut size={15} color={t.dim} /></button>
+          </div>
+          {/* nome do edifício, morador e unidade abaixo do ícone — texto completo, sem truncar */}
+          <div className="mt-1.5 break-words">
+            <div className="text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>{db.cond?.nome || "—"}</div>
             <div className="text-xs" style={{ color: t.dim }}>{morador?.nome || L("Morador")} · {L("Unidade")} {unidade}</div>
           </div>
-          <LangSel t={t} lang={lang} onLang={onLang} />
-          <button onClick={() => setDark(!dark)} className="rounded-lg p-2" style={{ background: t.surface2 }}>{dark ? <Sun size={15} color={t.gold} /> : <Moon size={15} color={t.gold} />}</button>
-          <button onClick={onLogout} className="rounded-lg p-2" style={{ background: t.surface2 }} title={L("Sair")}><LogOut size={15} color={t.dim} /></button>
         </div>
       </header>
       <main className="mx-auto max-w-lg px-4 py-5 pb-28">
@@ -1615,7 +2152,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
               <div className="grid grid-cols-2 gap-2 text-xs" style={{ color: t.dim }}>
                 <div>Multas ativas: <b style={{ color: minhasMultas ? t.warn : t.text }}>{minhasMultas ? `${minhasMultas} em prazo de defesa` : "nenhuma"}</b></div>
                 <div>Vagas: <b style={{ color: t.text }}>{db.unidades.find((u) => `${u.num}-${u.bloco}` === unidade)?.vagas ?? 0}</b></div>
-                <div>Encomendas: <b style={{ color: t.gold }}>{db.stats.encomendas} registrada(s)</b></div>
+                <div>Encomendas: <b style={{ color: t.gold }}>{minhasEncomendas} registrada(s)</b></div>
                 <div>Chamados abertos: <b style={{ color: t.text }}>{meusChamados}</b></div>
               </div>
             </Card>
@@ -1670,6 +2207,42 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
             </button>))}
         </div>
       </nav>
+      {infoPredio && (
+        <Modal t={t} onClose={() => setInfoPredio(false)}>
+          <ModalHeader t={t} title="Dados do edifício" onClose={() => setInfoPredio(false)} />
+          <div className="flex items-center gap-3">
+            {db.cond?.logoUrl
+              ? <img src={db.cond.logoUrl} alt="Logo" className="h-12 w-12 rounded-xl object-contain" style={{ background: t.goldSoft }} />
+              : <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-sm font-bold" style={{ background: t.goldSoft, color: t.gold, fontFamily: "'Sora',sans-serif" }}>
+                  {(db.cond?.nome || "—").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("")}</div>}
+            <div className="min-w-0">
+              <div className="break-words text-sm font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{db.cond?.nome || "—"}</div>
+              {db.cond?.cnpj && <div className="text-xs" style={{ color: t.dim }}>CNPJ {db.cond.cnpj}</div>}
+            </div>
+          </div>
+          <div className="mt-4 space-y-2 text-sm">
+            <div className="flex items-start gap-2 rounded-xl border px-3 py-2" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+              <MapPin size={15} color={t.gold} className="mt-0.5 shrink-0" />
+              <span className="break-words">{db.cond?.endereco || L("Endereço não cadastrado")}</span>
+            </div>
+            <div className="flex items-start gap-2 rounded-xl border px-3 py-2" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+              <User size={15} color={t.gold} className="mt-0.5 shrink-0" />
+              <span className="break-words">{morador?.nome || L("Morador")} — {L("Unidade")} {unidade}</span>
+            </div>
+            {db.cond?.sindico && (
+              <div className="flex items-start gap-2 rounded-xl border px-3 py-2" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+                <ShieldCheck size={15} color={t.gold} className="mt-0.5 shrink-0" />
+                <span className="break-words">{L("Síndico")}: {db.cond.sindico}</span>
+              </div>)}
+          </div>
+          <div className="mt-2 text-[11px]" style={{ color: t.dim }}>
+            {L("Use o botão abaixo para copiar o endereço e compartilhar com visitas e entregas.")}</div>
+          <div className="mt-4 flex justify-end gap-2">
+            <Btn t={t} onClick={() => setInfoPredio(false)}>Fechar</Btn>
+            <Btn t={t} kind="primary" onClick={copiarEndereco}>
+              {copiado ? <><CheckCircle2 size={14} /> {L("Copiado!")}</> : <><Copy size={14} /> {L("Copiar endereço")}</>}</Btn>
+          </div>
+        </Modal>)}
       {qr && (
         <Modal t={t} onClose={() => setQr(null)}>
           <ModalHeader t={t} title={`Pagar ${qr.desc} — ${qr.comp}`} onClose={() => setQr(null)} />
@@ -1696,7 +2269,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
             <div>{L("Base normativa")}: <b style={{ color: t.text }}>{multa.base || "—"}</b></div>
           </div>
           {multa.descricao && <p className="mt-3 text-sm leading-relaxed" style={{ whiteSpace: "pre-wrap" }}>{multa.descricao}</p>}
-          {multa.status === "aguardando_defesa" && (
+          {multa.status === "pendente" && (
             <div className="mt-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
               {L("Você pode apresentar defesa até")} {multa.prazo}. {L("Procure a administração do condomínio.")}</div>)}
           <div className="mt-5 flex justify-end"><Btn t={t} onClick={() => setMulta(null)}>Fechar</Btn></div>
@@ -1718,7 +2291,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
             <div className="space-y-3">
               <Field t={t} label="Categoria"><select name="categoria" style={inputStyle(t)}><option>Hidráulica</option><option>Elétrica</option><option>Área comum</option><option>Outro</option></select></Field>
               <Field t={t} label="Descrição"><textarea name="desc" required rows={3} style={{ ...inputStyle(t), resize: "vertical" }} /></Field>
-              <Field t={t} label="Foto (opcional)"><div className="flex h-14 items-center justify-center rounded-xl border border-dashed text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>Anexar foto</div></Field>
+              <Field t={t} label="Foto (opcional)"><FileField t={t} name="midias" accept="image/*" height={56} hint="Anexar foto" /></Field>
             </div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setChamado(false)}>Cancelar</Btn>
               <Btn t={t} kind="primary" type="submit" disabled={enviando}><Send size={14} /> {enviando ? "Enviando…" : "Enviar chamado"}</Btn></div>
@@ -1814,7 +2387,16 @@ export default function App() {
   const [morador, setMorador] = useState(() => lerSessao()?.morador || null); // { nome, unidade } do morador logado
   const [diretorConta, setDiretorConta] = useState(() => lerSessao()?.diretor || null); // conta do diretor logado (para o 1º acesso)
   const [condId, setCondId] = useState(() => lerSessao()?.condominioId || null); // condomínio da conta logada (multi-tenant)
-  const [screen, setScreen] = useState(() => (lerSessao()?.role === "administradora" ? "saas" : "dashboard"));
+  /* recarregar a página mantém a tela onde a pessoa estava (se o perfil pode vê-la) */
+  const [screen, setScreen] = useState(() => {
+    const r = lerSessao()?.role;
+    const padrao = "dashboard";
+    try {
+      const salva = sessionStorage.getItem(K_TELA);
+      return salva && r && NAV.some((n) => n.id === salva && n.roles.includes(r)) ? salva : padrao;
+    } catch { return padrao; }
+  });
+  useEffect(() => { try { sessionStorage.setItem(K_TELA, screen); } catch { /* sem storage */ } }, [screen]);
   const [sideOpen, setSideOpen] = useState(false);
   const t = dark ? THEMES.dark : THEMES.light;
   const [phase, retry] = useLoad(screen);
@@ -1833,6 +2415,24 @@ export default function App() {
   const go = useCallback((s) => { setScreen(s); setSideOpen(false); }, []);
   const nav = NAV.filter((n) => role && n.roles.includes(role));
 
+  /* notificações do sino: pendências reais da sessão, filtradas pelo perfil */
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifs = useMemo(() => {
+    if (!db || db.vazio || !role) return [];
+    const n = [];
+    const multasPend = (db.multas || []).filter((m) => m.status === "pendente");
+    if (multasPend.length) n.push({ txt: `${multasPend.length} ${L("multa(s)/advertência(s) aguardando decisão do síndico")}`, c: "danger", s: "multas" });
+    const paraEnviar = (db.multas || []).filter((m) => m.status === "aprovada_envio");
+    if (paraEnviar.length) n.push({ txt: `${paraEnviar.length} ${L("penalidade(s) aprovada(s) aguardando envio ao responsável")}`, c: "warn", s: "multas" });
+    const vencidas = (db.cobr || []).filter((c) => c.status === "vencida");
+    if (vencidas.length) n.push({ txt: `${vencidas.length} ${L("cobrança(s) vencida(s) somando")} ${BRL(vencidas.reduce((s, c) => s + c.valor, 0))}`, c: "warn", s: "cobrancas" });
+    const aprovar = (db.lanc || []).filter((l) => l.status === "aguardando");
+    if (aprovar.length) n.push({ txt: `${aprovar.length} ${L("lançamento(s) aguardando aprovação")}`, c: "info", s: "financeiro" });
+    const semResp = (db.chamados || []).filter((c) => c.status === "aberto" && c.resp === "—");
+    if (semResp.length) n.push({ txt: `${semResp.length} ${L("chamado(s) abertos sem responsável designado")}`, c: "warn", s: "chamados" });
+    return n.filter((x) => NAV.some((nv) => nv.id === x.s && nv.roles.includes(role)));
+  }, [db, role]);
+
   const globalStyle = (
     <style>{`
       @import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
@@ -1847,11 +2447,15 @@ export default function App() {
     `}</style>
   );
 
-  const sair = useCallback(() => { salvarSessao(null); setAuthToken(null); setMorador(null); setDiretorConta(null); setCondId(null); setRole(null); }, []);
+  const sair = useCallback(() => {
+    salvarSessao(null); setAuthToken(null);
+    try { sessionStorage.removeItem(K_TELA); sessionStorage.removeItem("cm_tela_portal"); } catch { /* sem storage */ }
+    setMorador(null); setDiretorConta(null); setCondId(null); setRole(null);
+  }, []);
   const entrar = useCallback((r, m, d, cId, token) => {
     salvarSessao({ role: r, morador: m || null, diretor: d ? { nome: d.nome, email: d.email } : null, condominioId: cId || null, token: token || null });
     setMorador(m || null); setDiretorConta(d || null); setCondId(cId || null); setRole(r);
-    setScreen(r === "administradora" ? "saas" : "dashboard");
+    setScreen("dashboard");
   }, []);
   /* condomínio recém-criado no 1º acesso: amarra à sessão desta conta,
      com o token novo (que carrega o condominio_id para o RLS) */
@@ -1863,15 +2467,14 @@ export default function App() {
   if (!role) return <DataCtx.Provider value={dataValue}>{globalStyle}<Login t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} onEnter={entrar} /></DataCtx.Provider>;
   /* conta sem condomínio próprio (diretor recém-cadastrado) vai direto para o
      primeiro acesso — nunca enxerga o prédio de outra conta */
-  if (db?.vazio || (role !== "administradora" && !condId)) return (
+  if (db?.vazio || !condId) return (
     <DataCtx.Provider value={dataValue}>{globalStyle}
       <SetupCondominio t={t} role={role} diretor={diretorConta} dark={dark} setDark={setDark} onCriado={aoCriarCondominio} onSair={sair} />
     </DataCtx.Provider>);
 
-  /* ── PAYWALL: sem assinatura ativa, nenhum perfil do condomínio entra ──
-     (a administradora — dona do SaaS — continua acessando o painel) */
+  /* ── PAYWALL: sem assinatura ativa, nenhum perfil do condomínio entra ── */
   const tenantPrincipal = db && !db.vazio ? db.tenants.find((x) => x.id === db.ctx.condominioId) : null;
-  if (db && role !== "administradora" && tenantPrincipal && tenantPrincipal.status !== "ativo") return (
+  if (db && tenantPrincipal && tenantPrincipal.status !== "ativo") return (
     <DataCtx.Provider value={dataValue}>{globalStyle}
       <Paywall t={t} licenca={tenantPrincipal.status} tenant={tenantPrincipal} condominioId={db.ctx.condominioId}
         onLogout={sair} onReload={reload} />
@@ -1885,10 +2488,10 @@ export default function App() {
     </DataCtx.Provider>);
 
   const SCREENS = {
-    dashboard: <Dashboard t={t} role={role} go={go} />, condominio: <Condominio t={t} />,
-    unidades: <Unidades t={t} />, pessoas: <Pessoas t={t} />, financeiro: <Financeiro t={t} />,
+    dashboard: <Dashboard t={t} role={role} go={go} />, condominio: <Condominio t={t} role={role} />,
+    unidades: <Unidades t={t} role={role} />, pessoas: <Pessoas t={t} />, financeiro: <Financeiro t={t} />,
     cobrancas: <Cobrancas t={t} />, multas: <Multas t={t} role={role} />, comunicados: <Comunicados t={t} />,
-    documentos: <Documentos t={t} />, chamados: <Chamados t={t} />, portaria: <Portaria t={t} />, saas: <SaaS t={t} />,
+    documentos: <Documentos t={t} />, chamados: <Chamados t={t} />, portaria: <Portaria t={t} />,
     emails: <GerenciarEmails t={t} />,
   };
   const current = NAV.find((n) => n.id === screen);
@@ -1906,7 +2509,7 @@ export default function App() {
               <div className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-bold" style={{ background: t.goldSoft, color: t.gold, border: `1px solid ${t.border}`, fontFamily: "'Sora',sans-serif" }}>CM</div>
               <div>
                 <div className="text-sm font-bold tracking-wide" style={{ fontFamily: "'Sora',sans-serif" }}>CONDOMASTER <span style={{ color: t.gold }}>PRO</span></div>
-                <div className="text-[10px]" style={{ color: t.dim }}>{role === "administradora" ? "Painel SaaS" : (db?.ctx.condominioNome || "…")}</div>
+                <div className="text-[10px]" style={{ color: t.dim }}>{db?.ctx.condominioNome || "…"}</div>
               </div>
             </div>
             <nav className="flex-1 space-y-0.5 overflow-y-auto">
@@ -1950,13 +2553,33 @@ export default function App() {
                     financeiro:"Competência 06/2026 · aprovações do síndico ativas",cobrancas:"QR Code Verum Pay com baixa automática",
                     multas:"Fluxo com prova, defesa e aprovação",comunicados:"Envio por portal, e-mail e WhatsApp",
                     documentos:"Arquivo timbrado com retenção histórica",chamados:"Ordens de serviço por categoria e prioridade",
-                    portaria:"Controle de acessos, entregas e ocorrências",saas:"Clientes, planos, licenças e implantação",
-                    emails:"E-mails e senhas de acesso dos perfis síndico, tesouraria, administradora e morador"}[screen])}</div>
+                    portaria:"Controle de acessos, entregas e ocorrências",
+                    emails:"E-mails e senhas de acesso dos perfis síndico, tesouraria e morador"}[screen])}</div>
               </div>
               <LangSel t={t} lang={lang} onLang={onLang} />
-              <button className="relative rounded-lg p-2" style={{ background: t.surface2 }} title={L("Notificações")}>
-                <Bell size={16} color={t.dim} />
-                <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full" style={{ background: t.danger }} /></button>
+              <div className="relative">
+                <button onClick={() => setNotifOpen((v) => !v)} className="relative rounded-lg p-2" style={{ background: t.surface2 }} title={L("Notificações")}>
+                  <Bell size={16} color={notifs.length ? t.gold : t.dim} />
+                  {notifs.length > 0 && (
+                    <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold"
+                      style={{ background: t.danger, color: "#fff" }}>{notifs.length}</span>)}
+                </button>
+                {notifOpen && (<>
+                  <div className="fixed inset-0 z-30" onClick={() => setNotifOpen(false)} />
+                  <div className="absolute right-0 z-40 mt-2 w-80 max-w-[85vw] rounded-2xl border p-2 shadow-xl" style={{ background: t.surface, borderColor: t.border }}>
+                    <div className="px-2 py-1.5 text-xs font-semibold" style={{ color: t.dim, fontFamily: "'Sora',sans-serif" }}>{L("NOTIFICAÇÕES")}</div>
+                    {notifs.length === 0 ? (
+                      <div className="px-2 py-3 text-xs" style={{ color: t.dim }}>{L("Nenhuma notificação — tudo em dia!")}</div>
+                    ) : notifs.map((n, i) => (
+                      <button key={i} onClick={() => { go(n.s); setNotifOpen(false); }}
+                        className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left hover:opacity-80">
+                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: t[n.c] }} />
+                        <span className="min-w-0 flex-1 text-xs">{n.txt}</span>
+                        <ChevronRight size={13} color={t.dim} />
+                      </button>))}
+                  </div>
+                </>)}
+              </div>
               <button onClick={() => setDark(!dark)} className="rounded-lg p-2" style={{ background: t.surface2 }} title={L("Alternar tema")}>
                 {dark ? <Sun size={16} color={t.gold} /> : <Moon size={16} color={t.gold} />}</button>
             </div>

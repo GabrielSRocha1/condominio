@@ -28,7 +28,7 @@ export default async function handler(req, res) {
     const senhaHash = createHash("sha256").update(String(f.senha || "")).digest("hex");
     const nega = () => res.status(401).json({ error: "Credenciais incorretas." });
 
-    /* morador entra pelo nome cadastrado em Gerenciar Emails */
+    /* morador entra pelo nome cadastrado em Gerenciar Acessos */
     if (perfil === "morador") {
       const nome = String(f.nome || "").trim();
       const { data: rows, error } = await supabase.from("usuarios")

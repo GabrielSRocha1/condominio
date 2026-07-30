@@ -1,5 +1,6 @@
 /* Camada de dados: lê e grava no Supabase e converte para o formato das telas. */
 import { supabase, setAuthToken, getAuthToken } from "./supabase";
+import { jsPDF } from "jspdf";
 
 /* chamadas ao backend de autenticação (/api/auth/*) — é ele quem confere as
    credenciais e emite o token que o RLS usa para escopar por condomínio */
@@ -101,6 +102,7 @@ export async function loadAll(condominioId) {
   const [
     blocos, unidadesRaw, vagas, pessoasRaw, vinculos, usuarios, categorias, fundos,
     lancRaw, cobrRaw, multasRaw, comunicRaw, chamadosRaw, acessosRaw, docsRaw, pagamentosRaw,
+    condRows,
   ] = await Promise.all([
     q(supabase.from("blocos").select("id, nome").eq("condominio_id", cid).order("nome"), "blocos"),
     q(supabase.from("unidades").select("*, blocos(nome), pessoas(nome)").eq("condominio_id", cid).is("deletado_em", null).order("numero"), "unidades"),
@@ -112,13 +114,25 @@ export async function loadAll(condominioId) {
     q(supabase.from("fundos").select("nome, saldo").eq("condominio_id", cid), "fundos"),
     q(supabase.from("lancamentos").select("*, categorias_financeiras(nome)").eq("condominio_id", cid).order("data", { ascending: false }), "lancamentos"),
     q(supabase.from("cobrancas").select("*, unidades(numero, blocos(nome)), pessoas(nome)").eq("condominio_id", cid).order("vencimento", { ascending: false }), "cobrancas"),
-    q(supabase.from("penalidades").select("*, unidades(numero, blocos(nome)), pessoas(nome)").eq("condominio_id", cid).order("numero", { ascending: false }), "penalidades"),
+    q(supabase.from("penalidades").select("*, unidades(numero, blocos(nome)), pessoas(nome), penalidade_provas(id, tipo, arquivo_url)").eq("condominio_id", cid).order("numero", { ascending: false }), "penalidades"),
     q(supabase.from("comunicados").select("*, comunicado_destinatarios(lido_em)").eq("condominio_id", cid).order("criado_em", { ascending: false }), "comunicados"),
-    q(supabase.from("chamados").select("*, pessoa_vinculos(pessoas(nome))").eq("condominio_id", cid).order("criado_em", { ascending: false }), "chamados"),
+    q(supabase.from("chamados").select("*, pessoa_vinculos(pessoas(nome)), unidades(numero, blocos(nome))").eq("condominio_id", cid).order("criado_em", { ascending: false }), "chamados"),
     q(supabase.from("acessos_portaria").select("*, unidades(numero, blocos(nome))").eq("condominio_id", cid).order("ocorrido_em", { ascending: false }).limit(20), "acessos_portaria"),
     q(supabase.from("documentos").select("*, unidades(numero, blocos(nome))").eq("condominio_id", cid).is("deletado_em", null).order("criado_em", { ascending: false }), "documentos"),
     q(supabase.from("pagamentos").select("valor_pago, pago_em, cobrancas(unidades(numero, blocos(nome)))").eq("condominio_id", cid).order("pago_em", { ascending: false }).limit(3), "pagamentos"),
+    q(supabase.from("condominios").select("nome_fantasia, cnpj, endereco, identidade_visual, regras_internas").eq("id", cid), "condominios"),
   ]);
+
+  /* dados do próprio condomínio (cabeçalho do portal, documento timbrado) */
+  const condRow = condRows?.[0] || {};
+  const cond = {
+    nome: condRow.nome_fantasia || "—", cnpj: condRow.cnpj || "",
+    endereco: condRow.endereco?.texto || "",
+    logoUrl: condRow.identidade_visual?.logo_url || null,
+    cor: condRow.identidade_visual?.cor_primaria || null,
+    sindico: condRow.regras_internas?.gestao?.sindico || "",
+    moeda: condRow.regras_internas?.moeda || "BRL",
+  };
 
   const uLabel = (u) => (u ? `${u.numero}-${u.blocos?.nome || "?"}` : "—");
   const unidadeById = Object.fromEntries(unidadesRaw.map((u) => [u.id, u]));
@@ -131,7 +145,7 @@ export async function loadAll(condominioId) {
   const unidades = unidadesRaw.map((u) => ({
     id: u.id, num: u.numero, bloco: u.blocos?.nome || "?", andar: u.andar,
     tipo: UNIDADE_TIPO_LABEL[u.tipo] || u.tipo, status: u.status,
-    fracao: num(u.fracao_ideal), resp: u.pessoas?.nome || "—",
+    fracao: num(u.fracao_ideal), area: num(u.area_privativa_m2), resp: u.pessoas?.nome || "—",
     vagas: vagas.filter((v) => v.unidade_id === u.id).length,
     saldo: -(cobrPorUnidade[u.id] || 0),
   }));
@@ -143,8 +157,12 @@ export async function loadAll(condominioId) {
     const v = vs[0];
     return {
       id: p.id, nome: p.nome, papel: v ? PAPEL_LABEL[v.papel] : "—",
-      unidade: v?.unidade_id ? uLabel(unidadeById[v.unidade_id]) : "—",
+      unidade: v?.unidade_id ? uLabel(unidadeById[v.unidade_id]) : "—", unidadeId: v?.unidade_id || null,
       doc: maskDoc(p.cpf_cnpj), tel: p.telefone || "—", status: "ativo",
+      documentoUrl: p.documento_url || null,
+      /* valores crus para o formulário de edição */
+      docRaw: p.cpf_cnpj, telRaw: p.telefone || "", email: p.email || "",
+      inicio: v?.inicio || "", vinculoId: v?.id || null,
     };
   });
 
@@ -153,6 +171,7 @@ export async function loadAll(condominioId) {
     id: l.id, data: ddmm(l.data), tipo: l.tipo, cat: l.categorias_financeiras?.nome || "—",
     desc: l.descricao, valor: num(l.valor), status: LANC_STATUS_UI[l.status] || l.status,
     forma: FORMA_LABEL[l.forma_pagamento] || "—", competencia: l.competencia,
+    nf: l.nota_fiscal_url || null,
   }));
 
   /* cobranças */
@@ -164,17 +183,27 @@ export async function loadAll(condominioId) {
     unidadeId: c.unidade_id, competencia: c.competencia,
   }));
 
-  /* multas */
+  /* multas — ciclo: pendente (síndico) → aprovada (aguardando envio) →
+     entregue → encerrada (advertência) | paga/vencida (multa, pela cobrança) */
+  const hojeISO = new Date().toISOString().slice(0, 10);
   const multas = multasRaw.map((m) => {
     const anteriores = multasRaw.filter((x) => x.id !== m.id && x.unidade_id === m.unidade_id && x.ocorrida_em < m.ocorrida_em).length;
-    const statusUI = m.tipo === "advertencia" ? "advertencia"
-      : m.status === "em_defesa" || m.status === "registrada" ? "aguardando_defesa"
-      : m.status === "aprovada" || m.status === "lancada" ? "aprovada" : m.status;
+    const cobrancaM = m.cobranca_id ? cobrRaw.find((c) => c.id === m.cobranca_id) : null;
+    let statusUI;
+    if (m.status === "cancelada") statusUI = "cancelada";
+    else if (m.status === "registrada" || m.status === "em_defesa") statusUI = "pendente";
+    else if (!m.entregue_em) statusUI = "aprovada_envio";
+    else if (m.tipo === "advertencia") statusUI = "encerrada";
+    else if (cobrancaM && (cobrancaM.status === "paga" || cobrancaM.status === "paga_em_atraso")) statusUI = "paga";
+    else if (cobrancaM && (cobrancaM.status === "vencida" || cobrancaM.vencimento < hojeISO)) statusUI = "vencida";
+    else statusUI = "entregue";
     return {
-      id: m.id, num: m.numero, unidade: uLabel(m.unidades), infrator: m.pessoas?.nome || "Não identificado",
+      id: m.id, num: m.numero, unidade: uLabel(m.unidades), unidadeId: m.unidade_id, infrator: m.pessoas?.nome || "Não identificado",
       categoria: m.categoria_infracao, data: ddmmyyyy(m.ocorrida_em), valor: num(m.valor),
-      status: statusUI, prazo: m.prazo_defesa && statusUI === "aguardando_defesa" ? ddmm(m.prazo_defesa) : "—",
+      status: statusUI, prazo: m.prazo_defesa && statusUI === "pendente" ? ddmm(m.prazo_defesa) : "—",
+      prazoISO: m.prazo_defesa || null, entregueEm: m.entregue_em ? ddmmyyyy(m.entregue_em) : null,
       reincidencia: anteriores, base: m.base_normativa, descricao: m.descricao,
+      provas: (m.penalidade_provas || []).map((p) => ({ id: p.id, tipo: p.tipo, url: p.arquivo_url })),
     };
   });
 
@@ -187,6 +216,8 @@ export async function loadAll(condominioId) {
       data: ddmmyyyy(c.publicado_em || c.criado_em),
       canal: (c.canais || []).map((x) => CANAL[x] || x).join(" + ") || "Portal",
       leitura: d.length ? Math.round((d.filter((x) => x.lido_em).length / d.length) * 100) : 0,
+      publico: c.segmento?.descricao || "Todas as unidades",
+      pdfUrl: c.segmento?.pdf_url || null, // PDF timbrado arquivado no módulo Documentos
     };
   });
 
@@ -194,8 +225,14 @@ export async function loadAll(condominioId) {
   const chamados = chamadosRaw.map((c) => ({
     id: c.id, num: c.numero, cat: CHAMADO_CAT_LABEL[c.categoria] || c.categoria, desc: c.descricao,
     prio: c.prioridade, status: c.status,
+    unidade: c.unidades ? uLabel(c.unidades) : null, // preenchida quando o chamado veio do portal do morador
     resp: primeiroNome(c.pessoa_vinculos?.pessoas?.nome) || "—",
     aberto: ddmm(c.criado_em), custo: num(c.custo_realizado) || num(c.custo_estimado),
+    midias: Array.isArray(c.midias) ? c.midias : [],
+    /* detalhes/gestão */
+    respId: c.responsavel_vinculo_id || "", prazo: c.prazo || "",
+    custoEstimado: num(c.custo_estimado), custoRealizado: num(c.custo_realizado),
+    abertoFull: ddmmyyyy(c.criado_em), fechado: c.fechado_em ? ddmmyyyy(c.fechado_em) : null,
   }));
 
   /* acessos */
@@ -319,27 +356,41 @@ export async function loadAll(condominioId) {
     competencia: compAtual ? compBR(compAtual) : "—",
   };
 
-  /* atividade recente */
+  /* atividades recentes — todas, ordenadas da mais nova para a mais antiga;
+     [texto, quando, tela de destino] para o clique navegar */
   const atividades = [
-    ...pagamentosRaw.map((p) => [`Pagamento confirmado — ${uLabel(p.cobrancas?.unidades)} · R$ ${num(p.valor_pago).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, ddmm(p.pago_em)]),
-    ...comunicRaw.slice(0, 1).map((c) => [`Comunicado "${c.titulo}" publicado`, ddmm(c.publicado_em || c.criado_em)]),
-    ...chamadosRaw.slice(0, 1).map((c) => [`Chamado ${c.numero} — ${c.descricao}`, ddmm(c.criado_em)]),
-  ].slice(0, 4);
+    ...pagamentosRaw.map((p) => [`Pagamento confirmado — ${uLabel(p.cobrancas?.unidades)} · R$ ${num(p.valor_pago).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, p.pago_em, "cobrancas"]),
+    ...comunicRaw.map((c) => [`Comunicado "${c.titulo}" publicado`, c.publicado_em || c.criado_em, "comunicados"]),
+    ...chamadosRaw.map((c) => [`Chamado ${c.numero} — ${c.descricao}`, c.criado_em, "chamados"]),
+    ...multasRaw.map((m) => [`${m.tipo === "multa" ? "Multa" : "Advertência"} ${m.numero} — ${m.categoria_infracao}`, m.criado_em, "multas"]),
+    ...acessosRaw.map((a) => [`Portaria: ${a.pessoa_nome}`, a.ocorrido_em, "portaria"]),
+  ].sort((a, b) => (b[1] || "").localeCompare(a[1] || ""))
+   .map(([txt, iso, tela]) => [txt, ddmm(iso), tela]);
 
   /* contexto para escritas */
   const ctx = {
     condominioId: cid, condominioNome: principal.nome_fantasia,
     usuarioId: usuarios[0]?.usuario_id || null,
     blocos, categorias,
-    unidades: unidadesRaw.map((u) => ({ id: u.id, label: uLabel(u), responsavelId: u.responsavel_financeiro_id, fracao: num(u.fracao_ideal) })),
-    pessoas: pessoasRaw.map((p) => ({ id: p.id, nome: p.nome })),
+    unidades: unidadesRaw.map((u) => ({
+      id: u.id, label: uLabel(u), responsavelId: u.responsavel_financeiro_id, fracao: num(u.fracao_ideal),
+      bloco: u.blocos?.nome || "", tipo: u.tipo, andar: u.andar,
+    })),
+    pessoas: pessoasRaw.map((p) => {
+      const v = vinculos.find((x) => x.pessoa_id === p.id && x.unidade_id);
+      return { id: p.id, nome: p.nome, unidadeId: v?.unidade_id || null };
+    }),
+    /* segmentos reais para os destinatários de comunicados */
+    tiposUnidade: [...new Set(unidadesRaw.map((u) => u.tipo))],
+    andares: [...new Set(unidadesRaw.map((u) => u.andar).filter((a) => a != null))].sort((a, b) => a - b),
+    unidadesVencidas: new Set(cobrRaw.filter((c) => c.status === "vencida").map((c) => c.unidade_id)),
     operacionais: vinculos.filter((v) => v.papel === "funcionario" || v.papel === "prestador")
       .map((v) => ({ id: v.id, label: `${pessoasRaw.find((p) => p.id === v.pessoa_id)?.nome} (${PAPEL_LABEL[v.papel].toLowerCase()})` })),
     maxOS: Math.max(0, ...chamadosRaw.map((c) => Number((c.numero || "").replace(/\D/g, "")) || 0)),
     maxPenalidade: Math.max(0, ...multasRaw.map((m) => Number((m.numero || "").split("-")[1]) || 0)),
   };
 
-  return { ctx, unidades, pessoas, lanc, cobr, multas, comunic, chamados, acessos, docs, tenants, boletos, fluxo, fluxoDiarioPorMes, mesAtualReal, despesasPorMes, inadim, pieReceitasPorMes, stats, atividades };
+  return { ctx, cond, unidades, pessoas, lanc, cobr, multas, comunic, chamados, acessos, docs, tenants, boletos, fluxo, fluxoDiarioPorMes, mesAtualReal, despesasPorMes, inadim, pieReceitasPorMes, stats, atividades };
 }
 
 /* ─────────── escritas ─────────── */
@@ -368,13 +419,13 @@ export async function registrarDiretor({ nome, email, senha }) {
   return { ...r.conta, token: r.token };
 }
 
-/* ─────────── acessos (Gerenciar Emails) — gravados na tabela usuarios ─────────── */
+/* ─────────── acessos (Gerenciar Acessos) — gravados na tabela usuarios ─────────── */
 
 /* e-mail sintético para morador, que entra pelo nome e não tem e-mail próprio */
 const emailMorador = (nome, condominioId) =>
   `morador+${nome.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, ".")}@${condominioId.slice(0, 8)}.local`;
 
-/* Cria um acesso (sindico, tesouraria, administradora ou morador):
+/* Cria um acesso (sindico, tesouraria ou morador):
    pessoa + usuário (senha com hash) + perfil; morador ganha também o
    vínculo com a unidade. */
 export async function criarAcesso(ctx, f) {
@@ -556,17 +607,76 @@ export async function criarUnidade(ctx, f) {
   const base = {
     condominio_id: ctx.condominioId, bloco_id: bloco.id,
     tipo: UNIDADE_TIPO_ENUM[f.tipo] || "apartamento", andar: f.andar ? Number(f.andar) : null,
-    status: UNIDADE_STATUS_ENUM[f.status] || "vaga", fracao_ideal: parseBRL(f.fracao),
+    status: UNIDADE_STATUS_ENUM[f.status] || "vaga",
+    area_privativa_m2: parseBRL(f.area) || null,
+    fracao_ideal: 0, // recalculada logo abaixo a partir da área privativa
   };
   await q(supabase.from("unidades").insert(novos.map((numero) => ({ ...base, numero }))).select(), "unidades");
+  await recalcularFracoes(ctx);
   return novos.length;
 }
 
+/* Fração ideal (Lei 4.591 / NBR 12721): área privativa da unidade ÷ área
+   privativa total do edifício — é a proporção de rateio das despesas comuns.
+   Recalculada para TODAS as unidades sempre que uma unidade é criada ou tem a
+   área alterada (o total do prédio muda). Unidade sem área informada entra com
+   a média das áreas conhecidas; se nenhuma tiver área, o rateio fica igualitário. */
+export async function recalcularFracoes(ctx) {
+  const unidades = await q(supabase.from("unidades").select("id, area_privativa_m2")
+    .eq("condominio_id", ctx.condominioId).is("deletado_em", null), "unidades");
+  if (!unidades.length) return;
+  const areas = unidades.map((u) => num(u.area_privativa_m2)).filter((a) => a > 0);
+  const media = areas.length ? areas.reduce((s, a) => s + a, 0) / areas.length : 1;
+  const peso = (u) => (num(u.area_privativa_m2) > 0 ? num(u.area_privativa_m2) : media);
+  const totalPeso = unidades.reduce((s, u) => s + peso(u), 0);
+  await Promise.all(unidades.map((u) =>
+    q(supabase.from("unidades").update({ fracao_ideal: Math.round((peso(u) / totalPeso) * 100 * 1e6) / 1e6 })
+      .eq("id", u.id).select(), "unidades")));
+}
+
+/* Altera a área privativa de uma unidade e refaz as frações do prédio todo */
+export async function salvarAreaUnidade(ctx, unidadeId, area) {
+  await q(supabase.from("unidades").update({ area_privativa_m2: parseBRL(area) || null })
+    .eq("id", unidadeId).select(), "unidades");
+  await recalcularFracoes(ctx);
+}
+
+/* ─────────── uploads (bucket "documentos") ───────────
+   Os arquivos vão para <condominio_id>/<pasta>/<uuid>.<ext> — o prefixo com o
+   condominio_id é o que a política de RLS do storage confere. */
+const arquivosDe = (v) => (Array.isArray(v) ? v : v ? [v] : [])
+  .filter((a) => a && typeof a === "object" && a.size > 0); // input vazio chega como File de 0 bytes
+const provaTipo = (mime) => mime?.startsWith("image/") ? "foto"
+  : mime?.startsWith("video/") ? "video" : mime?.startsWith("audio/") ? "audio" : "documento";
+
+async function uploadArquivo(ctx, arquivo, pasta) {
+  const ext = (arquivo.name?.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
+  const caminho = `${ctx.condominioId}/${pasta}/${crypto.randomUUID()}.${ext}`;
+  const { error } = await supabase.storage.from("documentos").upload(caminho, arquivo, { contentType: arquivo.type || undefined });
+  if (error) throw new Error(`upload de "${arquivo.name}": ${error.message}`);
+  const hashBuf = await crypto.subtle.digest("SHA-256", await arquivo.arrayBuffer());
+  return {
+    url: supabase.storage.from("documentos").getPublicUrl(caminho).data.publicUrl,
+    nome: arquivo.name, mime: arquivo.type || "application/octet-stream",
+    hash: Array.from(new Uint8Array(hashBuf), (b) => b.toString(16).padStart(2, "0")).join(""),
+  };
+}
+
+/* Aceita um File único ou lista (input multiple); devolve [{url, nome, mime, hash}] */
+async function uploadArquivos(ctx, valor, pasta) {
+  const out = [];
+  for (const a of arquivosDe(valor)) out.push(await uploadArquivo(ctx, a, pasta));
+  return out;
+}
+
 export async function criarPessoa(ctx, f) {
+  const [doc] = await uploadArquivos(ctx, f.arquivo, "pessoas");
+  const documentoUrl = doc?.url || null;
   const [p] = await q(supabase.from("pessoas").insert({
     condominio_id: ctx.condominioId, nome: f.nome,
     tipo_pessoa: String(f.doc || "").replace(/\D/g, "").length > 11 ? "juridica" : "fisica",
     cpf_cnpj: f.doc, telefone: f.tel || null, email: f.email || null,
+    documento_url: documentoUrl,
   }).select(), "pessoas");
   await q(supabase.from("pessoa_vinculos").insert({
     condominio_id: ctx.condominioId, pessoa_id: p.id,
@@ -575,26 +685,77 @@ export async function criarPessoa(ctx, f) {
   }).select(), "pessoa_vinculos");
 }
 
+/* Edição: atualiza o cadastro e o vínculo principal (papel/unidade/início).
+   Documento novo substitui o anterior; sem arquivo, o atual é mantido. */
+export async function atualizarPessoa(ctx, pessoa, f) {
+  const [doc] = await uploadArquivos(ctx, f.arquivo, "pessoas");
+  const upd = {
+    nome: f.nome, tipo_pessoa: String(f.doc || "").replace(/\D/g, "").length > 11 ? "juridica" : "fisica",
+    cpf_cnpj: f.doc, telefone: f.tel || null, email: f.email || null,
+  };
+  if (doc) upd.documento_url = doc.url;
+  await q(supabase.from("pessoas").update(upd).eq("id", pessoa.id).select(), "pessoas");
+  const dados = { unidade_id: f.unidade || null, papel: PAPEL_ENUM[f.papel] || "morador" };
+  if (f.inicio) dados.inicio = f.inicio;
+  if (pessoa.vinculoId)
+    await q(supabase.from("pessoa_vinculos").update(dados).eq("id", pessoa.vinculoId).select(), "pessoa_vinculos");
+  else
+    await q(supabase.from("pessoa_vinculos").insert({
+      condominio_id: ctx.condominioId, pessoa_id: pessoa.id, ...dados,
+      inicio: f.inicio || new Date().toISOString().slice(0, 10),
+    }).select(), "pessoa_vinculos");
+}
+
+/* Exclusão: antes de apagar, confere onde a pessoa é referenciada e explica
+   o impedimento — em vez de estourar um erro de chave estrangeira do banco. */
+export async function removerPessoa(ctx, id) {
+  const checagens = [
+    [supabase.from("usuarios").select("id").eq("pessoa_id", id).limit(1), "possui conta de acesso — remova primeiro em Gerenciar Acessos"],
+    [supabase.from("unidades").select("id").eq("responsavel_financeiro_id", id).limit(1), "é responsável financeiro de uma unidade"],
+    [supabase.from("cobrancas").select("id").eq("responsavel_id", id).limit(1), "é responsável por cobranças emitidas"],
+    [supabase.from("penalidades").select("id").eq("infrator_id", id).limit(1), "está registrada em multas/advertências"],
+  ];
+  for (const [consulta, motivo] of checagens) {
+    const { data } = await consulta;
+    if (data?.length) throw new Error(`Não é possível excluir: esta pessoa ${motivo}. O histórico precisa ser preservado.`);
+  }
+  const { error: eV } = await supabase.from("pessoa_vinculos").delete().eq("pessoa_id", id);
+  if (eV) throw new Error(/foreign key|violates/i.test(eV.message)
+    ? "Não é possível excluir: esta pessoa tem histórico vinculado (chamados ou outros registros)."
+    : `vínculos: ${eV.message}`);
+  const { error: eP } = await supabase.from("pessoas").delete().eq("id", id);
+  if (eP) throw new Error(/foreign key|violates/i.test(eP.message)
+    ? "Não é possível excluir: esta pessoa tem histórico vinculado no condomínio."
+    : `pessoas: ${eP.message}`);
+}
+
 export async function criarLancamento(ctx, f) {
   const uid = precisaUsuario(ctx);
   const tipo = f.tipo === "Receita" ? "receita" : "despesa";
   let cat = ctx.categorias.find((c) => c.nome.toLowerCase() === String(f.categoria).toLowerCase());
   if (!cat) cat = (await q(supabase.from("categorias_financeiras").insert({ condominio_id: ctx.condominioId, nome: f.categoria, tipo }).select(), "categorias"))[0];
+  const [nf] = await uploadArquivos(ctx, f.nota, "notas-fiscais");
   await q(supabase.from("lancamentos").insert({
     condominio_id: ctx.condominioId, tipo, categoria_id: cat.id,
     descricao: f.desc || f.categoria, valor: parseBRL(f.valor),
     data: f.data || new Date().toISOString().slice(0, 10),
     competencia: f.competencia || new Date().toISOString().slice(0, 7),
     centro_custo: f.centro || null, forma_pagamento: FORMA_ENUM[f.forma] || null,
-    status: "aguardando_aprovacao", lancado_por: uid,
+    status: "aguardando_aprovacao", lancado_por: uid, nota_fiscal_url: nf?.url || null,
   }).select(), "lancamentos");
+}
+
+/* Dar baixa numa conta a pagar (aba Contas a pagar do Financeiro) */
+export async function marcarLancamentoPago(ctx, id) {
+  await q(supabase.from("lancamentos").update({ status: "pago" }).eq("id", id).select(), "lancamentos");
 }
 
 export async function criarPenalidade(ctx, f) {
   const uid = precisaUsuario(ctx);
   const tipo = String(f.tipo || "").startsWith("Multa") ? "multa" : "advertencia";
   const ano = new Date().getFullYear();
-  await q(supabase.from("penalidades").insert({
+  const provas = await uploadArquivos(ctx, f.provas, "provas");
+  const [pen] = await q(supabase.from("penalidades").insert({
     condominio_id: ctx.condominioId, numero: `${ano}-${String(ctx.maxPenalidade + 1).padStart(3, "0")}`,
     tipo, unidade_id: f.unidade, categoria_infracao: f.categoria,
     descricao: f.desc || f.categoria, base_normativa: f.base || "Regimento interno",
@@ -603,6 +764,36 @@ export async function criarPenalidade(ctx, f) {
     prazo_defesa: f.prazo || null,
     status: tipo === "multa" ? "em_defesa" : "registrada", registrada_por: uid,
   }).select(), "penalidades");
+  if (provas.length)
+    await q(supabase.from("penalidade_provas").insert(provas.map((p) => ({
+      penalidade_id: pen.id, tipo: provaTipo(p.mime), arquivo_url: p.url, hash_sha256: p.hash,
+    }))).select(), "provas");
+}
+
+/* Envia a penalidade aprovada ao responsável: registra a entrega e, se for
+   multa, emite a cobrança (tipo "multa", vencimento no prazo de defesa ou em
+   30 dias) vinculada — é ela que define os status "paga"/"vencida".
+   Requer as colunas do supabase-penalidades-status.sql. */
+export async function enviarPenalidade(ctx, m) {
+  const upd = { entregue_em: new Date().toISOString() };
+  if (m.valor > 0) {
+    const u = ctx.unidades.find((x) => x.id === m.unidadeId);
+    if (!u?.responsavelId)
+      throw new Error("A unidade desta multa não tem responsável financeiro definido. Vincule a pessoa na tela Pessoas (papel proprietário/inquilino).");
+    const venc = m.prazoISO && m.prazoISO > new Date().toISOString().slice(0, 10)
+      ? m.prazoISO : new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
+    const [cob] = await q(supabase.from("cobrancas").insert({
+      condominio_id: ctx.condominioId, unidade_id: m.unidadeId, responsavel_id: u.responsavelId,
+      competencia: new Date().toISOString().slice(0, 7), tipo: "multa",
+      valor_original: m.valor, vencimento: venc, status: "emitida",
+    }).select(), "cobrancas");
+    upd.cobranca_id = cob.id;
+    upd.status = "lancada";
+  }
+  const { error } = await supabase.from("penalidades").update(upd).eq("id", m.id).select();
+  if (error) throw new Error(/entregue_em|cobranca_id|column|schema cache/i.test(error.message)
+    ? "Rode o supabase-penalidades-status.sql no SQL Editor do Supabase para habilitar o envio ao responsável."
+    : `penalidades: ${error.message}`);
 }
 
 export async function decidirPenalidade(ctx, id, aprovar) {
@@ -613,45 +804,310 @@ export async function decidirPenalidade(ctx, id, aprovar) {
   }).eq("id", id).select(), "penalidades");
 }
 
+/* Destinatários do comunicado a partir do segmento escolhido — sempre sobre
+   os blocos/tipos/andares realmente cadastrados pelo condomínio. */
+function destinatariosDoSegmento(ctx, seg) {
+  if (!seg || seg === "todas") return ctx.pessoas;
+  if (seg === "inadimplentes") return ctx.pessoas.filter((p) => p.unidadeId && ctx.unidadesVencidas.has(p.unidadeId));
+  const [k, v] = seg.split(":");
+  const unids = new Set(ctx.unidades
+    .filter((u) => (k === "bloco" ? u.bloco === v : k === "tipo" ? u.tipo === v : String(u.andar) === v))
+    .map((u) => u.id));
+  return ctx.pessoas.filter((p) => p.unidadeId && unids.has(p.unidadeId));
+}
+const rotuloSegmento = (seg) => {
+  if (!seg || seg === "todas") return "Todas as unidades";
+  if (seg === "inadimplentes") return "Somente inadimplentes";
+  const [k, v] = seg.split(":");
+  return k === "bloco" ? `Bloco ${v}` : k === "andar" ? `Andar ${v}` : `${UNIDADE_TIPO_LABEL[v] || v}s`;
+};
+
+/* PDF timbrado (comunicados e documentos avulsos), gerado no navegador (jsPDF) */
+async function gerarPdfTimbrado(ctx, d) {
+  const cond = await obterCondominio(ctx).catch(() => ({ nome: ctx.condominioNome }));
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const OURO = [212, 175, 55];
+  /* cabeçalho: logo (ou iniciais) + identificação */
+  let temLogo = false;
+  if (cond.logoUrl) {
+    try {
+      const blob = await (await fetch(cond.logoUrl)).blob();
+      const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
+      doc.addImage(dataUrl, 17, 15, 16, 16); temLogo = true;
+    } catch { /* sem logo no PDF */ }
+  }
+  if (!temLogo) {
+    doc.setFillColor(10, 14, 26); doc.circle(25, 23, 8, "F");
+    doc.setTextColor(...OURO); doc.setFontSize(10); doc.setFont("helvetica", "bold");
+    doc.text((cond.nome || "?").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join(""), 25, 24.5, { align: "center" });
+  }
+  doc.setTextColor(26, 26, 26); doc.setFont("helvetica", "bold"); doc.setFontSize(15);
+  doc.text(cond.nome || "—", 38, 22);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(110, 110, 110);
+  doc.text([cond.cnpj && `CNPJ ${cond.cnpj}`, cond.endereco].filter(Boolean).join("  ·  "), 38, 28);
+  doc.setDrawColor(...OURO); doc.setLineWidth(0.8); doc.line(17, 36, 193, 36);
+  /* corpo */
+  doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(158, 124, 20);
+  doc.text(String(d.tipo || "Comunicado").toUpperCase(), 17, 46, { charSpace: 1 });
+  doc.setFontSize(14); doc.setTextColor(26, 26, 26);
+  doc.text(doc.splitTextToSize(d.titulo, 176), 17, 55);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.setTextColor(50, 50, 50);
+  doc.text(doc.splitTextToSize(d.corpo, 176), 17, 68, { lineHeightFactor: 1.5 });
+  /* rodapé */
+  doc.setFontSize(9); doc.setTextColor(110, 110, 110);
+  doc.text(`${d.rodape ? d.rodape + "   ·   " : ""}Emitido em ${new Date().toLocaleDateString("pt-BR")}`, 17, 250);
+  doc.setDrawColor(160, 160, 160); doc.setLineWidth(0.2); doc.line(70, 265, 140, 265);
+  doc.text(`${cond.sindico || "Síndico"} — Síndico`, 105, 270, { align: "center" });
+  doc.setFontSize(8); doc.text("Documento gerado pelo CondoMaster Pro", 105, 285, { align: "center" });
+  return new File([doc.output("blob")], `timbrado-${Date.now()}.pdf`, { type: "application/pdf" });
+}
+
+/* Sobe o PDF timbrado e arquiva no módulo Documentos; devolve { url, id } */
+async function arquivarPdfTimbrado(ctx, uid, { tipoDoc, titulo, unidadeId = null, arquivo }) {
+  const [up] = await uploadArquivos(ctx, arquivo, "documentos-timbrados");
+  const retencao = new Date(); retencao.setFullYear(retencao.getFullYear() + 5);
+  const [docRow] = await q(supabase.from("documentos").insert({
+    condominio_id: ctx.condominioId, tipo: tipoDoc, titulo, unidade_id: unidadeId,
+    arquivo_url: up.url, hash_sha256: up.hash, template_versao: "v1",
+    emitido_por: uid, retencao_ate: retencao.toISOString().slice(0, 10),
+  }).select(), "documentos");
+  return { url: up.url, id: docRow.id };
+}
+
+/* Popup "Novo documento timbrado" do módulo Documentos */
+export async function criarDocumento(ctx, f) {
+  const uid = precisaUsuario(ctx);
+  const unidade = ctx.unidades.find((u) => u.id === f.unidade);
+  const arquivo = await gerarPdfTimbrado(ctx, {
+    tipo: f.tipo, titulo: f.titulo, corpo: f.corpo || f.titulo,
+    rodape: unidade ? `Unidade ${unidade.label}` : "",
+  });
+  const { url } = await arquivarPdfTimbrado(ctx, uid, {
+    tipoDoc: DOC_TIPO_ENUM[f.tipo] || "circular", titulo: f.titulo,
+    unidadeId: f.unidade || null, arquivo,
+  });
+  return url;
+}
+
+const COMUNIC_DOC_TIPO = { comunicado: "circular", convocacao: "convocacao", circular: "circular", aviso_manutencao: "circular", emergencia: "circular" };
+
 export async function criarComunicado(ctx, f) {
   const uid = precisaUsuario(ctx);
   const canais = ["Portal", "E-mail", "WhatsApp", "Impressão"].filter((c) => f[`canal_${c}`])
     .map((c) => ({ Portal: "portal", "E-mail": "email", WhatsApp: "whatsapp", "Impressão": "portal" }[c]));
+  const seg = f.segmento || "todas";
+  const alvo = destinatariosDoSegmento(ctx, seg);
+  const rotulo = rotuloSegmento(seg);
+  const tipoEnum = COMUNIC_TIPO_ENUM[f.tipo] || "comunicado";
+
+  /* versão timbrada em PDF, arquivada no módulo Documentos */
+  let pdfUrl = null, documentoId = null;
+  if (f.gerarPdf) {
+    const arquivo = await gerarPdfTimbrado(ctx, { tipo: f.tipo, titulo: f.titulo, corpo: f.corpo || f.titulo, rodape: `Destinatários: ${rotulo}` });
+    const arq = await arquivarPdfTimbrado(ctx, uid, { tipoDoc: COMUNIC_DOC_TIPO[tipoEnum] || "circular", titulo: f.titulo, arquivo });
+    pdfUrl = arq.url; documentoId = arq.id;
+  }
+
   const [com] = await q(supabase.from("comunicados").insert({
-    condominio_id: ctx.condominioId, tipo: COMUNIC_TIPO_ENUM[f.tipo] || "comunicado",
-    titulo: f.titulo, corpo: f.corpo || f.titulo, segmento: { descricao: f.segmento || "Todas as unidades" },
+    condominio_id: ctx.condominioId, tipo: tipoEnum,
+    titulo: f.titulo, corpo: f.corpo || f.titulo,
+    segmento: { descricao: rotulo, filtro: seg, pdf_url: pdfUrl, documento_id: documentoId },
     canais: canais.length ? [...new Set(canais)] : ["portal"],
     publicado_em: new Date().toISOString(), publicado_por: uid,
   }).select(), "comunicados");
-  if (ctx.pessoas.length)
-    await q(supabase.from("comunicado_destinatarios").insert(ctx.pessoas.map((p) => ({ comunicado_id: com.id, pessoa_id: p.id }))).select(), "destinatários");
+  if (alvo.length)
+    await q(supabase.from("comunicado_destinatarios").insert(alvo.map((p) => ({ comunicado_id: com.id, pessoa_id: p.id }))).select(), "destinatários");
+  return alvo.length;
 }
 
 export async function criarChamado(ctx, f) {
   const uid = precisaUsuario(ctx);
+  const midias = await uploadArquivos(ctx, f.midias, "chamados");
   await q(supabase.from("chamados").insert({
     condominio_id: ctx.condominioId, numero: `OS-${ctx.maxOS + 1}`,
     categoria: CHAMADO_CAT_ENUM[f.categoria] || "area_comum", prioridade: PRIO_ENUM[f.prioridade] || "media",
     descricao: f.desc || "Sem descrição", status: "aberto", aberto_por: uid,
+    unidade_id: f.unidadeId || null,
     responsavel_vinculo_id: f.responsavel || null, prazo: f.prazo || null,
     custo_estimado: f.custo ? parseBRL(f.custo) : null,
+    midias: midias.length ? midias.map((m) => ({ url: m.url, tipo: m.mime, nome: m.nome })) : null,
   }).select(), "chamados");
 }
 
+/* ─────────── cadastro do condomínio (tela Cadastro do Condomínio) ───────────
+   Sempre escopado pelo condominio_id do token — cada diretor só enxerga e
+   edita o próprio prédio (política cond_select/cond_update do RLS). */
+const COND_TIPO_LABEL = { residencial: "Residencial", comercial: "Comercial", misto: "Misto" };
+const COND_TIPO_ENUM = Object.fromEntries(Object.entries(COND_TIPO_LABEL).map(([k, v]) => [v, k]));
+const COND_PORTE_LABEL = { alto: "Alto padrão", medio: "Médio padrão", baixo: "Baixo padrão" };
+const COND_PORTE_ENUM = Object.fromEntries(Object.entries(COND_PORTE_LABEL).map(([k, v]) => [v, k]));
+
+export async function obterCondominio(ctx) {
+  const [c] = await q(supabase.from("condominios").select("*").eq("id", ctx.condominioId), "condominios");
+  if (!c) throw new Error("Condomínio não encontrado para esta conta.");
+  const r = c.regras_internas || {}, g = r.gestao || {}, e = c.endereco || {};
+  return {
+    nome: c.nome_fantasia, razao: c.razao_social, cnpj: c.cnpj, inscricao: c.inscricao_municipal || "",
+    tipo: COND_TIPO_LABEL[c.tipo] || "Residencial", porte: COND_PORTE_LABEL[c.porte] || "Médio padrão",
+    endereco: e.texto || "", torres: e.torres || "", resumo: e.resumo_unidades || "",
+    administradora: g.administradora || "", sindico: g.sindico || "", diretorAdm: g.diretor_adm || "",
+    tesouraria: g.tesouraria || "", inicioGestao: g.inicio_gestao || "",
+    silencio: r.silencio || "", mudancas: r.mudancas || "", obras: r.obras || "",
+    visitantes: r.visitantes || "", animais: r.animais || "", areas: r.areas_comuns || "",
+    moeda: r.moeda || "BRL",
+    logoUrl: c.identidade_visual?.logo_url || null, cor: c.identidade_visual?.cor_primaria || "#D4AF37",
+    atualizadoEm: c.atualizado_em,
+  };
+}
+
+export async function salvarCondominio(ctx, f) {
+  const identidade = await obterIdentidade(ctx); // preserva o logo já enviado
+  await q(supabase.from("condominios").update({
+    nome_fantasia: f.nome, razao_social: f.razao || f.nome, cnpj: f.cnpj,
+    inscricao_municipal: f.inscricao || null,
+    tipo: COND_TIPO_ENUM[f.tipo] || "residencial", porte: COND_PORTE_ENUM[f.porte] || "medio",
+    endereco: { texto: f.endereco || "", torres: f.torres || "", resumo_unidades: f.resumo || "" },
+    /* gestão descritiva vive dentro de regras_internas.gestao (sem migração de schema) */
+    regras_internas: {
+      silencio: f.silencio || "", mudancas: f.mudancas || "", obras: f.obras || "",
+      visitantes: f.visitantes || "", animais: f.animais || "", areas_comuns: f.areas || "",
+      moeda: f.moeda || "BRL",
+      gestao: { administradora: f.administradora || "", sindico: f.sindico || "",
+        diretor_adm: f.diretorAdm || "", tesouraria: f.tesouraria || "", inicio_gestao: f.inicioGestao || "" },
+    },
+    identidade_visual: { ...identidade, cor_primaria: f.cor || identidade.cor_primaria || "#D4AF37" },
+  }).eq("id", ctx.condominioId).select(), "condominios");
+}
+
+/* Identidade visual do condomínio (jsonb em condominios.identidade_visual) */
+export async function obterIdentidade(ctx) {
+  const [c] = await q(supabase.from("condominios").select("identidade_visual").eq("id", ctx.condominioId), "condominios");
+  return c?.identidade_visual || {};
+}
+
+export async function salvarLogoCondominio(ctx, arquivo) {
+  const [logo] = await uploadArquivos(ctx, arquivo, "identidade");
+  if (!logo) throw new Error("Escolha um arquivo de imagem.");
+  const atual = await obterIdentidade(ctx);
+  await q(supabase.from("condominios").update({ identidade_visual: { ...atual, logo_url: logo.url } })
+    .eq("id", ctx.condominioId).select(), "condominios");
+  return logo.url;
+}
+
+/* Gestão do chamado (tela Manutenção): designar responsável depois de criado,
+   mudar status (aberto → andamento → concluído), prazo, prioridade e custo. */
+export async function atualizarChamado(ctx, id, f) {
+  await q(supabase.from("chamados").update({
+    responsavel_vinculo_id: f.responsavel || null,
+    status: f.status || "aberto",
+    prioridade: PRIO_ENUM[f.prioridade] || "media",
+    prazo: f.prazo || null,
+    custo_realizado: f.custo ? parseBRL(f.custo) : null,
+    fechado_em: f.status === "concluido" || f.status === "cancelado" ? new Date().toISOString() : null,
+  }).eq("id", id).select(), "chamados");
+}
+
+/* Pré-autorização: gera um token cujo hash fica no banco — o QR carrega o
+   token ("CM1|<token>") e a portaria valida comparando o hash. Devolve os
+   dados para exibir o QR e enviar por e-mail ao visitante. */
 export async function criarPreAutorizacao(ctx, f) {
   const uid = precisaUsuario(ctx);
   const dia = f.data || new Date().toISOString().slice(0, 10);
-  await q(supabase.from("pre_autorizacoes").insert({
+  const token = hex64();
+  const [pa] = await q(supabase.from("pre_autorizacoes").insert({
     condominio_id: ctx.condominioId, tipo: PREAUT_TIPO_ENUM[f.tipo] || "visitante",
     nome: f.nome, unidade_id: f.unidade, autorizada_por: uid,
     valida_de: `${dia}T00:00:00-03:00`, valida_ate: `${dia}T23:59:59-03:00`,
-    qr_token_hash: hex64(), veiculo_placa: f.placa || null,
+    qr_token_hash: await sha256(token), veiculo_placa: f.placa || null,
   }).select(), "pre_autorizacoes");
   await q(supabase.from("acessos_portaria").insert({
-    condominio_id: ctx.condominioId, tipo: "entrada", pessoa_nome: `${f.nome} (pré-autorizado)`,
+    condominio_id: ctx.condominioId, tipo: "entrada", pre_autorizacao_id: pa.id,
+    pessoa_nome: `${f.nome} (pré-autorizado)`,
     unidade_id: f.unidade, registrado_por: uid,
-    detalhes: `Pré-autorização ${f.tipo || "visitante"} · janela ${f.janela || "dia todo"}`,
+    detalhes: `Pré-autorização ${f.tipo || "visitante"} · janela ${f.janela || "dia todo"}${f.email ? ` · e-mail ${f.email}` : ""}`,
     ocorrido_em: new Date().toISOString(),
+  }).select(), "acessos_portaria");
+  return {
+    codigo: `CM1|${token}`, nome: f.nome, email: f.email || "",
+    unidade: ctx.unidades.find((u) => u.id === f.unidade)?.label || "—",
+    janela: f.janela || "dia todo", geradoEm: new Date().toLocaleString("pt-BR"),
+    validaAte: `${ddmmyyyy(dia)} 23:59`,
+  };
+}
+
+/* Botão "Gerar QR de acesso": acesso imediato com janela de duração a partir
+   de agora (1h–2h · 2h–5h · 6h–9h). */
+const JANELA_QR_HORAS = { "1h-2h": 2, "2h-5h": 5, "6h-9h": 9 };
+export async function gerarQrAcesso(ctx, f) {
+  const uid = precisaUsuario(ctx);
+  const agora = new Date();
+  const ate = new Date(agora.getTime() + (JANELA_QR_HORAS[f.janela] || 2) * 3600e3);
+  const token = hex64();
+  await q(supabase.from("pre_autorizacoes").insert({
+    condominio_id: ctx.condominioId, tipo: "visitante", nome: f.nome, unidade_id: f.unidade,
+    autorizada_por: uid, valida_de: agora.toISOString(), valida_ate: ate.toISOString(),
+    qr_token_hash: await sha256(token),
+  }).select(), "pre_autorizacoes");
+  return {
+    codigo: `CM1|${token}`, nome: f.nome, email: f.email || "",
+    unidade: ctx.unidades.find((u) => u.id === f.unidade)?.label || "—",
+    janela: f.janela || "1h-2h", geradoEm: agora.toLocaleString("pt-BR"),
+    validaAte: ate.toLocaleString("pt-BR"),
+  };
+}
+
+/* Leitor da portaria: valida o código lido/digitado e identifica a permissão */
+export async function validarQrAcesso(ctx, codigo) {
+  const token = String(codigo || "").trim().replace(/^CM1\|/, "");
+  if (!token) return { permitido: false, motivo: "Código vazio." };
+  const pas = await q(supabase.from("pre_autorizacoes")
+    .select("*, unidades(numero, blocos(nome))")
+    .eq("condominio_id", ctx.condominioId).eq("qr_token_hash", await sha256(token)), "pre_autorizacoes");
+  const pa = pas[0];
+  if (!pa) return { permitido: false, motivo: "QR não encontrado para este condomínio." };
+  const info = {
+    id: pa.id, unidadeId: pa.unidade_id, nome: pa.nome, tipo: PREAUT_TIPO_LABEL_UI[pa.tipo] || pa.tipo,
+    unidade: pa.unidades ? `${pa.unidades.numero}-${pa.unidades.blocos?.nome || "?"}` : "—",
+    janela: `${new Date(pa.valida_de).toLocaleString("pt-BR")} → ${new Date(pa.valida_ate).toLocaleString("pt-BR")}`,
+  };
+  const agora = new Date();
+  if (pa.usada_em && pa.tipo !== "recorrente")
+    return { permitido: false, motivo: `QR já utilizado em ${new Date(pa.usada_em).toLocaleString("pt-BR")}.`, ...info };
+  if (agora < new Date(pa.valida_de)) return { permitido: false, motivo: "Fora da janela: o acesso ainda não está liberado.", ...info };
+  if (agora > new Date(pa.valida_ate)) return { permitido: false, motivo: "QR expirado.", ...info };
+  return { permitido: true, ...info };
+}
+const PREAUT_TIPO_LABEL_UI = Object.fromEntries(Object.entries(PREAUT_TIPO_ENUM).map(([l, v]) => [v, l]));
+
+/* Confirma a entrada validada: marca o QR como usado e registra o acesso */
+export async function confirmarEntradaQr(ctx, v) {
+  const uid = precisaUsuario(ctx);
+  await q(supabase.from("pre_autorizacoes").update({ usada_em: new Date().toISOString() }).eq("id", v.id).select(), "pre_autorizacoes");
+  await q(supabase.from("acessos_portaria").insert({
+    condominio_id: ctx.condominioId, tipo: "entrada", pre_autorizacao_id: v.id,
+    pessoa_nome: `${v.nome} (QR validado)`, unidade_id: v.unidadeId, registrado_por: uid,
+    detalhes: "Entrada liberada por QR Code na portaria", ocorrido_em: new Date().toISOString(),
+  }).select(), "acessos_portaria");
+}
+
+/* Ocorrências vistas pela portaria (título, descrição, quando ocorreu) */
+export async function registrarOcorrencia(ctx, f) {
+  const uid = precisaUsuario(ctx);
+  await q(supabase.from("acessos_portaria").insert({
+    condominio_id: ctx.condominioId, tipo: "ocorrencia", pessoa_nome: f.titulo,
+    registrado_por: uid, detalhes: f.descricao || f.titulo,
+    ocorrido_em: f.quando ? new Date(f.quando).toISOString() : new Date().toISOString(),
+  }).select(), "acessos_portaria");
+}
+
+/* Entregas recebidas na portaria e repassadas à unidade */
+export async function registrarEntrega(ctx, f) {
+  const uid = precisaUsuario(ctx);
+  await q(supabase.from("acessos_portaria").insert({
+    condominio_id: ctx.condominioId, tipo: "entrega", pessoa_nome: f.morador,
+    unidade_id: f.unidade || null, registrado_por: uid,
+    detalhes: `Entrega recebida na portaria${f.obs ? ` · ${f.obs}` : ""}`,
+    ocorrido_em: f.quando ? new Date(f.quando).toISOString() : new Date().toISOString(),
   }).select(), "acessos_portaria");
 }
 
@@ -667,7 +1123,7 @@ export async function gerarCobrancas(ctx, f) {
     if (!u) throw new Error("Unidade não encontrada.");
     let responsavelId = u.responsavelId;
     if (!responsavelId && f.moradorNome) {
-      /* usa o morador cadastrado em Gerenciar Emails: acha (ou cria) a pessoa e vincula à unidade */
+      /* usa o morador cadastrado em Gerenciar Acessos: acha (ou cria) a pessoa e vincula à unidade */
       const nome = f.moradorNome.trim();
       let pessoa = ctx.pessoas.find((p) => p.nome.toLowerCase() === nome.toLowerCase());
       if (!pessoa) {
@@ -684,7 +1140,7 @@ export async function gerarCobrancas(ctx, f) {
       await q(supabase.from("unidades").update({ responsavel_financeiro_id: responsavelId }).eq("id", u.id).select(), "unidades");
     }
     if (!responsavelId)
-      throw new Error("Esta unidade não tem responsável financeiro nem morador vinculado. Cadastre a pessoa na tela Pessoas ou o morador em Gerenciar Emails.");
+      throw new Error("Esta unidade não tem responsável financeiro nem morador vinculado. Cadastre a pessoa na tela Pessoas ou o morador em Gerenciar Acessos.");
     await q(supabase.from("cobrancas").insert({
       condominio_id: ctx.condominioId, unidade_id: u.id, responsavel_id: responsavelId,
       competencia, tipo: "extra", valor_original: total, vencimento, status: "emitida",
@@ -692,14 +1148,26 @@ export async function gerarCobrancas(ctx, f) {
     return 1;
   }
 
-  /* rateio: todas as unidades com responsável financeiro */
+  /* rateio: todas as unidades com responsável financeiro.
+     Base de cálculo: fração ideal (proporcional à área privativa) ou divisão
+     igual — na igual, os centavos de resto vão para as primeiras unidades
+     para a soma bater exatamente com o total. */
   const alvo = ctx.unidades.filter((u) => u.responsavelId);
   if (!alvo.length) throw new Error("Nenhuma unidade com responsável financeiro definido.");
-  const somaFracao = alvo.reduce((s, u) => s + u.fracao, 0) || 1;
-  const rows = alvo.map((u) => ({
+  let valores;
+  if (f.base === "igual") {
+    const centavos = Math.round(total * 100);
+    const cota = Math.floor(centavos / alvo.length);
+    let resto = centavos - cota * alvo.length;
+    valores = alvo.map(() => (cota + (resto-- > 0 ? 1 : 0)) / 100);
+  } else {
+    const somaFracao = alvo.reduce((s, u) => s + u.fracao, 0) || 1;
+    valores = alvo.map((u) => Math.round((total * u.fracao / somaFracao) * 100) / 100);
+  }
+  const rows = alvo.map((u, i) => ({
     condominio_id: ctx.condominioId, unidade_id: u.id, responsavel_id: u.responsavelId,
     competencia, tipo: "ordinaria",
-    valor_original: Math.round((total * u.fracao / somaFracao) * 100) / 100,
+    valor_original: valores[i],
     vencimento, status: "emitida",
   }));
   const { error } = await supabase.from("cobrancas").insert(rows);
