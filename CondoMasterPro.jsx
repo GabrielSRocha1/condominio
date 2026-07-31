@@ -15,10 +15,10 @@ import {
 } from "recharts";
 import {
   loadAll, criarCondominio, criarUnidade, criarPessoa, criarLancamento, criarPenalidade, decidirPenalidade,
-  criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, loginDiretor, pagarComCommet,
+  criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, baixarPdfCobranca, loginDiretor, pagarComCommet,
   assinarLicencaCommet, verificarLicencaCommet, listarPlanos, registrarDiretor,
   criarAcesso, listarAcessos, removerAcesso, loginUsuario, setAuthToken,
-  salvarLogoCondominio, obterCondominio, salvarCondominio, salvarAreaUnidade,
+  salvarLogoCondominio, obterCondominio, salvarCondominio, salvarAreaUnidade, salvarResponsavelUnidade, atualizarUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
 } from "./src/lib/api.js";
@@ -362,7 +362,7 @@ const Timbrado = ({ t, tipo, corpo, unidade, valor, prazo }) => {
     <div className="mx-5 mt-3 h-[2px]" style={{ background: "linear-gradient(90deg,#D4AF37,transparent)" }} />
     <div className="px-5 py-4 text-[13px] leading-relaxed">
       <div className="mb-2 text-xs font-bold uppercase tracking-widest" style={{ color: "#9E7C14" }}>{tipo}</div>
-      <p>{corpo}</p>
+      <p style={{ whiteSpace: "pre-wrap" }}>{corpo}</p>
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs" style={{ color: "#444" }}>
         <div><b>Unidade:</b> {unidade}</div>
         {valor != null && <div><b>Valor:</b> {BRL(valor)}</div>}
@@ -871,16 +871,29 @@ function Condominio({ t, role }) {
 /* ══════════════ UNIDADES ══════════════ */
 function Unidades({ t, role }) {
   const { db, reload } = useData();
-  /* síndico e tesouraria editam e consultam históricos, mas só o diretor cria unidades */
+  /* só o diretor cria unidades e edita a área privativa; síndico e tesouraria
+     consultam históricos e podem trocar o responsável financeiro */
   const podeCriar = role === "diretor";
+  const podeEditarArea = role === "diretor";
   const [q, setQ] = useState(""); const [st, setSt] = useState("todos"); const [sel, setSel] = useState(null); const [novo, setNovo] = useState(false);
   const [salvar, saving] = useSubmit(async (f) => { await criarUnidade(db.ctx, f); await reload(); setNovo(false); });
   const areaRef = React.useRef(null);
   const [salvandoArea, setSalvandoArea] = useState(false);
+  const [respSel, setRespSel] = useState("");
+  const [ed, setEd] = useState({}); // campos em edição no modal (diretor: edição completa)
   const [hist, setHist] = useState(null); // histórico aberto no modal: pagamentos | multas | moradores
+  const pessoasOrd = [...db.ctx.pessoas].sort((a, b) => a.nome.localeCompare(b.nome));
   const salvarUnidade = async () => {
     setSalvandoArea(true);
-    try { await salvarAreaUnidade(db.ctx, sel.id, areaRef.current?.value); await reload(); setSel(null); }
+    try {
+      if (podeEditarArea) {
+        /* diretor: salva o cadastro completo da unidade de uma vez */
+        await atualizarUnidade(db.ctx, sel.id, { ...ed, area: areaRef.current?.value, responsavel: respSel });
+      } else if (respSel !== (sel.respId || "")) {
+        await salvarResponsavelUnidade(db.ctx, sel.id, respSel);
+      }
+      await reload(); setSel(null);
+    }
     catch (err) { alert("Não foi possível salvar: " + (err?.message || err)); }
     finally { setSalvandoArea(false); }
   };
@@ -893,7 +906,8 @@ function Unidades({ t, role }) {
         action={podeCriar ? <Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Unidade</Btn> : null}>
         <Sel t={t} value={st} onChange={setSt} opts={[["todos","Todos os status"],["ocupada","Ocupada"],["alugada","Alugada"],["vaga","Vaga"]]} />
       </Toolbar>
-      <Tbl t={t} cols={cols} rows={rows} onRowClick={(r) => { setSel(r); setHist(null); }}
+      <Tbl t={t} cols={cols} rows={rows} onRowClick={(r) => { setSel(r); setHist(null); setRespSel(r.respId || "");
+        setEd({ numero: r.num, bloco: r.bloco === "?" ? "" : r.bloco, tipo: r.tipoRaw, status: r.status, andar: r.andar ?? "" }); }}
         empty={<EmptyState t={t} icon={Home} title="Nenhuma unidade encontrada"
           hint={podeCriar ? "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio." : "Ajuste a busca ou os filtros. O cadastro de novas unidades é feito pelo diretor."}
           action={podeCriar ? <Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={14} /> Cadastrar unidade</Btn> : null} />}
@@ -911,13 +925,36 @@ function Unidades({ t, role }) {
             <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.goldSoft, color: t.gold }}>{sel.tipo}</span>
             <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.surface2, color: t.dim }}>{sel.vagas} vaga(s)</span></div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field t={t} label="Responsável financeiro"><input readOnly value={sel.resp} style={{ ...inputStyle(t), opacity: 0.7 }} /></Field>
+            {podeEditarArea && (<>
+              <Field t={t} label="Número"><input value={ed.numero || ""} onChange={(e) => setEd({ ...ed, numero: e.target.value })} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Bloco / torre"><input value={ed.bloco || ""} onChange={(e) => setEd({ ...ed, bloco: e.target.value })} placeholder="Ex.: B" style={inputStyle(t)} /></Field>
+              <Field t={t} label="Tipo">
+                <select value={ed.tipo || "apartamento"} onChange={(e) => setEd({ ...ed, tipo: e.target.value })} style={inputStyle(t)}>
+                  {[["apartamento","Apartamento"],["sala","Sala comercial"],["loja","Loja"],["cobertura","Cobertura"],["box","Box"],["deposito","Depósito"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select></Field>
+              <Field t={t} label="Status">
+                <select value={ed.status || "vaga"} onChange={(e) => setEd({ ...ed, status: e.target.value })} style={inputStyle(t)}>
+                  {[["ocupada","Ocupada"],["vaga","Vaga"],["alugada","Alugada"],["vendida","Vendida"],["reservada","Reservada"],["inativa","Inativa"]].map(([v, l]) => <option key={v} value={v}>{L(l)}</option>)}
+                </select></Field>
+              <Field t={t} label="Andar"><input type="number" value={ed.andar} onChange={(e) => setEd({ ...ed, andar: e.target.value })} style={inputStyle(t)} /></Field>
+            </>)}
+            <Field t={t} label="Responsável financeiro">
+              <select value={respSel} onChange={(e) => setRespSel(e.target.value)} style={inputStyle(t)}>
+                <option value="">{L("— sem responsável —")}</option>
+                {pessoasOrd.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              </select></Field>
             <Field t={t} label="Fração ideal (calculada)"><input readOnly value={`${sel.fracao.toFixed(4).replace(".", ",")}%`} title={L("Área privativa da unidade ÷ área total do edifício")} style={{ ...inputStyle(t), opacity: 0.7 }} /></Field>
-            <Field t={t} label="Área privativa (m²)"><input ref={areaRef} key={sel.id} defaultValue={sel.area || ""} placeholder={L("Ex.: 86,50")} style={inputStyle(t)} /></Field>
+            <Field t={t} label="Área privativa (m²)">
+              {podeEditarArea
+                ? <input ref={areaRef} key={sel.id} defaultValue={sel.area || ""} placeholder={L("Ex.: 86,50")} style={inputStyle(t)} />
+                : <input readOnly value={sel.area ? String(sel.area).replace(".", ",") : "—"} title={L("Somente o diretor pode alterar a área privativa")} style={{ ...inputStyle(t), opacity: 0.7 }} />}
+            </Field>
             <Field t={t} label="Vagas vinculadas"><input readOnly value={sel.vagas} style={{ ...inputStyle(t), opacity: 0.7 }} /></Field>
           </div>
           <div className="mt-2 text-xs" style={{ color: t.dim }}>
-            {L("Alterar a área privativa recalcula a fração ideal de todas as unidades — é ela que define a proporção de cada unidade no rateio das despesas comuns.")}</div>
+            {podeEditarArea
+              ? L("Alterar a área privativa recalcula a fração ideal de todas as unidades — é ela que define a proporção de cada unidade no rateio das despesas comuns.")
+              : L("A área privativa define a fração ideal do rateio e só pode ser alterada pelo diretor. O responsável financeiro pode ser alterado acima.")}</div>
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
             {[["pagamentos", "Histórico de pagamentos", Wallet], ["multas", "Histórico de multas", Gavel], ["moradores", "Moradores autorizados", Users]].map(([k, l, Ic]) => (
               <button key={k} onClick={() => setHist(hist === k ? null : k)}
@@ -1053,6 +1090,16 @@ function Financeiro({ t }) {
   const { db, reload } = useData();
   const S = db.stats;
   const [tab, setTab] = useState("lanc"); const [q, setQ] = useState(""); const [novo, setNovo] = useState(false);
+  const [tipoNovo, setTipoNovo] = useState("Despesa");
+  const CATS_DESPESA = ["Água","Luz","Gás","Limpeza","Portaria","Vigilância","Administração","Manutenção","Obras","Jardinagem","Seguro","Internet","Elevadores","Impostos","Honorários","Emergência","Outros"];
+  const CATS_RECEITA = ["Parcela condomínio","Fundo de reserva","Fundo de obras","Taxa extra","Multas e advertências","Aluguel de espaço comum","Rendimentos financeiros","Outros"];
+  const catsDoTipo = (tipo) => {
+    const t2 = tipo === "Receita" ? "receita" : "despesa";
+    return [...new Set([
+      ...db.ctx.categorias.filter((c) => c.tipo === t2).map((c) => c.nome),
+      ...(t2 === "receita" ? CATS_RECEITA : CATS_DESPESA),
+    ])];
+  };
   const [salvar, saving] = useSubmit(async (f) => { await criarLancamento(db.ctx, f); await reload(); setNovo(false); });
   const rows = db.lanc.filter((l) => (l.desc + l.cat).toLowerCase().includes(q.toLowerCase()));
   /* dados das demais abas — tudo já escopado pelo condomínio da sessão */
@@ -1064,11 +1111,25 @@ function Financeiro({ t }) {
     finally { setBaixando(null); }
   };
   const aPagar = db.lanc.filter((l) => l.tipo === "despesa" && (l.status === "aguardando" || l.status === "aberto"));
+  const pagas = db.lanc.filter((l) => l.tipo === "despesa" && l.status === "pago");
   const aReceber = db.cobr.filter((c) => c.status === "emitida" || c.status === "vencida");
   const compAtual = new Date().toISOString().slice(0, 7);
   const despComp = db.lanc.filter((l) => l.tipo === "despesa" && l.competencia === compAtual && l.status !== "cancelado")
     .reduce((s, l) => s + l.valor, 0);
   const somaFracao = db.ctx.unidades.reduce((s, u) => s + (u.fracao || 0), 0) || 1;
+  const exportarLanc = () => {
+    if (!rows.length) { alert(L("Nada para exportar — nenhum lançamento na lista.")); return; }
+    const cab = ["Data","Tipo","Categoria","Descrição","Valor","NF","Status"];
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const linhas = rows.map((r) => [r.data, r.tipo === "receita" ? "Receita" : "Despesa", r.cat, r.desc,
+      (r.tipo === "receita" ? "" : "-") + String(r.valor).replace(".", ","), r.nf || "", r.status].map(esc).join(";"));
+    const csv = [cab.map(esc).join(";"), ...linhas].join("\r\n");
+    const url = URL.createObjectURL(new Blob(["﻿", csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = `lancamentos-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  };
   const [uniExtrato, setUniExtrato] = useState("");
   const extrato = uniExtrato ? db.cobr.filter((c) => c.unidadeId === uniExtrato) : [];
   return (
@@ -1080,13 +1141,13 @@ function Financeiro({ t }) {
         <StatCard t={t} icon={Wallet} label="Fundo de obras"   value={BRL(S.fundoObras)} color={t.info} />
       </div>
       <div className="flex gap-1 overflow-x-auto">
-        {[["lanc","Lançamentos"],["pagar","Contas a pagar"],["receber","Contas a receber"],["rateio","Rateio"],["extrato","Extrato por unidade"]].map(([k,l]) => (
+        {[["lanc","Lançamentos"],["pagar","Contas a pagar"],["pagas","Contas pagas"],["receber","Contas a receber"],["rateio","Rateio"],["extrato","Extrato por unidade"]].map(([k,l]) => (
           <button key={k} onClick={() => setTab(k)} className="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium"
             style={{ background: tab===k ? t.goldSoft : "transparent", color: tab===k ? t.gold : t.dim, border: `1px solid ${tab===k ? t.border : "transparent"}` }}>{l}</button>))}
       </div>
       {tab === "lanc" ? (<>
         <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar lançamento…"
-          action={<><Btn t={t}><Download size={14} /> Exportar</Btn><Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Lançamento</Btn></>} />
+          action={<><Btn t={t} onClick={exportarLanc}><Download size={14} /> Exportar</Btn><Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Lançamento</Btn></>} />
         <Tbl t={t} cols={[{k:"data",l:"Data"},{k:"tipo",l:"Tipo"},{k:"cat",l:"Categoria"},{k:"desc",l:"Descrição"},{k:"valor",l:"Valor"},{k:"nf",l:"NF"},{k:"status",l:"Status"}]}
           rows={rows}
           empty={<EmptyState t={t} icon={Wallet} title="Nenhum lançamento neste período"
@@ -1115,6 +1176,23 @@ function Financeiro({ t }) {
             if (k === "acao") return (
               <Btn t={t} kind="soft" disabled={baixando === r.id} onClick={(e) => { e.stopPropagation(); darBaixa(r.id); }}>
                 <Check size={13} /> {baixando === r.id ? "Baixando…" : "Marcar pago"}</Btn>);
+            return r[k];
+          }} />
+      </>) : tab === "pagas" ? (<>
+        <div className="text-xs" style={{ color: t.dim }}>
+          {L("Despesas que já receberam baixa de pagamento.")} {L("Total pago:")} <b style={{ color: t.text }}>{BRL(pagas.reduce((s, l) => s + l.valor, 0))}</b></div>
+        <Tbl t={t} cols={[{k:"data",l:"Data"},{k:"cat",l:"Categoria"},{k:"desc",l:"Descrição"},{k:"valor",l:"Valor"},{k:"nf",l:"NF"},{k:"status",l:"Status"}]}
+          rows={pagas}
+          empty={<EmptyState t={t} icon={Wallet} title="Nenhuma conta paga ainda"
+            hint="Quando uma despesa receber baixa na aba Contas a pagar, ela aparece aqui." />}
+          renderCell={(r, k) => {
+            if (k === "valor") return <b>{BRL(r.valor)}</b>;
+            if (k === "nf") return r.nf
+              ? (<a href={r.nf} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: t.gold }}>
+                  <FileText size={13} /> Ver NF</a>)
+              : "—";
+            if (k === "status") return <Badge t={t} s={r.status} />;
             return r[k];
           }} />
       </>) : tab === "receber" ? (<>
@@ -1173,9 +1251,9 @@ function Financeiro({ t }) {
           <ModalHeader t={t} title="Novo lançamento" onClose={() => setNovo(false)} />
           <form onSubmit={salvar}>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field t={t} label="Tipo"><select name="tipo" style={inputStyle(t)}><option>Despesa</option><option>Receita</option></select></Field>
+              <Field t={t} label="Tipo"><select name="tipo" value={tipoNovo} onChange={(e) => setTipoNovo(e.target.value)} style={inputStyle(t)}><option>Despesa</option><option>Receita</option></select></Field>
               <Field t={t} label="Valor (R$)"><input name="valor" required placeholder="0,00" style={inputStyle(t)} /></Field>
-              <Field t={t} label="Categoria"><select name="categoria" style={inputStyle(t)}>{[...new Set([...db.ctx.categorias.map((c) => c.nome), "Água","Luz","Gás","Limpeza","Portaria","Vigilância","Administração","Manutenção","Obras","Jardinagem","Seguro","Internet","Elevadores","Impostos","Honorários","Emergência","Fundo de reserva","Outros"])].map((c)=><option key={c}>{c}</option>)}</select></Field>
+              <Field t={t} label="Categoria"><select name="categoria" key={tipoNovo} style={inputStyle(t)}>{catsDoTipo(tipoNovo).map((c)=><option key={c}>{c}</option>)}</select></Field>
               <Field t={t} label="Subcategoria / centro de custo"><input name="centro" style={inputStyle(t)} /></Field>
               <Field t={t} label="Data"><input name="data" type="date" style={inputStyle(t)} /></Field>
               <Field t={t} label="Competência"><input name="competencia" type="month" style={inputStyle(t)} /></Field>
@@ -1211,6 +1289,24 @@ function Cobrancas({ t }) {
     await gerarCobrancas(db.ctx, f); await reload(); setNova(false); setDestino("");
   });
   const rows = db.cobr.filter((c) => (st === "todos" || c.status === st) && (c.unidade + c.resp).toLowerCase().includes(q.toLowerCase()));
+  /* envio por WhatsApp: usa o telefone do responsável (ou de alguém vinculado à unidade) */
+  const telDe = (c) => {
+    const p = db.pessoas.find((x) => x.id === c.respId && x.telRaw)
+      || db.pessoas.find((x) => x.unidadeId === c.unidadeId && x.telRaw);
+    const tel = (p?.telRaw || "").replace(/\D/g, "");
+    return tel && tel.length <= 11 ? `55${tel}` : tel; // sem DDI, assume Brasil
+  };
+  const enviarWhats = (c) => {
+    const msg = `Olá${c.resp && c.resp !== "—" ? `, ${c.resp}` : ""}! ${L("Cobrança do condomínio")} ${db.cond?.nome || ""} — ${L("competência")} ${c.comp}, ${L("valor")} ${BRL(c.valor)}, ${L("vencimento")} ${c.vencFull}. ${L("Você pode pagar pelo QR Code no portal do morador.")}`;
+    window.open(`https://wa.me/${telDe(c)}?text=${encodeURIComponent(msg)}`, "_blank");
+  };
+  const [baixandoPdf, setBaixandoPdf] = useState(false);
+  const baixarPdf = async (c) => {
+    setBaixandoPdf(true);
+    try { await baixarPdfCobranca(db.ctx, c); }
+    catch (err) { alert("Não foi possível gerar o PDF: " + (err?.message || err)); }
+    finally { setBaixandoPdf(false); }
+  };
   const pctPagas = S.cobrEmitidas ? Math.round((S.cobrPagas / S.cobrEmitidas) * 100) : 0;
   const nAlvo = db.ctx.unidades.filter((u) => u.responsavelId).length;
   return (
@@ -1235,7 +1331,7 @@ function Cobrancas({ t }) {
           if (k === "status") return <Badge t={t} s={r.status} />;
           if (k === "acao") return (<div className="flex justify-end gap-1">
             <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" onClick={() => setQr(r)}><QrCode size={13} /> QR</Btn>
-            {r.status !== "pago" && <Btn t={t} className="!px-2 !py-1 text-xs"><Send size={13} /> Reenviar</Btn>}</div>);
+            {r.status !== "pago" && <Btn t={t} className="!px-2 !py-1 text-xs" title={L("Reenvia a cobrança por WhatsApp")} onClick={() => enviarWhats(r)}><Send size={13} /> Reenviar</Btn>}</div>);
           return r[k];
         }} />
       {qr && (
@@ -1253,8 +1349,8 @@ function Cobrancas({ t }) {
               {qr.status !== "pago" && (
                 <Btn t={t} kind="primary" disabled={pagando} onClick={() => pagarOnline(qr.id)}>
                   <QrCode size={14} /> {pagando ? "Abrindo…" : "Pagar online"}</Btn>)}
-              <Btn t={t}><Download size={14} /> Baixar</Btn>
-              <Btn t={t}><Send size={14} /> Enviar por WhatsApp</Btn>
+              <Btn t={t} disabled={baixandoPdf} onClick={() => baixarPdf(qr)}><Download size={14} /> {baixandoPdf ? "Gerando…" : "Baixar"}</Btn>
+              <Btn t={t} onClick={() => enviarWhats(qr)}><Send size={14} /> Enviar por WhatsApp</Btn>
             </div>
             <div className="text-[11px]" style={{ color: t.dim }}>QR ilustrativo — a emissão real será conectada ao Verum Pay na fase de integração.</div>
           </div>
@@ -1439,10 +1535,16 @@ function Multas({ t, role }) {
 function Comunicados({ t }) {
   const { db, reload } = useData();
   const [novo, setNovo] = useState(false);
-  const [salvar, saving] = useSubmit(async (f) => { await criarComunicado(db.ctx, f); await reload(); setNovo(false); });
+  /* segmento controlado: selecionar um tipo (ex.: Apartamentos) abre o dropdown de unidade específica */
+  const [seg, setSeg] = useState("todas"); const [segUni, setSegUni] = useState("");
+  const abrirNovo = () => { setSeg("todas"); setSegUni(""); setNovo(true); };
+  const [salvar, saving] = useSubmit(async (f) => {
+    if (f.unidadeSeg) f.segmento = `unidade:${f.unidadeSeg}`; // unidade específica escolhida no 2º dropdown
+    await criarComunicado(db.ctx, f); await reload(); setNovo(false);
+  });
   return (
     <div className="vfade space-y-4">
-      <div className="flex justify-end"><Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Novo comunicado</Btn></div>
+      <div className="flex justify-end"><Btn t={t} kind="primary" onClick={abrirNovo}><Plus size={15} /> Novo comunicado</Btn></div>
       <div className="space-y-2">
         {db.comunic.map((c) => (
           <Card t={t} key={c.id}>
@@ -1472,7 +1574,7 @@ function Comunicados({ t }) {
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field t={t} label="Tipo"><select name="tipo" style={inputStyle(t)}>{["Comunicado geral","Convocação de assembleia","Circular","Aviso de manutenção","Informe de emergência"].map((x)=><option key={x}>{x}</option>)}</select></Field>
                 <Field t={t} label="Destinatários">
-                  <select name="segmento" style={inputStyle(t)}>
+                  <select name="segmento" value={seg} onChange={(e) => { setSeg(e.target.value); setSegUni(""); }} style={inputStyle(t)}>
                     <option value="todas">{L("Todas as unidades")}</option>
                     {db.ctx.blocos.map((b) => <option key={b.id} value={`bloco:${b.nome}`}>{L("Bloco")} {b.nome}</option>)}
                     {db.ctx.tiposUnidade.map((x) => <option key={x} value={`tipo:${x}`}>
@@ -1481,6 +1583,13 @@ function Comunicados({ t }) {
                     <option value="inadimplentes">{L("Somente inadimplentes")}</option>
                   </select>
                 </Field>
+                {seg.startsWith("tipo:") && (
+                  <Field t={t} label="Unidade específica (opcional)">
+                    <select name="unidadeSeg" value={segUni} onChange={(e) => setSegUni(e.target.value)} style={inputStyle(t)}>
+                      <option value="">{L("Todas as unidades deste tipo")}</option>
+                      {db.ctx.unidades.filter((u) => u.tipo === seg.split(":")[1]).map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+                    </select>
+                  </Field>)}
               </div>
               <Field t={t} label="Título"><input name="titulo" required style={inputStyle(t)} /></Field>
               <Field t={t} label="Mensagem"><textarea name="corpo" rows={4} style={{ ...inputStyle(t), resize: "vertical" }} /></Field>
@@ -1498,12 +1607,47 @@ function Comunicados({ t }) {
 }
 
 /* ══════════════ DOCUMENTOS TIMBRADOS ══════════════ */
+const DOC_SINGULAR = {
+  "Comunicados": "Comunicado", "Convocações": "Convocação", "Atas": "Ata",
+  "Advertências": "Advertência", "Multas": "Multa", "Recibos": "Recibo",
+  "Extratos": "Extrato", "Autorizações": "Autorização", "Ordens de serviço": "Ordem de serviço",
+};
+/* Modelos prontos por tipo — d: { cond, unidade, morador, titulo, data } */
+const DOC_MODELOS = {
+  "Comunicados": (d) => `A administração do condomínio ${d.cond} vem, por meio deste, comunicar ${d.alvo} sobre: ${d.titulo}. Contamos com a atenção e a colaboração de todos para o bom convívio e o cumprimento das normas internas.`,
+  "Convocações": (d) => `Ficam os senhores condôminos do ${d.cond} convocados para assembleia com a seguinte pauta: ${d.titulo}. A assembleia será instalada em primeira convocação com o quórum legal e, em segunda convocação, trinta minutos após, com qualquer número de presentes. A participação de todos é fundamental para as deliberações.`,
+  "Atas": (d) => `Aos ${d.data}, reuniram-se os condôminos do ${d.cond}, conforme lista de presença arquivada na administração, para deliberar sobre a seguinte pauta: ${d.titulo}. As deliberações registradas nesta ata passam a vigorar a partir da sua publicação, ficando o registro arquivado para consulta.`,
+  "Advertências": (d) => `Fica ${d.alvo} formalmente ADVERTIDA em razão de: ${d.titulo}, com base no regimento interno do ${d.cond}. Em caso de reincidência, poderá ser aplicada multa conforme a tabela vigente, garantido o direito de defesa no prazo regimental.`,
+  "Multas": (d) => `Fica aplicada ${d.alvo} MULTA em razão de: ${d.titulo}, com base no regimento interno e na convenção do ${d.cond}. O valor será lançado na próxima competência, sendo garantido o direito de defesa no prazo regimental.`,
+  "Recibos": (d) => `Recebemos ${d.deAlvo} a importância referente a: ${d.titulo}. Para clareza, firmamos o presente recibo, dando plena e total quitação do valor correspondente na data de emissão.`,
+  "Extratos": (d) => `Demonstrativo emitido pelo ${d.cond}${d.unidade ? ` referente à unidade ${d.unidade}${d.morador ? ` (${d.morador})` : ""}` : ""}, consolidando: ${d.titulo}. Os valores detalhados constam do módulo financeiro do condomínio e ficam à disposição para conferência.`,
+  "Autorizações": (d) => `O condomínio ${d.cond} AUTORIZA ${d.alvo} a: ${d.titulo}. Esta autorização é válida mediante a observância das normas internas, dos horários permitidos e das orientações da administração.`,
+  "Ordens de serviço": (d) => `Fica autorizada a execução do serviço: ${d.titulo}, ${d.unidade ? `na unidade ${d.unidade}` : "nas dependências do condomínio"}. O responsável pela execução deverá observar as normas de segurança e comunicar a conclusão à administração.`,
+};
 function Documentos({ t }) {
   const { db, reload } = useData();
   const tipos = ["Todos","Comunicados","Convocações","Atas","Advertências","Multas","Recibos","Extratos","Autorizações","Ordens de serviço"];
   const [tipo, setTipo] = useState("Todos"); const [preview, setPreview] = useState(false);
+  /* formulário do novo documento — controlado, para a prévia refletir na hora */
+  const [fTipo, setFTipo] = useState("Comunicados"); const [fUni, setFUni] = useState("");
+  const [fTitulo, setFTitulo] = useState(""); const [fDesc, setFDesc] = useState("");
+  const abrirNovo = () => { setFTipo("Comunicados"); setFUni(""); setFTitulo(""); setFDesc(""); setPreview(true); };
+  const uniSel = db.ctx.unidades.find((u) => u.id === fUni);
+  const morador = uniSel
+    ? (db.ctx.pessoas.find((p) => p.id === uniSel.responsavelId)?.nome
+      || db.ctx.pessoas.find((p) => p.unidadeId === uniSel.id)?.nome || "")
+    : "";
+  const dModelo = {
+    cond: db.cond?.nome || "—", unidade: uniSel?.label || "", morador,
+    titulo: fTitulo.trim() || "[título do documento]",
+    data: new Date().toLocaleDateString("pt-BR"),
+    alvo: uniSel ? `a unidade ${uniSel.label}${morador ? `, sob responsabilidade de ${morador},` : ""}` : "todos os condôminos",
+    deAlvo: uniSel ? `da unidade ${uniSel.label}${morador ? ` (${morador})` : ""}` : "do pagador identificado no título",
+  };
+  const corpoModelo = (DOC_MODELOS[fTipo] || DOC_MODELOS["Comunicados"])(dModelo);
+  const corpoFinal = fDesc.trim() ? `${corpoModelo}\n\n${fDesc.trim()}` : corpoModelo;
   const [gerar, gerando] = useSubmit(async (f) => {
-    const url = await criarDocumento(db.ctx, f);
+    const url = await criarDocumento(db.ctx, { ...f, corpo: corpoFinal });
     await reload(); setPreview(false);
     window.open(url, "_blank"); // abre o PDF recém-gerado
   });
@@ -1516,7 +1660,7 @@ function Documentos({ t }) {
       <div className="flex flex-wrap items-center gap-2">
         <Sel t={t} value={tipo} onChange={setTipo} opts={tipos.map((x) => [x, x])} />
         <Sel t={t} value={ano} onChange={setAno} opts={[["todos", L("Todos os anos")], ...anos.map((a) => [a, a])]} />
-        <div className="ml-auto"><Btn t={t} kind="primary" onClick={() => setPreview(true)}><Plus size={15} /> Criar documento timbrado</Btn></div>
+        <div className="ml-auto"><Btn t={t} kind="primary" onClick={abrirNovo}><Plus size={15} /> Criar documento timbrado</Btn></div>
       </div>
       {docs.length ? (
         <div className="space-y-2">{docs.map((d) => (
@@ -1543,13 +1687,16 @@ function Documentos({ t }) {
           <ModalHeader t={t} title="Novo documento timbrado" onClose={() => setPreview(false)} />
           <form onSubmit={gerar}>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field t={t} label="Tipo"><select name="tipo" style={inputStyle(t)}>{tipos.slice(1).map((x)=><option key={x}>{x}</option>)}</select></Field>
-              <Field t={t} label="Unidade (se aplicável)"><select name="unidade" style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
+              <Field t={t} label="Tipo"><select name="tipo" value={fTipo} onChange={(e) => setFTipo(e.target.value)} style={inputStyle(t)}>{tipos.slice(1).map((x)=><option key={x}>{x}</option>)}</select></Field>
+              <Field t={t} label="Unidade (se aplicável)"><select name="unidade" value={fUni} onChange={(e) => setFUni(e.target.value)} style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
             </div>
-            <Field t={t} label="Título"><input name="titulo" required placeholder={L("Ex.: Autorização de mudança")} style={{ ...inputStyle(t), marginTop: 4 }} /></Field>
-            <Field t={t} label="Conteúdo"><textarea name="corpo" required rows={3} placeholder={L("Texto do documento…")} style={{ ...inputStyle(t), marginTop: 4, resize: "vertical" }} /></Field>
-            <div className="mb-2 mt-4 text-xs font-semibold" style={{ color: t.dim }}>PRÉVIA COM PAPEL TIMBRADO</div>
-            <Timbrado t={t} tipo="Autorização" unidade="—" corpo="O cabeçalho, logo, CNPJ, rodapé e assinatura são aplicados automaticamente pela identidade visual configurada no cadastro do condomínio." />
+            {fUni && (
+              <div className="mt-2 text-xs" style={{ color: t.dim }}>
+                {L("Morador cadastrado:")} <b style={{ color: morador ? t.text : t.warn }}>{morador || L("nenhum morador vinculado a esta unidade")}</b></div>)}
+            <Field t={t} label="Título"><input name="titulo" required value={fTitulo} onChange={(e) => setFTitulo(e.target.value)} placeholder={L("Ex.: Autorização de mudança")} style={{ ...inputStyle(t), marginTop: 4 }} /></Field>
+            <Field t={t} label="Descrição adicional (opcional)"><textarea name="descricao" rows={2} value={fDesc} onChange={(e) => setFDesc(e.target.value)} placeholder={L("Algo a mais que queira acrescentar ao modelo…")} style={{ ...inputStyle(t), marginTop: 4, resize: "vertical" }} /></Field>
+            <div className="mb-2 mt-4 text-xs font-semibold" style={{ color: t.dim }}>{L("PRÉVIA COM PAPEL TIMBRADO — MODELO + DADOS PREENCHIDOS")}</div>
+            <Timbrado t={t} tipo={`${DOC_SINGULAR[fTipo] || fTipo} — ${fTitulo.trim() || L("(sem título)")}`} unidade={uniSel ? `${uniSel.label}${morador ? ` · ${morador}` : ""}` : "—"} corpo={corpoFinal} />
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setPreview(false)}>Cancelar</Btn>
               <Btn t={t} kind="primary" type="submit" disabled={gerando}><Printer size={14} /> {gerando ? "Gerando…" : "Gerar PDF"}</Btn></div>
           </form>
@@ -1629,7 +1776,11 @@ function Chamados({ t }) {
                   <Eye size={12} /> {m.tipo?.startsWith("video/") ? L("Vídeo") : L("Foto")} {i + 1}</a>))}
             </div>)}
           <form onSubmit={salvarGestao} key={sel.id}>
-            <div className="mb-1 mt-4 text-xs font-semibold" style={{ color: t.dim }}>{L("GERENCIAR CHAMADO")}</div>
+            <div className="mb-1 mt-4 text-xs font-semibold" style={{ color: t.dim }}>{sel.status === "concluido" ? L("CHAMADO CONCLUÍDO") : L("GERENCIAR CHAMADO")}</div>
+            {sel.status === "concluido" && (
+              <div className="mb-2 rounded-xl border border-dashed px-3 py-2 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+                <CheckCircle2 size={13} className="mr-1 inline" /> {L("Este chamado foi concluído e ficou registrado no histórico — não pode mais ser editado.")}</div>)}
+            <fieldset disabled={sel.status === "concluido"} style={{ border: 0, margin: 0, padding: 0, minWidth: 0, opacity: sel.status === "concluido" ? 0.6 : 1 }}>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field t={t} label="Responsável">
                 <select name="responsavel" defaultValue={sel.respId} style={inputStyle(t)}>
@@ -1647,10 +1798,12 @@ function Chamados({ t }) {
               <Field t={t} label="Prazo"><input name="prazo" type="date" defaultValue={sel.prazo} style={inputStyle(t)} /></Field>
               <Field t={t} label="Custo realizado (R$)"><input name="custo" defaultValue={sel.custoRealizado > 0 ? String(sel.custoRealizado).replace(".", ",") : ""} placeholder="0,00" style={inputStyle(t)} /></Field>
             </div>
-            {!db.ctx.operacionais.length && (
+            </fieldset>
+            {!db.ctx.operacionais.length && sel.status !== "concluido" && (
               <div className="mt-2 text-xs" style={{ color: t.dim }}>{L("Nenhum funcionário ou prestador cadastrado — cadastre na tela Pessoas para poder designar um responsável.")}</div>)}
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setSel(null)}>Fechar</Btn>
-              <Btn t={t} kind="primary" type="submit" disabled={salvandoGestao}><Check size={14} /> {salvandoGestao ? "Salvando…" : "Salvar alterações"}</Btn></div>
+              {sel.status !== "concluido" && (
+                <Btn t={t} kind="primary" type="submit" disabled={salvandoGestao}><Check size={14} /> {salvandoGestao ? "Salvando…" : "Salvar alterações"}</Btn>)}</div>
           </form>
         </Modal>)}
       {novo && (
@@ -2073,7 +2226,9 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
               </button>
               {notifOpen && (<>
                 <div className="fixed inset-0 z-30" onClick={() => setNotifOpen(false)} />
-                <div className="absolute right-0 z-40 mt-2 w-80 max-w-[85vw] rounded-2xl border p-2 shadow-xl" style={{ background: t.surface, borderColor: t.border }}>
+                {/* mobile: painel fixo ocupando a largura da tela; ≥sm: dropdown ancorado no sino */}
+                <div className="fixed inset-x-3 top-14 z-40 max-h-[70vh] overflow-y-auto rounded-2xl border p-2 shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-80 sm:max-w-[85vw]"
+                  style={{ background: t.surface, borderColor: t.border }}>
                   <div className="px-2 py-1.5 text-xs font-semibold" style={{ color: t.dim, fontFamily: "'Sora',sans-serif" }}>{L("NOTIFICAÇÕES")}</div>
                   {notifs.length === 0 ? (
                     <div className="px-2 py-3 text-xs" style={{ color: t.dim }}>{L("Nenhuma notificação — tudo em dia!")}</div>
@@ -2133,9 +2288,16 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                   </div>
                 </button>))}</div>
             </Card>
-            {minhasMultasLista.length > 0 && (
-              <Card t={t}>
-                <SectionTitle t={t}>Multas da unidade</SectionTitle>
+            <Card t={t}>
+              <SectionTitle t={t}>Minha situação</SectionTitle>
+              <div className="grid grid-cols-2 gap-2 text-xs" style={{ color: t.dim }}>
+                <div>Multas ativas: <b style={{ color: minhasMultas ? t.warn : t.text }}>{minhasMultas ? `${minhasMultas} em prazo de defesa` : "nenhuma"}</b></div>
+                <div>Vagas: <b style={{ color: t.text }}>{db.unidades.find((u) => `${u.num}-${u.bloco}` === unidade)?.vagas ?? 0}</b></div>
+                <div>Encomendas: <b style={{ color: t.gold }}>{minhasEncomendas} registrada(s)</b></div>
+                <div>Chamados abertos: <b style={{ color: t.text }}>{meusChamados}</b></div>
+              </div>
+              {minhasMultasLista.length > 0 && (<>
+                <div className="mb-1.5 mt-3 text-xs font-semibold" style={{ color: t.dim }}>{L("MULTAS DA UNIDADE")}</div>
                 <div className="space-y-2 text-sm">{minhasMultasLista.map((m) => (
                   <button key={m.id} onClick={() => setMulta(m)} className="block w-full rounded-xl px-3 py-2 text-left" style={{ background: t.surface2, color: t.text }}>
                     <div className="flex items-center justify-between gap-2">
@@ -2146,15 +2308,20 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                       <Badge t={t} s={m.status} />
                     </div>
                   </button>))}</div>
-              </Card>)}
-            <Card t={t}>
-              <SectionTitle t={t}>Minha situação</SectionTitle>
-              <div className="grid grid-cols-2 gap-2 text-xs" style={{ color: t.dim }}>
-                <div>Multas ativas: <b style={{ color: minhasMultas ? t.warn : t.text }}>{minhasMultas ? `${minhasMultas} em prazo de defesa` : "nenhuma"}</b></div>
-                <div>Vagas: <b style={{ color: t.text }}>{db.unidades.find((u) => `${u.num}-${u.bloco}` === unidade)?.vagas ?? 0}</b></div>
-                <div>Encomendas: <b style={{ color: t.gold }}>{minhasEncomendas} registrada(s)</b></div>
-                <div>Chamados abertos: <b style={{ color: t.text }}>{meusChamados}</b></div>
-              </div>
+              </>)}
+              {meusChamadosLista.length > 0 && (<>
+                <div className="mb-1.5 mt-3 text-xs font-semibold" style={{ color: t.dim }}>{L("MEUS CHAMADOS")}</div>
+                <div className="space-y-2 text-sm">{meusChamadosLista.map((c) => (
+                  <div key={c.id} className="rounded-xl px-3 py-2" style={{ background: t.surface2, color: t.text }}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{c.desc}</div>
+                        <div className="text-xs" style={{ color: t.dim }}>{c.num} · {c.cat} · {L("aberto em")} {c.aberto}</div>
+                      </div>
+                      <Badge t={t} s={c.status} />
+                    </div>
+                  </div>))}</div>
+              </>)}
             </Card>
           </div>)}
         {tab === "pagamentos" && (
@@ -2305,7 +2472,10 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
    Bloqueia o acesso ao sistema enquanto a assinatura do condomínio não
    estiver ativa. O pagamento abre o checkout Commet; a ativação chega
    pelo webhook (subscription.activated) e o botão "Verificar" recarrega. */
-function Paywall({ t, licenca, tenant, condominioId, onLogout, onReload }) {
+function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload }) {
+  /* a página de planos/pagamento é exclusiva do diretor; os demais perfis só
+     veem o aviso de assinatura pendente, sem valores nem botão de pagar */
+  const ehDiretor = role === "diretor";
   const [gerando, setGerando] = useState(false);
   const [verificando, setVerificando] = useState(false);
   const [erro, setErro] = useState("");
@@ -2350,10 +2520,12 @@ function Paywall({ t, licenca, tenant, condominioId, onLogout, onReload }) {
         <div className="rounded-2xl border p-6 text-center" style={{ background: t.surface, borderColor: t.border, boxShadow: t.shadow }}>
           <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: t.goldSoft, color: t.gold, border: `1px solid ${t.border}` }}>
             <KeyRound size={26} /></div>
-          <h1 className="text-lg font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{L("Assinatura pendente")}</h1>
+          <h1 className="text-lg font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{ehDiretor ? L("Assinatura pendente") : L("Acesso indisponível")}</h1>
           <p className="mt-2 text-sm" style={{ color: t.dim }}>
-            {L(MSG[licenca] || "O acesso é liberado após a confirmação do pagamento da licença.")}</p>
-          {tenant && tenant.plano !== "—" && (
+            {ehDiretor
+              ? L(MSG[licenca] || "O acesso é liberado após a confirmação do pagamento da licença.")
+              : L("O acesso ao condomínio está temporariamente indisponível. Procure a administração do condomínio.")}</p>
+          {ehDiretor && tenant && tenant.plano !== "—" && (
             <div className="mt-4 rounded-xl border p-3 text-sm" style={{ borderColor: t.borderSoft }}>
               <div className="flex items-center justify-between">
                 <span style={{ color: t.dim }}>{L("Plano")}</span><b>{tenant.plano}</b></div>
@@ -2363,15 +2535,17 @@ function Paywall({ t, licenca, tenant, condominioId, onLogout, onReload }) {
             </div>)}
           {erro && <div className="mt-3 rounded-xl border p-2.5 text-xs" style={{ borderColor: t.danger, color: t.danger }}>{erro}</div>}
           <div className="mt-5 space-y-2">
-            <Btn t={t} kind="primary" className="w-full" disabled={gerando} onClick={pagar}>
-              <QrCode size={15} /> {gerando ? L("Gerando checkout…") : L("Pagar assinatura")}</Btn>
+            {ehDiretor && (
+              <Btn t={t} kind="primary" className="w-full" disabled={gerando} onClick={pagar}>
+                <QrCode size={15} /> {gerando ? L("Gerando checkout…") : L("Pagar assinatura")}</Btn>)}
             <Btn t={t} className="w-full" disabled={verificando}
-              onClick={async () => { setErro(""); if (!(await verificar())) setErro(L("O Commet ainda não confirmou este pagamento. Aguarde alguns instantes e verifique de novo.")); }}>
-              <RefreshCw size={15} className={verificando ? "vpulse" : ""} /> {L("Já paguei — verificar")}</Btn>
+              onClick={async () => { setErro(""); if (!(await verificar())) setErro(ehDiretor ? L("O Commet ainda não confirmou este pagamento. Aguarde alguns instantes e verifique de novo.") : L("O acesso ainda não foi liberado. Tente novamente mais tarde.")); }}>
+              <RefreshCw size={15} className={verificando ? "vpulse" : ""} /> {ehDiretor ? L("Já paguei — verificar") : L("Tentar novamente")}</Btn>
             <Btn t={t} className="w-full" onClick={onLogout}><LogOut size={15} /> {L("Sair")}</Btn>
           </div>
+          {ehDiretor && (
           <p className="mt-4 text-[11px]" style={{ color: t.dim }}>
-            {L("O pagamento abre em uma nova aba, em ambiente seguro. A liberação é automática após a confirmação.")}</p>
+            {L("O pagamento abre em uma nova aba, em ambiente seguro. A liberação é automática após a confirmação.")}</p>)}
         </div>
       </div>
     </div>
@@ -2476,7 +2650,7 @@ export default function App() {
   const tenantPrincipal = db && !db.vazio ? db.tenants.find((x) => x.id === db.ctx.condominioId) : null;
   if (db && tenantPrincipal && tenantPrincipal.status !== "ativo") return (
     <DataCtx.Provider value={dataValue}>{globalStyle}
-      <Paywall t={t} licenca={tenantPrincipal.status} tenant={tenantPrincipal} condominioId={db.ctx.condominioId}
+      <Paywall t={t} role={role} licenca={tenantPrincipal.status} tenant={tenantPrincipal} condominioId={db.ctx.condominioId}
         onLogout={sair} onReload={reload} />
     </DataCtx.Provider>);
 

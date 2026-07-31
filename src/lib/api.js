@@ -144,8 +144,9 @@ export async function loadAll(condominioId) {
   });
   const unidades = unidadesRaw.map((u) => ({
     id: u.id, num: u.numero, bloco: u.blocos?.nome || "?", andar: u.andar,
-    tipo: UNIDADE_TIPO_LABEL[u.tipo] || u.tipo, status: u.status,
+    tipo: UNIDADE_TIPO_LABEL[u.tipo] || u.tipo, tipoRaw: u.tipo, status: u.status,
     fracao: num(u.fracao_ideal), area: num(u.area_privativa_m2), resp: u.pessoas?.nome || "—",
+    respId: u.responsavel_financeiro_id || "",
     vagas: vagas.filter((v) => v.unidade_id === u.id).length,
     saldo: -(cobrPorUnidade[u.id] || 0),
   }));
@@ -177,7 +178,7 @@ export async function loadAll(condominioId) {
   /* cobranças */
   const cobr = cobrRaw.map((c) => ({
     id: c.id, comp: compBR(c.competencia), unidade: uLabel(c.unidades),
-    resp: primeiroNome(c.pessoas?.nome), valor: num(c.valor_original),
+    resp: primeiroNome(c.pessoas?.nome), respId: c.responsavel_id || null, valor: num(c.valor_original),
     venc: ddmm(c.vencimento), vencFull: ddmmyyyy(c.vencimento),
     status: COBR_STATUS_UI[c.status] || c.status, tx: c.provider_charge_id || "—",
     unidadeId: c.unidade_id, competencia: c.competencia,
@@ -634,6 +635,31 @@ export async function recalcularFracoes(ctx) {
       .eq("id", u.id).select(), "unidades")));
 }
 
+/* Edição completa da unidade (modal da tela Unidades — exclusiva do diretor).
+   f.tipo e f.status chegam como valores do enum; bloco novo é criado se não existir. */
+export async function atualizarUnidade(ctx, id, f) {
+  const numero = String(f.numero || "").trim();
+  if (!numero) throw new Error("Informe o número da unidade.");
+  let bloco = ctx.blocos.find((b) => b.nome.toLowerCase() === String(f.bloco || "").trim().toLowerCase());
+  if (!bloco && String(f.bloco || "").trim())
+    bloco = (await q(supabase.from("blocos").insert({ condominio_id: ctx.condominioId, nome: String(f.bloco).trim() }).select(), "blocos"))[0];
+  const patch = {
+    numero, tipo: f.tipo, status: f.status,
+    andar: f.andar === "" || f.andar == null ? null : Number(f.andar),
+    area_privativa_m2: parseBRL(f.area) || null,
+    responsavel_financeiro_id: f.responsavel || null,
+  };
+  if (bloco) patch.bloco_id = bloco.id;
+  await q(supabase.from("unidades").update(patch).eq("id", id).select(), "unidades");
+  await recalcularFracoes(ctx); // a área pode ter mudado — refaz as frações do prédio
+}
+
+/* Altera o responsável financeiro da unidade (modal da tela Unidades) */
+export async function salvarResponsavelUnidade(ctx, unidadeId, pessoaId) {
+  await q(supabase.from("unidades").update({ responsavel_financeiro_id: pessoaId || null })
+    .eq("id", unidadeId).select(), "unidades");
+}
+
 /* Altera a área privativa de uma unidade e refaz as frações do prédio todo */
 export async function salvarAreaUnidade(ctx, unidadeId, area) {
   await q(supabase.from("unidades").update({ area_privativa_m2: parseBRL(area) || null })
@@ -732,7 +758,7 @@ export async function removerPessoa(ctx, id) {
 export async function criarLancamento(ctx, f) {
   const uid = precisaUsuario(ctx);
   const tipo = f.tipo === "Receita" ? "receita" : "despesa";
-  let cat = ctx.categorias.find((c) => c.nome.toLowerCase() === String(f.categoria).toLowerCase());
+  let cat = ctx.categorias.find((c) => c.tipo === tipo && c.nome.toLowerCase() === String(f.categoria).toLowerCase());
   if (!cat) cat = (await q(supabase.from("categorias_financeiras").insert({ condominio_id: ctx.condominioId, nome: f.categoria, tipo }).select(), "categorias"))[0];
   const [nf] = await uploadArquivos(ctx, f.nota, "notas-fiscais");
   await q(supabase.from("lancamentos").insert({
@@ -811,14 +837,15 @@ function destinatariosDoSegmento(ctx, seg) {
   if (seg === "inadimplentes") return ctx.pessoas.filter((p) => p.unidadeId && ctx.unidadesVencidas.has(p.unidadeId));
   const [k, v] = seg.split(":");
   const unids = new Set(ctx.unidades
-    .filter((u) => (k === "bloco" ? u.bloco === v : k === "tipo" ? u.tipo === v : String(u.andar) === v))
+    .filter((u) => (k === "unidade" ? u.id === v : k === "bloco" ? u.bloco === v : k === "tipo" ? u.tipo === v : String(u.andar) === v))
     .map((u) => u.id));
   return ctx.pessoas.filter((p) => p.unidadeId && unids.has(p.unidadeId));
 }
-const rotuloSegmento = (seg) => {
+const rotuloSegmento = (seg, ctx) => {
   if (!seg || seg === "todas") return "Todas as unidades";
   if (seg === "inadimplentes") return "Somente inadimplentes";
   const [k, v] = seg.split(":");
+  if (k === "unidade") return `Unidade ${ctx?.unidades.find((u) => u.id === v)?.label || v}`;
   return k === "bloco" ? `Bloco ${v}` : k === "andar" ? `Andar ${v}` : `${UNIDADE_TIPO_LABEL[v] || v}s`;
 };
 
@@ -889,6 +916,22 @@ export async function criarDocumento(ctx, f) {
   return url;
 }
 
+/* Baixa a cobrança em PDF timbrado (botão Baixar do popup de QR da tela Cobranças) */
+export async function baixarPdfCobranca(ctx, c) {
+  const valor = c.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const arquivo = await gerarPdfTimbrado(ctx, {
+    tipo: "Cobrança condominial",
+    titulo: `Cobrança ${c.comp} — Unidade ${c.unidade}`,
+    corpo: `Cobrança condominial da competência ${c.comp}, no valor de ${valor}, com vencimento em ${c.vencFull}. Situação atual: ${c.status}. ${c.tx && c.tx !== "—" ? `Transação Verum Pay: ${c.tx} — baixa automática confirmada.` : "O pagamento pode ser feito pelo QR Code disponível no portal do morador."}`,
+    rodape: `Unidade ${c.unidade}${c.resp ? ` · Responsável: ${c.resp}` : ""}`,
+  });
+  const url = URL.createObjectURL(arquivo);
+  const a = document.createElement("a");
+  a.href = url; a.download = `cobranca-${c.competencia}-${c.unidade}.pdf`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
 const COMUNIC_DOC_TIPO = { comunicado: "circular", convocacao: "convocacao", circular: "circular", aviso_manutencao: "circular", emergencia: "circular" };
 
 export async function criarComunicado(ctx, f) {
@@ -897,7 +940,7 @@ export async function criarComunicado(ctx, f) {
     .map((c) => ({ Portal: "portal", "E-mail": "email", WhatsApp: "whatsapp", "Impressão": "portal" }[c]));
   const seg = f.segmento || "todas";
   const alvo = destinatariosDoSegmento(ctx, seg);
-  const rotulo = rotuloSegmento(seg);
+  const rotulo = rotuloSegmento(seg, ctx);
   const tipoEnum = COMUNIC_TIPO_ENUM[f.tipo] || "comunicado";
 
   /* versão timbrada em PDF, arquivada no módulo Documentos */
@@ -997,6 +1040,10 @@ export async function salvarLogoCondominio(ctx, arquivo) {
 /* Gestão do chamado (tela Manutenção): designar responsável depois de criado,
    mudar status (aberto → andamento → concluído), prazo, prioridade e custo. */
 export async function atualizarChamado(ctx, id, f) {
+  /* chamado concluído é registro histórico — não pode mais ser alterado */
+  const [atual] = await q(supabase.from("chamados").select("status").eq("id", id), "chamados");
+  if (atual?.status === "concluido")
+    throw new Error("Este chamado já foi concluído e não pode mais ser editado.");
   await q(supabase.from("chamados").update({
     responsavel_vinculo_id: f.responsavel || null,
     status: f.status || "aberto",
