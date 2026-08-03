@@ -377,9 +377,18 @@ export async function loadAll(condominioId) {
       id: u.id, label: uLabel(u), responsavelId: u.responsavel_financeiro_id, fracao: num(u.fracao_ideal),
       bloco: u.blocos?.nome || "", tipo: u.tipo, andar: u.andar,
     })),
+    /* nome + unidade + papel — todo select de pessoas usa `label` para exibição.
+       papel = vínculo de maior prioridade; unidade = primeiro vínculo que tem uma */
     pessoas: pessoasRaw.map((p) => {
-      const v = vinculos.find((x) => x.pessoa_id === p.id && x.unidade_id);
-      return { id: p.id, nome: p.nome, unidadeId: v?.unidade_id || null };
+      const vs = vinculos.filter((x) => x.pessoa_id === p.id)
+        .sort((a, b) => PAPEL_PRIORIDADE.indexOf(a.papel) - PAPEL_PRIORIDADE.indexOf(b.papel));
+      const papel = vs[0] ? PAPEL_LABEL[vs[0].papel] : "";
+      const vUni = vs.find((x) => x.unidade_id);
+      const unidade = vUni ? uLabel(unidadeById[vUni.unidade_id]) : "";
+      return {
+        id: p.id, nome: p.nome, unidadeId: vUni?.unidade_id || null, unidade, papel,
+        label: p.nome + (unidade ? ` — ${unidade}` : "") + (papel ? ` · ${papel}` : ""),
+      };
     }),
     /* segmentos reais para os destinatários de comunicados */
     tiposUnidade: [...new Set(unidadesRaw.map((u) => u.tipo))],

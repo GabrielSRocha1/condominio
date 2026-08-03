@@ -754,7 +754,7 @@ function Dashboard({ t, role, go }) {
    Carrega e grava os dados reais do condomínio da conta logada (escopo por
    condominio_id do token — cada diretor só vê e edita o próprio prédio). */
 function Condominio({ t, role }) {
-  const { db } = useData();
+  const { db, reload } = useData();
   /* síndico enxerga o cadastro somente leitura; apenas o diretor edita */
   const somenteLeitura = role !== "diretor";
   const [tab, setTab] = useState("dados");
@@ -769,6 +769,7 @@ function Condominio({ t, role }) {
   useEffect(() => { carregar(); }, [db.ctx]); // eslint-disable-line react-hooks/exhaustive-deps
   const [salvar, saving] = useSubmit(async (f) => {
     await salvarCondominio(db.ctx, f);
+    await reload(); // aplica a cor primária (e demais dados) sem precisar sair e entrar
     setSaved(true); setTimeout(() => setSaved(false), 1800);
   });
   const enviarLogo = async (e) => {
@@ -941,7 +942,7 @@ function Unidades({ t, role }) {
             <Field t={t} label="Responsável financeiro">
               <select value={respSel} onChange={(e) => setRespSel(e.target.value)} style={inputStyle(t)}>
                 <option value="">{L("— sem responsável —")}</option>
-                {pessoasOrd.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                {pessoasOrd.map((p) => <option key={p.id} value={p.id}>{p.label || p.nome}</option>)}
               </select></Field>
             <Field t={t} label="Fração ideal (calculada)"><input readOnly value={`${sel.fracao.toFixed(4).replace(".", ",")}%`} title={L("Área privativa da unidade ÷ área total do edifício")} style={{ ...inputStyle(t), opacity: 0.7 }} /></Field>
             <Field t={t} label="Área privativa (m²)">
@@ -1367,7 +1368,7 @@ function Cobrancas({ t }) {
                     <option key={u.id} value={u.id}>{u.label}{moradorDa(u.label) ? ` — ${moradorDa(u.label)}` : ""}</option>))}
                 </select>
               </Field>
-              <Field t={t} label="Competência"><input name="competencia" type="month" defaultValue="2026-07" style={inputStyle(t)} /></Field>
+              <Field t={t} label="Competência"><input name="competencia" type="month" defaultValue={new Date().toISOString().slice(0, 7)} style={inputStyle(t)} /></Field>
               <Field t={t} label={`${destino ? L("Valor da cobrança") : L("Valor total a ratear")} (${moeda})`}>
                 <MoneyInput t={t} name="total" moeda={moeda} required /></Field>
               {!destino && (
@@ -1377,7 +1378,7 @@ function Cobrancas({ t }) {
                     <option value="igual">{L("Dividir igual por unidade")}</option>
                   </select>
                 </Field>)}
-              <Field t={t} label="Vencimento"><input name="vencimento" type="date" defaultValue="2026-07-10" style={inputStyle(t)} /></Field>
+              <Field t={t} label="Vencimento"><input name="vencimento" type="date" defaultValue={new Date().toISOString().slice(0, 10)} style={inputStyle(t)} /></Field>
               <Field t={t} label="Canais de envio"><div className="flex flex-wrap gap-2">{["Portal","E-mail","WhatsApp"].map((c) => (
                 <label key={c} className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs" style={{ borderColor: t.borderSoft }}>
                   <input type="checkbox" defaultChecked /> {c}</label>))}</div></Field>
@@ -2572,7 +2573,6 @@ export default function App() {
   });
   useEffect(() => { try { sessionStorage.setItem(K_TELA, screen); } catch { /* sem storage */ } }, [screen]);
   const [sideOpen, setSideOpen] = useState(false);
-  const t = dark ? THEMES.dark : THEMES.light;
   const [phase, retry] = useLoad(screen);
 
   /* carga dos dados do Supabase */
@@ -2585,6 +2585,19 @@ export default function App() {
   }, [condId]);
   useEffect(() => { reload(); }, [reload]);
   const dataValue = useMemo(() => ({ db, reload }), [db, reload]);
+
+  /* tema: a cor primária salva na identidade visual substitui o dourado padrão */
+  const t = useMemo(() => {
+    const base = dark ? THEMES.dark : THEMES.light;
+    const cor = db?.cond?.cor;
+    if (!cor || !/^#[0-9a-fA-F]{6}$/.test(cor)) return base;
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(cor.slice(i, i + 2), 16));
+    return {
+      ...base, gold: cor,
+      goldSoft: `rgba(${r},${g},${b},${dark ? 0.12 : 0.10})`,
+      border: `rgba(${r},${g},${b},${dark ? 0.16 : 0.30})`,
+    };
+  }, [dark, db]);
 
   const go = useCallback((s) => { setScreen(s); setSideOpen(false); }, []);
   const nav = NAV.filter((n) => role && n.roles.includes(role));

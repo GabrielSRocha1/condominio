@@ -43,3 +43,7 @@ truncate table
   saas_assinaturas,
   condominios
 restart identity cascade;
+
+-- Arquivos enviados (bucket "documentos"): o Supabase não permite delete
+-- direto em storage.objects via SQL — limpe pela API rodando no terminal:
+--   node scripts/limpar-storage.mjs
