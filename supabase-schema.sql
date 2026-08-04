@@ -60,7 +60,8 @@ create type acesso_tipo            as enum ('entrada','saida','entrega','ocorren
 create table saas_planos (
   id               uuid primary key default gen_random_uuid(),
   nome             varchar(60) not null,
-  preco_mensal     numeric(14,2) not null,
+  preco_mensal     numeric(14,2) not null,               -- em dólar (USD)
+  preco_anual      numeric(14,2),                        -- em dólar (USD)
   limite_unidades  integer,                              -- NULL = ilimitado
   modulos          jsonb not null default '{}'::jsonb,   -- feature flags
   ativo            boolean not null default true,
@@ -680,11 +681,11 @@ end $$;
 
 -- ═══════════════════════ SEEDS INICIAIS (opcional) ═══════════════════════
 
--- Planos do SaaS (batem com o Painel SaaS do frontend)
-insert into saas_planos (nome, preco_mensal, limite_unidades, modulos) values
-  ('Essencial', 249.00, 60,   '{"portaria":false,"whatsapp":false,"assembleia_digital":false}'),
-  ('Standard',  449.00, 200,  '{"portaria":true,"whatsapp":false,"assembleia_digital":true}'),
-  ('Premium',   849.00, null, '{"portaria":true,"whatsapp":true,"assembleia_digital":true}');
+-- Planos do SaaS (preços sempre em dólar — batem com o Painel SaaS do frontend)
+insert into saas_planos (nome, preco_mensal, preco_anual, limite_unidades, modulos) values
+  ('Essencial',  49.90,  499.00, 100,  '{"portaria":false,"whatsapp":false,"assembleia_digital":false}'),
+  ('Standard',   99.90,  999.00, 500,  '{"portaria":true,"whatsapp":false,"assembleia_digital":true}'),
+  ('Premium',   299.90, 2999.00, 2000, '{"portaria":true,"whatsapp":true,"assembleia_digital":true}');
 
 -- Perfis nativos do sistema (batem com os perfis do frontend)
 insert into perfis (nome, descricao, sistema) values

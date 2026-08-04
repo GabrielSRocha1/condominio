@@ -22,12 +22,12 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: "COMMET_API_KEY não configurada no .env do servidor." });
 
   try {
-    const { condominioId } = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+    const { condominioId, ciclo } = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
     if (!condominioId) return res.status(400).json({ error: "Informe condominioId." });
 
     const { data: ass, error } = await supabase
       .from("saas_assinaturas")
-      .select("id, status, condominios(id, nome_fantasia, cnpj), saas_planos(id, nome, preco_mensal)")
+      .select("id, status, condominios(id, nome_fantasia, cnpj), saas_planos(id, nome, preco_mensal, preco_anual)")
       .eq("condominio_id", condominioId)
       .neq("status", "cancelada")
       .limit(1)
@@ -38,9 +38,13 @@ export default async function handler(req, res) {
 
     const commet = new Commet({ apiKey: process.env.COMMET_API_KEY });
     const plano = ass.saas_planos;
-    const codigo = `condomaster_${slug(plano.nome)}`;
+    /* cobrança sempre em dólar (USD): a conta Commet deve estar configurada em USD.
+       O sufixo _usd separa estes planos dos antigos criados com preço em real. */
+    const codigo = `condomaster_${slug(plano.nome)}_usd`;
+    const anual = ciclo === "anual" && Number(plano.preco_anual) > 0;
+    const intervalo = anual ? "yearly" : "monthly";
 
-    /* plano no Commet: reaproveita pelo code; cria com preço mensal se não existir */
+    /* plano no Commet: reaproveita pelo code; cria com os preços mensal e anual se não existir */
     const planos = dado(await commet.plans.list({ includePrivate: true })) || [];
     let planoCommet = planos.find((p) => p.code === codigo);
     if (!planoCommet) {
@@ -49,9 +53,16 @@ export default async function handler(req, res) {
       await commet.plans.addPrice({
         id: planoCommet.id,
         billingInterval: "monthly",
-        price: Math.round(Number(plano.preco_mensal) * 100), // centavos
+        price: Math.round(Number(plano.preco_mensal) * 100), // centavos de dólar
         isDefault: true,
       });
+      if (Number(plano.preco_anual) > 0) {
+        await commet.plans.addPrice({
+          id: planoCommet.id,
+          billingInterval: "yearly",
+          price: Math.round(Number(plano.preco_anual) * 100), // centavos de dólar
+        });
+      }
     }
 
     /* cliente no Commet: 1 por condomínio, identificado pelo externalId */
@@ -79,7 +90,7 @@ export default async function handler(req, res) {
     const resposta = await commet.subscriptions.create({
       planId: planoCommet.id,
       customerId: cliente.id,
-      billingInterval: "monthly",
+      billingInterval: intervalo,
       skipTrial: true,
       name: `Licença CondoMaster · ${cond.nome_fantasia}`,
       successUrl: `${origem}/?licenca=ok`,

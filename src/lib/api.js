@@ -34,6 +34,11 @@ const maskDoc = (d) => {
   return d.slice(0, 3) + ".***.***-" + d.slice(-2); // CPF
 };
 export const parseBRL = (s) => Number(String(s || "0").replace(/[R$\s.]/g, "").replace(",", ".")) || 0;
+
+/* Formata um valor na moeda de gestão do condomínio — padrão: dólar (USD) */
+const LOCALE_MOEDA = { BRL: "pt-BR", USD: "en-US", EUR: "de-DE", GBP: "en-GB", ARS: "es-AR", PYG: "es-PY" };
+export const fmtMoeda = (v, moeda) => Number(v || 0).toLocaleString(
+  LOCALE_MOEDA[moeda] || "en-US", { style: "currency", currency: LOCALE_MOEDA[moeda] ? moeda : "USD" });
 const hex64 = () => Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("");
 const sha256 = async (s) => {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
@@ -87,7 +92,7 @@ const ACESSO_UI = {
 /* ─────────── carga completa ─────────── */
 export async function loadAll(condominioId) {
   const tenantsRaw = await q(
-    supabase.from("condominios").select("id, nome_fantasia, saas_assinaturas(status, renovacao, saas_planos(nome, preco_mensal)), unidades(count)").order("criado_em"),
+    supabase.from("condominios").select("id, nome_fantasia, saas_assinaturas(status, renovacao, saas_planos(nome, preco_mensal, preco_anual)), unidades(count)").order("criado_em"),
     "condominios"
   );
   if (!tenantsRaw.length) return { vazio: true }; // banco em branco: o app mostra o fluxo de primeiro acesso
@@ -131,7 +136,7 @@ export async function loadAll(condominioId) {
     logoUrl: condRow.identidade_visual?.logo_url || null,
     cor: condRow.identidade_visual?.cor_primaria || null,
     sindico: condRow.regras_internas?.gestao?.sindico || "",
-    moeda: condRow.regras_internas?.moeda || "BRL",
+    moeda: condRow.regras_internas?.moeda || "USD",
   };
 
   const uLabel = (u) => (u ? `${u.numero}-${u.blocos?.nome || "?"}` : "—");
@@ -260,6 +265,7 @@ export async function loadAll(condominioId) {
       unidades: t.unidades?.[0]?.count ?? 0, status: st,
       mrr: st === "teste" ? 0 : num(a?.saas_planos?.preco_mensal),
       precoPlano: num(a?.saas_planos?.preco_mensal),
+      precoPlanoAnual: num(a?.saas_planos?.preco_anual),
       venc: a?.renovacao ? ddmm(a.renovacao) : "—",
     };
   });
@@ -360,7 +366,7 @@ export async function loadAll(condominioId) {
   /* atividades recentes — todas, ordenadas da mais nova para a mais antiga;
      [texto, quando, tela de destino] para o clique navegar */
   const atividades = [
-    ...pagamentosRaw.map((p) => [`Pagamento confirmado — ${uLabel(p.cobrancas?.unidades)} · R$ ${num(p.valor_pago).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, p.pago_em, "cobrancas"]),
+    ...pagamentosRaw.map((p) => [`Pagamento confirmado — ${uLabel(p.cobrancas?.unidades)} · ${fmtMoeda(num(p.valor_pago), cond.moeda)}`, p.pago_em, "cobrancas"]),
     ...comunicRaw.map((c) => [`Comunicado "${c.titulo}" publicado`, c.publicado_em || c.criado_em, "comunicados"]),
     ...chamadosRaw.map((c) => [`Chamado ${c.numero} — ${c.descricao}`, c.criado_em, "chamados"]),
     ...multasRaw.map((m) => [`${m.tipo === "multa" ? "Multa" : "Advertência"} ${m.numero} — ${m.categoria_infracao}`, m.criado_em, "multas"]),
@@ -370,7 +376,7 @@ export async function loadAll(condominioId) {
 
   /* contexto para escritas */
   const ctx = {
-    condominioId: cid, condominioNome: principal.nome_fantasia,
+    condominioId: cid, condominioNome: principal.nome_fantasia, moeda: cond.moeda,
     usuarioId: usuarios[0]?.usuario_id || null,
     blocos, categorias,
     unidades: unidadesRaw.map((u) => ({
@@ -416,7 +422,7 @@ export async function criarCondominio(f) {
 
 /* Planos ativos do SaaS — usados no cadastro para a escolha da licença */
 export async function listarPlanos() {
-  const { data } = await supabase.from("saas_planos").select("nome, preco_mensal, limite_unidades").eq("ativo", true).order("preco_mensal");
+  const { data } = await supabase.from("saas_planos").select("nome, preco_mensal, preco_anual, limite_unidades").eq("ativo", true).order("preco_mensal");
   return data || [];
 }
 
@@ -544,13 +550,14 @@ export async function pagarComCommet(cobrancaId) {
 }
 
 /* Licença SaaS: pede ao backend (/api/commet/assinatura) o checkout da
-   assinatura recorrente da mensalidade do CondoMaster para um condomínio. */
-export async function assinarLicencaCommet(condominioId) {
+   assinatura recorrente da licença do CondoMaster para um condomínio.
+   ciclo: "mensal" ou "anual" — a cobrança é sempre em dólar (USD). */
+export async function assinarLicencaCommet(condominioId, ciclo = "mensal") {
   let r;
   try {
     r = await fetch("/api/commet/assinatura", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ condominioId }),
+      body: JSON.stringify({ condominioId, ciclo }),
     });
   } catch {
     throw new Error("Não foi possível falar com o backend de pagamentos.");
@@ -927,7 +934,7 @@ export async function criarDocumento(ctx, f) {
 
 /* Baixa a cobrança em PDF timbrado (botão Baixar do popup de QR da tela Cobranças) */
 export async function baixarPdfCobranca(ctx, c) {
-  const valor = c.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const valor = fmtMoeda(c.valor, ctx.moeda);
   const arquivo = await gerarPdfTimbrado(ctx, {
     tipo: "Cobrança condominial",
     titulo: `Cobrança ${c.comp} — Unidade ${c.unidade}`,
@@ -1006,7 +1013,7 @@ export async function obterCondominio(ctx) {
     tesouraria: g.tesouraria || "", inicioGestao: g.inicio_gestao || "",
     silencio: r.silencio || "", mudancas: r.mudancas || "", obras: r.obras || "",
     visitantes: r.visitantes || "", animais: r.animais || "", areas: r.areas_comuns || "",
-    moeda: r.moeda || "BRL",
+    moeda: r.moeda || "USD",
     logoUrl: c.identidade_visual?.logo_url || null, cor: c.identidade_visual?.cor_primaria || "#D4AF37",
     atualizadoEm: c.atualizado_em,
   };
@@ -1023,7 +1030,7 @@ export async function salvarCondominio(ctx, f) {
     regras_internas: {
       silencio: f.silencio || "", mudancas: f.mudancas || "", obras: f.obras || "",
       visitantes: f.visitantes || "", animais: f.animais || "", areas_comuns: f.areas || "",
-      moeda: f.moeda || "BRL",
+      moeda: f.moeda || "USD",
       gestao: { administradora: f.administradora || "", sindico: f.sindico || "",
         diretor_adm: f.diretorAdm || "", tesouraria: f.tesouraria || "", inicio_gestao: f.inicioGestao || "" },
     },

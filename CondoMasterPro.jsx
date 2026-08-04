@@ -69,7 +69,14 @@ const THEMES = {
   },
 };
 
-const BRL = (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+/* Moeda de gestão do condomínio — padrão: dólar (USD). O App chama setMoeda
+   quando o cadastro do condomínio traz outra moeda salva nas configurações. */
+const LOCALE_MOEDA = { BRL: "pt-BR", USD: "en-US", EUR: "de-DE", GBP: "en-GB", ARS: "es-AR", PYG: "es-PY" };
+let MOEDA = "USD";
+const setMoeda = (m) => { MOEDA = LOCALE_MOEDA[m] ? m : "USD"; };
+const BRL = (v) => v.toLocaleString(LOCALE_MOEDA[MOEDA], { style: "currency", currency: MOEDA });
+/* preços da licença SaaS: sempre em dólar (USD), independente da moeda de gestão */
+const USD = (v) => v.toLocaleString("en-US", { style: "currency", currency: "USD" });
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 /* ══════════════ CONTAS DE ACESSO (salvas neste navegador — modo demo) ══════════════ */
@@ -127,10 +134,9 @@ const useSubmit = (action) => {
 /* Campo de valor monetário: formata enquanto digita, na moeda de gestão do
    condomínio. O valor submetido (input oculto) sai como "1234,56" — o formato
    que o parseBRL da camada de dados entende, independente da moeda exibida. */
-const LOCALE_MOEDA = { BRL: "pt-BR", USD: "en-US", EUR: "de-DE", GBP: "en-GB", ARS: "es-AR", PYG: "es-PY" };
-function MoneyInput({ t, name, moeda = "BRL", required, defaultCents = null }) {
+function MoneyInput({ t, name, moeda = "USD", required, defaultCents = null }) {
   const [cents, setCents] = useState(defaultCents);
-  const fmt = (c) => (c / 100).toLocaleString(LOCALE_MOEDA[moeda] || "pt-BR", { style: "currency", currency: moeda });
+  const fmt = (c) => (c / 100).toLocaleString(LOCALE_MOEDA[moeda] || "en-US", { style: "currency", currency: moeda });
   return (<>
     <input inputMode="numeric" required={required} placeholder={fmt(0)}
       value={cents == null ? "" : fmt(cents)}
@@ -393,7 +399,8 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
   const [verificando, setVerificando] = useState(false);
 
   /* primeiro acesso: cria a conta que dará acesso ao perfil Diretor —
-     gravada na tabela usuarios do Supabase */
+     gravada na tabela usuarios do Supabase — e já entra logado direto na
+     tela de boas-vindas (cadastro do condomínio) */
   const registrar = async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.currentTarget));
@@ -402,8 +409,9 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     const conta = { nome: f.nome.trim(), email: f.email.trim().toLowerCase(), senha: f.senha };
     setVerificando(true);
     try {
-      await registrarDiretor(conta);
-      setDiretor(conta); setErro("");
+      const nova = await registrarDiretor(conta);
+      setDiretor(nova); setErro("");
+      return onEnter("diretor", null, nova, nova.condominioId || null, nova.token);
     } catch (err) {
       setErro(err.message || L("Não foi possível concluir o cadastro agora."));
     } finally { setVerificando(false); }
@@ -460,7 +468,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
             style={{ background: t.goldSoft, color: t.gold, border: `1px solid ${t.border}`, fontFamily: "'Sora',sans-serif" }}>CM</div>
           <h1 className="text-xl font-bold tracking-wide" style={{ fontFamily: "'Sora',sans-serif" }}>
             CONDOMASTER <span style={{ color: t.gold }}>PRO</span></h1>
-          <p className="mt-1 text-xs" style={{ color: t.dim }}>{L("Gestão condominial premium · powered by Verum Pay")}</p>
+          <p className="mt-1 text-xs" style={{ color: t.dim }}>{L("Gestão condominial premium · powered by Serve Now Global")}</p>
         </div>
         <Card t={t} className="p-5">
           {!diretor && !jaCadastrado ? (
@@ -575,7 +583,7 @@ function SetupCondominio({ t, role, diretor, onCriado, onSair, dark, setDark }) 
                 <select name="plano" required style={inputStyle(t)}>
                   {(planos.length ? planos : [{ nome: "Essencial" }]).map((p) => (
                     <option key={p.nome}>{p.preco_mensal
-                      ? `${p.nome} — ${BRL(Number(p.preco_mensal))}/mês · ${p.limite_unidades ? `até ${p.limite_unidades} unidades` : "unidades ilimitadas"}`
+                      ? `${p.nome} — ${USD(Number(p.preco_mensal))}/mês${p.preco_anual ? ` ou ${USD(Number(p.preco_anual))}/ano` : ""} · ${p.limite_unidades ? `até ${p.limite_unidades} unidades` : "unidades ilimitadas"}`
                       : p.nome}</option>))}
                 </select></Field></div>
               <div className="mt-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.gold }}>
@@ -810,7 +818,7 @@ function Condominio({ t, role }) {
             <Field t={t} label="Unidades / vagas"><input name="resumo" defaultValue={cond.resumo} placeholder={L("Ex.: 96 unidades · 148 vagas")} style={inputStyle(t)} /></Field>
             <Field t={t} label="Moeda de gestão">
               <select name="moeda" defaultValue={cond.moeda} style={inputStyle(t)}>
-                {[["BRL","Real (R$)"],["USD","Dólar (US$)"],["EUR","Euro (€)"],["GBP","Libra (£)"],["ARS","Peso argentino ($)"],["PYG","Guarani (₲)"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                {[["USD","Dólar (US$)"],["BRL","Real ($)"],["EUR","Euro (€)"],["GBP","Libra (£)"],["ARS","Peso argentino ($)"],["PYG","Guarani (₲)"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
               </select></Field>
           </div>
           <Field t={t} label="Endereço completo"><input name="endereco" defaultValue={cond.endereco} style={inputStyle(t)} /></Field>
@@ -1253,7 +1261,7 @@ function Financeiro({ t }) {
           <form onSubmit={salvar}>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field t={t} label="Tipo"><select name="tipo" value={tipoNovo} onChange={(e) => setTipoNovo(e.target.value)} style={inputStyle(t)}><option>Despesa</option><option>Receita</option></select></Field>
-              <Field t={t} label="Valor (R$)"><input name="valor" required placeholder="0,00" style={inputStyle(t)} /></Field>
+              <Field t={t} label="Valor ($)"><input name="valor" required placeholder="0,00" style={inputStyle(t)} /></Field>
               <Field t={t} label="Categoria"><select name="categoria" key={tipoNovo} style={inputStyle(t)}>{catsDoTipo(tipoNovo).map((c)=><option key={c}>{c}</option>)}</select></Field>
               <Field t={t} label="Subcategoria / centro de custo"><input name="centro" style={inputStyle(t)} /></Field>
               <Field t={t} label="Data"><input name="data" type="date" style={inputStyle(t)} /></Field>
@@ -1279,7 +1287,7 @@ function Cobrancas({ t }) {
   const [pagarOnline, pagando] = usePagarCommet();
   const [destino, setDestino] = useState(""); // "" = rateio para todas; senão, id da unidade
   const [base, setBase] = useState("fracao"); // fracao (proporcional à área) | igual (partes iguais)
-  const moeda = db.cond?.moeda || "BRL"; // moeda de gestão definida no Cadastro do Condomínio
+  const moeda = db.cond?.moeda || "USD"; // moeda de gestão definida no Cadastro do Condomínio (padrão: dólar)
   const [moradores, setMoradores] = useState([]);
   useEffect(() => {
     listarAcessos(db.ctx).then((a) => setMoradores(a.filter((x) => x.role === "morador"))).catch(() => {});
@@ -1515,7 +1523,7 @@ function Multas({ t, role }) {
               <Field t={t} label="Unidade responsável"><select name="unidade" required style={inputStyle(t)}>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
               <Field t={t} label="Data e hora"><input name="data" type="datetime-local" style={inputStyle(t)} /></Field>
               <Field t={t} label="Tipo de penalidade"><select name="tipo" style={inputStyle(t)}><option>Advertência (primeira ocorrência)</option><option>Multa</option></select></Field>
-              <Field t={t} label="Valor (se multa)"><input name="valor" placeholder="R$ 0,00" style={inputStyle(t)} /></Field>
+              <Field t={t} label="Valor (se multa)"><input name="valor" placeholder="$ 0,00" style={inputStyle(t)} /></Field>
               <Field t={t} label="Prazo para defesa"><input name="prazo" type="date" style={inputStyle(t)} /></Field>
             </div>
             <Field t={t} label="Base normativa"><input name="base" placeholder="Ex.: Regimento interno, art. 12" style={{ ...inputStyle(t), marginTop: 4 }} /></Field>
@@ -1797,7 +1805,7 @@ function Chamados({ t }) {
                   <option>Baixa</option><option>Média</option><option>Alta</option>
                 </select></Field>
               <Field t={t} label="Prazo"><input name="prazo" type="date" defaultValue={sel.prazo} style={inputStyle(t)} /></Field>
-              <Field t={t} label="Custo realizado (R$)"><input name="custo" defaultValue={sel.custoRealizado > 0 ? String(sel.custoRealizado).replace(".", ",") : ""} placeholder="0,00" style={inputStyle(t)} /></Field>
+              <Field t={t} label="Custo realizado ($)"><input name="custo" defaultValue={sel.custoRealizado > 0 ? String(sel.custoRealizado).replace(".", ",") : ""} placeholder="0,00" style={inputStyle(t)} /></Field>
             </div>
             </fieldset>
             {!db.ctx.operacionais.length && sel.status !== "concluido" && (
@@ -1816,7 +1824,7 @@ function Chamados({ t }) {
               <Field t={t} label="Prioridade"><select name="prioridade" style={inputStyle(t)}><option>Baixa</option><option>Média</option><option>Alta</option></select></Field>
               <Field t={t} label="Responsável"><select name="responsavel" style={inputStyle(t)}><option value="">Designar depois</option>{db.ctx.operacionais.map((o)=><option key={o.id} value={o.id}>{o.label}</option>)}</select></Field>
               <Field t={t} label="Prazo"><input name="prazo" type="date" style={inputStyle(t)} /></Field>
-              <Field t={t} label="Custo estimado"><input name="custo" placeholder="R$ 0,00" style={inputStyle(t)} /></Field>
+              <Field t={t} label="Custo estimado"><input name="custo" placeholder="$ 0,00" style={inputStyle(t)} /></Field>
               <Field t={t} label="Fotos / vídeos"><FileField t={t} name="midias" multiple accept="image/*,video/*" hint="Anexar mídia" /></Field>
             </div>
             <Field t={t} label="Descrição do problema"><textarea name="desc" required rows={3} style={{ ...inputStyle(t), marginTop: 4, resize: "vertical" }} /></Field>
@@ -2480,6 +2488,9 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
   const [gerando, setGerando] = useState(false);
   const [verificando, setVerificando] = useState(false);
   const [erro, setErro] = useState("");
+  /* ciclo de cobrança da licença — sempre em dólar (USD) */
+  const [ciclo, setCiclo] = useState("mensal");
+  const temAnual = Boolean(tenant?.precoPlanoAnual);
 
   /* pergunta ao Commet (via backend) se o pagamento foi confirmado e, se sim,
      recarrega — libera o acesso mesmo antes de o webhook chegar */
@@ -2501,7 +2512,7 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
   const pagar = async () => {
     setGerando(true); setErro("");
     try {
-      const url = await assinarLicencaCommet(condominioId);
+      const url = await assinarLicencaCommet(condominioId, ciclo);
       window.open(url, "_blank", "noopener");
     } catch (e) { setErro(e.message); }
     finally { setGerando(false); }
@@ -2530,9 +2541,19 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
             <div className="mt-4 rounded-xl border p-3 text-sm" style={{ borderColor: t.borderSoft }}>
               <div className="flex items-center justify-between">
                 <span style={{ color: t.dim }}>{L("Plano")}</span><b>{tenant.plano}</b></div>
+              {temAnual && (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {[["mensal", L("Mensal")], ["anual", L("Anual")]].map(([v, rotulo]) => (
+                    <button key={v} type="button" onClick={() => setCiclo(v)}
+                      className="rounded-xl border px-2 py-1.5 text-xs font-semibold"
+                      style={{ borderColor: ciclo === v ? t.gold : t.borderSoft, color: ciclo === v ? t.gold : t.dim, background: ciclo === v ? t.goldSoft : "transparent" }}>
+                      {rotulo}</button>))}
+                </div>)}
               {tenant.precoPlano ? (
-                <div className="mt-1 flex items-center justify-between">
-                  <span style={{ color: t.dim }}>{L("Mensalidade")}</span><b>{BRL(tenant.precoPlano)}/mês</b></div>) : null}
+                <div className="mt-2 flex items-center justify-between">
+                  <span style={{ color: t.dim }}>{ciclo === "anual" && temAnual ? L("Anuidade") : L("Mensalidade")}</span>
+                  <b>{ciclo === "anual" && temAnual ? `${USD(tenant.precoPlanoAnual)}/ano` : `${USD(tenant.precoPlano)}/mês`}</b></div>) : null}
+              <div className="mt-1 text-right text-[11px]" style={{ color: t.dim }}>{L("Cobrança em dólar (USD)")}</div>
             </div>)}
           {erro && <div className="mt-3 rounded-xl border p-2.5 text-xs" style={{ borderColor: t.danger, color: t.danger }}>{erro}</div>}
           <div className="mt-5 space-y-2">
@@ -2585,6 +2606,8 @@ export default function App() {
   }, [condId]);
   useEffect(() => { reload(); }, [reload]);
   const dataValue = useMemo(() => ({ db, reload }), [db, reload]);
+  /* moeda de gestão vinda do banco (padrão USD) — aplicada antes de renderizar as telas */
+  setMoeda(db?.cond?.moeda);
 
   /* tema: a cor primária salva na identidade visual substitui o dourado padrão */
   const t = useMemo(() => {
