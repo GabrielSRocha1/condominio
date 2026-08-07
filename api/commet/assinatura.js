@@ -41,14 +41,17 @@ export default async function handler(req, res) {
     /* cobrança sempre em dólar (USD): a conta Commet deve estar configurada em USD.
        O sufixo _usd separa estes planos dos antigos criados com preço em real. */
     const codigo = `condomaster_${slug(plano.nome)}_usd`;
+    /* o nome também precisa ser único: já existe um "CondoMaster <plano>" antigo (em BRL)
+       na Commet, e ela recusa dois planos com o mesmo nome */
+    const nomeCommet = `CondoMaster ${plano.nome} (USD)`;
     const anual = ciclo === "anual" && Number(plano.preco_anual) > 0;
     const intervalo = anual ? "yearly" : "monthly";
 
-    /* plano no Commet: reaproveita pelo code; cria com os preços mensal e anual se não existir */
+    /* plano no Commet: reaproveita pelo code ou pelo nome; cria com os preços mensal e anual se não existir */
     const planos = dado(await commet.plans.list({ includePrivate: true })) || [];
-    let planoCommet = planos.find((p) => p.code === codigo);
+    let planoCommet = planos.find((p) => p.code === codigo || p.name === nomeCommet);
     if (!planoCommet) {
-      planoCommet = dado(await commet.plans.create({ name: `CondoMaster ${plano.nome}`, code: codigo, isPublic: false }));
+      planoCommet = dado(await commet.plans.create({ name: nomeCommet, code: codigo, isPublic: false }));
       if (!planoCommet?.id) return res.status(502).json({ error: "Commet não criou o plano." });
       await commet.plans.addPrice({
         id: planoCommet.id,
