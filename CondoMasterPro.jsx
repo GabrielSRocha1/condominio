@@ -7,33 +7,22 @@ import {
   Download, Filter, Bell, Menu, Eye, Send, Printer, RefreshCw, TrendingUp,
   TrendingDown, CircleDot, User, KeyRound, Car, Package, DoorOpen, Star,
   CalendarClock, ListChecks, MoreHorizontal, Pencil, Ban,
-  Mail, EyeOff, Trash2, UserPlus, Upload, Copy, MapPin
+  Mail, EyeOff, Trash2, UserPlus, Upload, Copy, MapPin, Banknote
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, Legend
 } from "recharts";
 import {
-  loadAll, criarCondominio, criarUnidade, criarPessoa, criarLancamento, criarPenalidade, decidirPenalidade,
-  criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, baixarPdfCobranca, loginDiretor, pagarComCommet,
-  assinarLicencaCommet, verificarLicencaCommet, listarPlanos, registrarDiretor,
+  loadAll, criarCondominio, criarUnidade, criarPessoa, criarLancamento, decidirLancamento, criarPenalidade, decidirPenalidade,
+  criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, baixarPdfCobranca, loginDiretor,
+  assinarLicencaCommet, verificarLicencaCommet, listarPlanos, trocarPlanoLicenca, registrarDiretor,
   criarAcesso, listarAcessos, removerAcesso, loginUsuario, setAuthToken,
-  salvarLogoCondominio, obterCondominio, salvarCondominio, salvarAreaUnidade, salvarResponsavelUnidade, atualizarUnidade,
+  salvarLogoCondominio, removerLogoCondominio, obterCondominio, salvarCondominio, salvarAreaUnidade, salvarResponsavelUnidade, atualizarUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
 } from "./src/lib/api.js";
 
-/* Abre o checkout do Commet em nova aba; avisa se o backend ainda não estiver no ar */
-const usePagarCommet = () => {
-  const [pagando, setPagando] = useState(false);
-  const pagar = async (cobrancaId) => {
-    setPagando(true);
-    try { window.open(await pagarComCommet(cobrancaId), "_blank", "noopener"); }
-    catch (e) { alert(e.message); }
-    finally { setPagando(false); }
-  };
-  return [pagar, pagando];
-};
 import { L, LANG, LANGS, setLang } from "./src/lib/i18n.js";
 
 /* Traduz os filhos de texto de um componente, preservando ícones e espaços */
@@ -110,6 +99,7 @@ const NAV = [
   { id: "chamados",   label: "Manutenção",      icon: Wrench,          roles: ["diretor","sindico"] },
   { id: "portaria",   label: "Portaria",        icon: DoorOpen,        roles: ["diretor","sindico"] },
   { id: "emails",     label: "Gerenciar Acessos",icon: Mail,            roles: ["diretor"] },
+  { id: "planos",     label: "Planos",           icon: Star,            roles: ["diretor"] },
 ];
 
 /* ══════════════ DADOS (Supabase) ══════════════ */
@@ -143,6 +133,24 @@ function MoneyInput({ t, name, moeda = "USD", required, defaultCents = null }) {
       onChange={(e) => { const dig = e.target.value.replace(/\D/g, "").slice(0, 15); setCents(dig ? parseInt(dig, 10) : null); }}
       style={inputStyle(t)} />
     <input type="hidden" name={name} value={cents == null ? "" : (cents / 100).toFixed(2).replace(".", ",")} />
+  </>);
+}
+
+/* Área privativa (m²): digite só números — o campo formata com vírgula e duas
+   casas decimais (8650 → 86,50). O valor submetido (input oculto) sai como
+   "86,50", o formato que o parseBRL da camada de dados entende. */
+function AreaInput({ t, name, required, defaultValue = null, inputRef }) {
+  const [cents, setCents] = useState(() => {
+    const n = Number(String(defaultValue ?? "").replace(",", "."));
+    return defaultValue != null && defaultValue !== "" && !Number.isNaN(n) ? Math.round(n * 100) : null;
+  });
+  const fmt = (c) => (c / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (<>
+    <input inputMode="numeric" required={required} placeholder="0,00"
+      value={cents == null ? "" : fmt(cents)}
+      onChange={(e) => { const dig = e.target.value.replace(/\D/g, "").slice(0, 9); setCents(dig ? parseInt(dig, 10) : null); }}
+      style={inputStyle(t)} />
+    <input type="hidden" name={name} ref={inputRef} value={cents == null ? "" : (cents / 100).toFixed(2).replace(".", ",")} readOnly />
   </>);
 }
 
@@ -485,7 +493,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
               <Btn t={t} kind="primary" type="submit" className="w-full" disabled={verificando}>
                 <UserPlus size={15} /> {verificando ? L("Salvando cadastro…") : L("Criar conta e continuar")}</Btn>
               <div className="pt-1 text-center">
-                <button type="button" onClick={() => { setJaCadastrado(true); setRole("diretor"); setErro(""); }}
+                <button type="button" onClick={() => { setJaCadastrado(true); setRole(null); setErro(""); }}
                   className="text-xs font-semibold" style={{ color: t.gold }}>
                   {L("Já tem prédio cadastrado? Fazer login")}</button>
               </div>
@@ -788,6 +796,13 @@ function Condominio({ t, role }) {
     catch (err) { alert("Não foi possível enviar o logo: " + (err?.message || err)); }
     finally { setSubindoLogo(false); }
   };
+  const removerLogo = async () => {
+    if (!window.confirm(L("Excluir o logo do condomínio? O portal e os documentos voltam a usar as iniciais."))) return;
+    setSubindoLogo(true);
+    try { await removerLogoCondominio(db.ctx); setLogo(null); }
+    catch (err) { alert("Não foi possível excluir o logo: " + (err?.message || err)); }
+    finally { setSubindoLogo(false); }
+  };
   const tenant = (db.tenants || []).find((x) => x.id === db.ctx.condominioId);
   /* as abas ficam sempre montadas (só escondidas) para o salvar enviar o formulário inteiro */
   const mostra = (k) => ({ display: tab === k ? undefined : "none" });
@@ -795,7 +810,7 @@ function Condominio({ t, role }) {
   return (
     <div className="vfade max-w-3xl space-y-4">
       <div className="flex gap-1 overflow-x-auto">
-        {[["dados","Dados gerais"],["gestao","Gestão"],["regras","Regras internas"],["visual","Identidade visual"]].map(([k,l]) => (
+        {[["dados","Dados gerais"],["gestao","Gestão"],["regras","Regras internas"],["pagamentos","Meios de pagamento"],["visual","Identidade visual"]].map(([k,l]) => (
           <button key={k} onClick={() => setTab(k)} className="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium"
             style={{ background: tab===k ? t.goldSoft : "transparent", color: tab===k ? t.gold : t.dim, border: `1px solid ${tab===k ? t.border : "transparent"}` }}>{l}</button>))}
       </div>
@@ -848,6 +863,36 @@ function Condominio({ t, role }) {
           <Field t={t} label="Animais"><input name="animais" defaultValue={cond.animais} placeholder={L("Ex.: Permitidos com coleira nas áreas comuns")} style={inputStyle(t)} /></Field>
           <Field t={t} label="Áreas comuns"><input name="areas" defaultValue={cond.areas} placeholder={L("Ex.: Reserva com 48h de antecedência")} style={inputStyle(t)} /></Field>
         </div>
+        <div className="space-y-3" style={mostra("pagamentos")}>
+          <div className="text-xs font-semibold" style={{ color: t.gold, fontFamily: "'Sora',sans-serif" }}>{L("Cripto ativos")}</div>
+          <Field t={t} label="Chave pública da carteira Verum Wallet">
+            <input name="verumWallet" defaultValue={cond.verumWallet}
+              placeholder={L("Cole aqui a chave pública (endereço de recebimento) da carteira")} style={inputStyle(t)} />
+          </Field>
+          <div className="text-[11px]" style={{ color: t.dim }}>
+            {L("Ainda não tem uma carteira?")}{" "}
+            <a href="https://verumcrypto.com" target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>Verum Wallet</a>
+            {" — "}{L("clique para baixar o app e criar a sua.")}
+          </div>
+          <div className="pt-1 text-xs font-semibold" style={{ color: t.gold, fontFamily: "'Sora',sans-serif" }}>{L("Dinheiro")}</div>
+          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2.5" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+            <span className="text-sm">{L("Aceitar pagamento em dinheiro")}
+              <span className="block text-[11px]" style={{ color: t.dim }}>{L("O morador paga presencialmente na administração do condomínio.")}</span></span>
+            <input type="checkbox" name="dinheiro" defaultChecked={cond.dinheiro} className="h-4 w-4 shrink-0" style={{ accentColor: t.gold }} />
+          </label>
+          <div className="pt-1 text-xs font-semibold" style={{ color: t.gold, fontFamily: "'Sora',sans-serif" }}>{L("Transferência bancária")}</div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field t={t} label="Titular da conta"><input name="bancoTitular" defaultValue={cond.bancoTitular} placeholder={L("Nome ou razão social do condomínio")} style={inputStyle(t)} /></Field>
+            <Field t={t} label="Banco"><input name="bancoNome" defaultValue={cond.bancoNome} placeholder={L("Nome da instituição financeira")} style={inputStyle(t)} /></Field>
+            <Field t={t} label="País da conta"><input name="bancoPais" defaultValue={cond.bancoPais} placeholder={L("Ex.: Brasil, Estados Unidos, Paraguai…")} style={inputStyle(t)} /></Field>
+            <Field t={t} label="IBAN"><input name="bancoIban" defaultValue={cond.bancoIban} placeholder={L("Conta internacional (quando houver)")} style={inputStyle(t)} /></Field>
+            <Field t={t} label="SWIFT / BIC"><input name="bancoSwift" defaultValue={cond.bancoSwift} placeholder={L("Código internacional do banco")} style={inputStyle(t)} /></Field>
+            <Field t={t} label="Número da conta"><input name="bancoConta" defaultValue={cond.bancoConta} placeholder={L("Conta corrente / account number")} style={inputStyle(t)} /></Field>
+            <Field t={t} label="Agência / código de roteamento"><input name="bancoAgencia" defaultValue={cond.bancoAgencia} placeholder={L("Agência, routing number ou sort code")} style={inputStyle(t)} /></Field>
+            <Field t={t} label="Observações"><input name="bancoObs" defaultValue={cond.bancoObs} placeholder={L("Ex.: enviar comprovante à administração")} style={inputStyle(t)} /></Field>
+          </div>
+          <div className="text-xs" style={{ color: t.dim }}>{L("Estes dados são exibidos ao morador como opções para pagamento das cobranças. Preencha só o que se aplica ao seu país — IBAN e SWIFT/BIC tornam a conta acessível internacionalmente.")}</div>
+        </div>
         <div className="space-y-3" style={mostra("visual")}>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field t={t} label="Logo (upload)">
@@ -859,6 +904,15 @@ function Condominio({ t, role }) {
                   : somenteLeitura ? <span>{L("Sem logo cadastrado")}</span>
                   : <><Upload size={13} /> Clique para enviar (salva na hora)</>}
               </label>
+              <div className="mt-1 flex items-center justify-between gap-2 text-[11px]" style={{ color: t.dim }}>
+                <span>{L("Recomendado: imagem quadrada de 512×512 px (PNG com fundo transparente), até 1 MB.")}</span>
+                {logo && !somenteLeitura && (
+                  <button type="button" onClick={removerLogo} disabled={subindoLogo}
+                    className="flex shrink-0 items-center gap-1 font-medium" style={{ color: t.danger }}>
+                    <Trash2 size={12} /> {L("Excluir logo")}
+                  </button>
+                )}
+              </div>
             </Field>
             <Field t={t} label="Cor primária do portal"><input name="cor" type="color" defaultValue={cond.cor} style={{ ...inputStyle(t), height: 42, padding: 4 }} /></Field>
           </div>
@@ -908,7 +962,7 @@ function Unidades({ t, role }) {
   };
   const rows = db.unidades.filter((u) => (st === "todos" || u.status === st) &&
     (u.num + u.bloco + u.tipo + u.resp).toLowerCase().includes(q.toLowerCase()));
-  const cols = [{k:"num",l:"Unidade"},{k:"tipo",l:"Tipo"},{k:"status",l:"Status"},{k:"resp",l:"Responsável financeiro"},{k:"fracao",l:"Fração ideal"},{k:"saldo",l:"Saldo"}];
+  const cols = [{k:"num",l:"Unidade"},{k:"andar",l:"Andar"},{k:"tipo",l:"Tipo"},{k:"status",l:"Status"},{k:"resp",l:"Responsável financeiro"},{k:"fracao",l:"Fração ideal"},{k:"saldo",l:"Saldo"}];
   return (
     <div className="vfade">
       <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por número, bloco ou responsável…"
@@ -922,6 +976,7 @@ function Unidades({ t, role }) {
           action={podeCriar ? <Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={14} /> Cadastrar unidade</Btn> : null} />}
         renderCell={(r, k) => {
           if (k === "num") return <b>{r.num} · Bloco {r.bloco}</b>;
+          if (k === "andar") return r.andar ?? <span style={{ color: t.dim }}>—</span>;
           if (k === "status") return <Badge t={t} s={r.status} />;
           if (k === "fracao") return (<span>{r.fracao.toFixed(2)}%{r.area > 0 && <span style={{ color: t.dim }}> · {String(r.area).replace(".", ",")} m²</span>}</span>);
           if (k === "saldo") return <span style={{ color: r.saldo < 0 ? t.danger : t.ok }}>{r.saldo < 0 ? BRL(r.saldo) : "Em dia"}</span>;
@@ -955,7 +1010,7 @@ function Unidades({ t, role }) {
             <Field t={t} label="Fração ideal (calculada)"><input readOnly value={`${sel.fracao.toFixed(4).replace(".", ",")}%`} title={L("Área privativa da unidade ÷ área total do edifício")} style={{ ...inputStyle(t), opacity: 0.7 }} /></Field>
             <Field t={t} label="Área privativa (m²)">
               {podeEditarArea
-                ? <input ref={areaRef} key={sel.id} defaultValue={sel.area || ""} placeholder={L("Ex.: 86,50")} style={inputStyle(t)} />
+                ? <AreaInput t={t} key={sel.id} inputRef={areaRef} defaultValue={sel.area || ""} />
                 : <input readOnly value={sel.area ? String(sel.area).replace(".", ",") : "—"} title={L("Somente o diretor pode alterar a área privativa")} style={{ ...inputStyle(t), opacity: 0.7 }} />}
             </Field>
             <Field t={t} label="Vagas vinculadas"><input readOnly value={sel.vagas} style={{ ...inputStyle(t), opacity: 0.7 }} /></Field>
@@ -1010,14 +1065,17 @@ function Unidades({ t, role }) {
               <Field t={t} label="Bloco / torre"><input name="bloco" required placeholder="Ex.: B" style={inputStyle(t)} /></Field>
               <Field t={t} label="Número (ou início do intervalo)"><input name="numero" required placeholder={L("Ex.: 402, 1 ou 1D")} style={inputStyle(t)} /></Field>
               <Field t={t} label="Até o número (opcional)"><input name="numeroAte" placeholder={L("Ex.: 100 ou 4D — vazio cria só uma")} style={inputStyle(t)} /></Field>
-              <Field t={t} label="Andar"><input name="andar" type="number" style={inputStyle(t)} /></Field>
+              <Field t={t} label="Andar (ou início do intervalo)"><input name="andar" type="number" placeholder={L("Ex.: 1")} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Até o andar (opcional)"><input name="andarAte" type="number" placeholder={L("Ex.: 12 — vazio usa um só andar")} style={inputStyle(t)} /></Field>
               <Field t={t} label="Status"><select name="status" style={inputStyle(t)}>{["Ocupada","Vaga","Alugada","Vendida","Reservada","Inativa"].map((x)=><option key={x}>{x}</option>)}</select></Field>
-              <Field t={t} label="Área privativa (m²)"><input name="area" placeholder={L("Ex.: 86,50")} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Área privativa (m²)"><AreaInput t={t} name="area" /></Field>
             </div>
             <div className="mt-3 text-xs" style={{ color: t.dim }}>
               {L("A fração ideal é calculada automaticamente: área privativa da unidade ÷ área total do edifício. Ela define a proporção de cada unidade no rateio das despesas comuns e é refeita para o prédio inteiro a cada unidade criada ou alterada.")}</div>
             <div className="mt-3 text-xs" style={{ color: t.dim }}>
-              {L("Preencha \"Até o número\" para criar várias unidades de uma vez: 1 até 100 cria 1, 2… 100; 1D até 4D cria 1D, 2D, 3D e 4D. Números que já existem no bloco são pulados. Tipo, andar, status e área valem para todas.")}</div>
+              {L("Preencha \"Até o número\" para criar várias unidades de uma vez: 1 até 100 cria 1, 2… 100; 1D até 4D cria 1D, 2D, 3D e 4D. Números que já existem no bloco são pulados. Tipo, status e área valem para todas.")}</div>
+            <div className="mt-1 text-xs" style={{ color: t.dim }}>
+              {L("Preencha também \"Até o andar\" para criar por andares: andares 1 até 12 com unidades 1 até 4 criam 101–104, 201–204 … 1201–1204 — o andar de cada unidade é preenchido automaticamente.")}</div>
             <div className="mt-1 text-xs" style={{ color: t.dim }}>O responsável financeiro é vinculado depois, na tela Pessoas (papel proprietário/inquilino).</div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovo(false)}>Cancelar</Btn>
               <Btn t={t} kind="primary" type="submit" disabled={saving}><Check size={14} /> {saving ? "Salvando…" : "Criar unidade"}</Btn></div>
@@ -1053,7 +1111,7 @@ function Pessoas({ t }) {
         action={<Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Pessoa</Btn>}>
         <Sel t={t} value={papel} onChange={setPapel} opts={[["todos","Todos os papéis"], ...papeis.map((p) => [p, p])]} />
       </Toolbar>
-      <Tbl t={t} cols={[{k:"nome",l:"Nome"},{k:"papel",l:"Papel"},{k:"unidade",l:"Unidade"},{k:"doc",l:"CPF/CNPJ"},{k:"tel",l:"Telefone"},{k:"arquivo",l:"Documento"},{k:"status",l:"Status"}]}
+      <Tbl t={t} cols={[{k:"nome",l:"Nome"},{k:"papel",l:"Papel"},{k:"unidade",l:"Unidade"},{k:"doc",l:"Identificação (CI)"},{k:"tel",l:"Telefone"},{k:"arquivo",l:"Documento"},{k:"status",l:"Status"}]}
         rows={rows} onRowClick={setEdit}
         empty={<EmptyState t={t} icon={Users} title="Nenhuma pessoa encontrada"
           hint="Cadastre proprietários, inquilinos, funcionários e prestadores com papéis separados para evitar confusão operacional." />}
@@ -1075,9 +1133,9 @@ function Pessoas({ t }) {
           <form onSubmit={salvar} key={edit?.id || "nova"}>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field t={t} label="Nome completo"><input name="nome" required defaultValue={edit?.nome || ""} style={inputStyle(t)} /></Field>
-              <Field t={t} label="CPF ou CNPJ"><input name="doc" required defaultValue={edit?.docRaw || ""} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Carteira de identificação (CI)"><input name="doc" required defaultValue={edit?.docRaw || ""} placeholder={L("RG, CPF ou CI")} style={inputStyle(t)} /></Field>
               <Field t={t} label="Papel no condomínio"><select name="papel" defaultValue={papeis.includes(edit?.papel) ? edit.papel : "Morador"} style={inputStyle(t)}>{papeis.map((p)=><option key={p}>{p}</option>)}</select></Field>
-              <Field t={t} label="Unidade vinculada"><select name="unidade" defaultValue={edit?.unidadeId || ""} style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
+              <Field t={t} label="Unidade vinculada"><select name="unidade" defaultValue={edit?.unidadeId || ""} style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.labelResp}</option>)}</select></Field>
               <Field t={t} label="Telefone"><input name="tel" defaultValue={edit?.telRaw || ""} style={inputStyle(t)} /></Field>
               <Field t={t} label="E-mail"><input name="email" type="email" defaultValue={edit?.email || ""} style={inputStyle(t)} /></Field>
               <Field t={t} label="Data de entrada"><input name="inicio" type="date" defaultValue={edit?.inicio || ""} style={inputStyle(t)} /></Field>
@@ -1119,7 +1177,17 @@ function Financeiro({ t }) {
     catch (err) { alert("Não foi possível dar baixa: " + (err?.message || err)); }
     finally { setBaixando(null); }
   };
-  const aPagar = db.lanc.filter((l) => l.tipo === "despesa" && (l.status === "aguardando" || l.status === "aberto"));
+  const receitas = db.lanc.filter((l) => l.tipo === "receita");
+  /* aprovação: lançamento nasce "aguardando" e só vira conta a pagar depois de aprovado */
+  const aAprovar = db.lanc.filter((l) => l.status === "aguardando");
+  const [decidindo, setDecidindo] = useState(null);
+  const decidirLanc = async (id, aprovar) => {
+    setDecidindo(id);
+    try { await decidirLancamento(db.ctx, id, aprovar); await reload(); }
+    catch (err) { alert("Não foi possível salvar: " + (err?.message || err)); }
+    finally { setDecidindo(null); }
+  };
+  const aPagar = db.lanc.filter((l) => l.tipo === "despesa" && l.status === "aberto");
   const pagas = db.lanc.filter((l) => l.tipo === "despesa" && l.status === "pago");
   const aReceber = db.cobr.filter((c) => c.status === "emitida" || c.status === "vencida");
   const compAtual = new Date().toISOString().slice(0, 7);
@@ -1149,10 +1217,21 @@ function Financeiro({ t }) {
         <StatCard t={t} icon={Wallet} label="Fundo de reserva" value={BRL(S.fundoReserva)} />
         <StatCard t={t} icon={Wallet} label="Fundo de obras"   value={BRL(S.fundoObras)} color={t.info} />
       </div>
+      {aAprovar.length > 0 && tab !== "aprovar" && (
+        <button type="button" onClick={() => setTab("aprovar")} className="flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs"
+          style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
+          <AlertCircle size={14} className="shrink-0" />
+          <span className="flex-1">{aAprovar.length} {L("lançamento(s) aguardando aprovação — toque para revisar e aprovar.")}</span>
+          <ChevronRight size={14} />
+        </button>)}
       <div className="flex gap-1 overflow-x-auto">
-        {[["lanc","Lançamentos"],["pagar","Contas a pagar"],["pagas","Contas pagas"],["receber","Contas a receber"],["rateio","Rateio"],["extrato","Extrato por unidade"]].map(([k,l]) => (
-          <button key={k} onClick={() => setTab(k)} className="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium"
-            style={{ background: tab===k ? t.goldSoft : "transparent", color: tab===k ? t.gold : t.dim, border: `1px solid ${tab===k ? t.border : "transparent"}` }}>{l}</button>))}
+        {[["lanc","Lançamentos"],["aprovar","Aprovação"],["receitas","Receitas"],["pagar","Contas a pagar"],["pagas","Contas pagas"],["receber","Contas a receber"],["rateio","Rateio"],["extrato","Extrato por unidade"]].map(([k,l]) => (
+          <button key={k} onClick={() => setTab(k)} className="relative whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium"
+            style={{ background: tab===k ? t.goldSoft : "transparent", color: tab===k ? t.gold : t.dim, border: `1px solid ${tab===k ? t.border : "transparent"}` }}>{l}
+            {k === "aprovar" && aAprovar.length > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold"
+                style={{ background: t.warn, color: "#fff" }}>{aAprovar.length}</span>)}
+          </button>))}
       </div>
       {tab === "lanc" ? (<>
         <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar lançamento…"
@@ -1164,6 +1243,47 @@ function Financeiro({ t }) {
           renderCell={(r, k) => {
             if (k === "tipo") return <span style={{ color: r.tipo === "receita" ? t.ok : t.info }}>{r.tipo === "receita" ? "Receita" : "Despesa"}</span>;
             if (k === "valor") return <b style={{ color: r.tipo === "receita" ? t.ok : t.text }}>{r.tipo === "receita" ? "+" : "−"}{BRL(r.valor)}</b>;
+            if (k === "nf") return r.nf
+              ? (<a href={r.nf} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: t.gold }}>
+                  <FileText size={13} /> Ver NF</a>)
+              : "—";
+            if (k === "status") return <Badge t={t} s={r.status} />;
+            return r[k];
+          }} />
+      </>) : tab === "aprovar" ? (<>
+        <div className="text-xs" style={{ color: t.dim }}>
+          {L("Todo lançamento entra como \"Aguardando\" e precisa ser aprovado para valer no caixa — despesa aprovada vai para Contas a pagar; rejeitado é cancelado.")}</div>
+        <Tbl t={t} cols={[{k:"data",l:"Data"},{k:"tipo",l:"Tipo"},{k:"cat",l:"Categoria"},{k:"desc",l:"Descrição"},{k:"valor",l:"Valor"},{k:"nf",l:"NF"},{k:"acao",l:""}]}
+          rows={aAprovar}
+          empty={<EmptyState t={t} icon={CheckCircle2} title="Nada consta — nenhum lançamento aguardando aprovação"
+            hint="Novos lançamentos criados na aba Lançamentos aparecem aqui para revisão." />}
+          renderCell={(r, k) => {
+            if (k === "tipo") return <span style={{ color: r.tipo === "receita" ? t.ok : t.info }}>{r.tipo === "receita" ? "Receita" : "Despesa"}</span>;
+            if (k === "valor") return <b style={{ color: r.tipo === "receita" ? t.ok : t.text }}>{r.tipo === "receita" ? "+" : "−"}{BRL(r.valor)}</b>;
+            if (k === "nf") return r.nf
+              ? (<a href={r.nf} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: t.gold }}>
+                  <FileText size={13} /> Ver NF</a>)
+              : "—";
+            if (k === "acao") return (
+              <div className="flex justify-end gap-1.5">
+                <Btn t={t} kind="danger" disabled={decidindo === r.id} onClick={(e) => { e.stopPropagation(); decidirLanc(r.id, false); }}>
+                  <Ban size={13} /> Rejeitar</Btn>
+                <Btn t={t} kind="primary" disabled={decidindo === r.id} onClick={(e) => { e.stopPropagation(); decidirLanc(r.id, true); }}>
+                  <Check size={13} /> {decidindo === r.id ? "Salvando…" : "Aprovar"}</Btn>
+              </div>);
+            return r[k];
+          }} />
+      </>) : tab === "receitas" ? (<>
+        <div className="text-xs" style={{ color: t.dim }}>
+          {L("Receitas lançadas no financeiro (parcelas, fundos, taxas extras, multas e outras entradas).")} {L("Total:")} <b style={{ color: t.ok }}>{BRL(receitas.reduce((s, l) => s + l.valor, 0))}</b></div>
+        <Tbl t={t} cols={[{k:"data",l:"Data"},{k:"cat",l:"Categoria"},{k:"desc",l:"Descrição"},{k:"valor",l:"Valor"},{k:"nf",l:"NF"},{k:"status",l:"Status"}]}
+          rows={receitas}
+          empty={<EmptyState t={t} icon={TrendingUp} title="Nenhuma receita lançada ainda"
+            hint="Registre uma receita pelo botão Lançamento na aba Lançamentos — ela aparece aqui." />}
+          renderCell={(r, k) => {
+            if (k === "valor") return <b style={{ color: t.ok }}>+{BRL(r.valor)}</b>;
             if (k === "nf") return r.nf
               ? (<a href={r.nf} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
                   className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: t.gold }}>
@@ -1223,11 +1343,12 @@ function Financeiro({ t }) {
         {despComp === 0 && (
           <div className="rounded-xl border border-dashed px-4 py-3 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
             <AlertCircle size={14} className="mr-1.5 inline" /> {L("Nada consta — nenhuma despesa lançada nesta competência; as cotas abaixo estão zeradas.")}</div>)}
-        <Tbl t={t} cols={[{k:"label",l:"Unidade"},{k:"fracao",l:"Fração ideal"},{k:"cota",l:"Cota da competência"}]}
+        <Tbl t={t} cols={[{k:"label",l:"Unidade"},{k:"andar",l:"Andar"},{k:"fracao",l:"Fração ideal"},{k:"cota",l:"Cota da competência"}]}
           rows={db.ctx.unidades}
           empty={<EmptyState t={t} icon={Home} title="Nenhuma unidade cadastrada"
             hint="Cadastre as unidades para calcular o rateio pela fração ideal." />}
           renderCell={(r, k) => {
+            if (k === "andar") return r.andar ?? <span style={{ color: t.dim }}>—</span>;
             if (k === "fracao") return `${(r.fracao || 0).toFixed(4).replace(".", ",")}%`;
             if (k === "cota") return <b>{BRL(despComp * (r.fracao || 0) / somaFracao)}</b>;
             return r[k];
@@ -1235,7 +1356,7 @@ function Financeiro({ t }) {
       </>) : (<>
         <div className="flex flex-wrap items-center gap-2">
           <Sel t={t} value={uniExtrato} onChange={setUniExtrato}
-            opts={[["", L("Escolha a unidade…")], ...db.ctx.unidades.map((u) => [u.id, u.label])]} />
+            opts={[["", L("Escolha a unidade…")], ...db.ctx.unidades.map((u) => [u.id, u.labelResp])]} />
           {uniExtrato && (
             <div className="text-xs" style={{ color: t.dim }}>
               {L("Pago:")} <b style={{ color: t.ok }}>{BRL(extrato.filter((c) => c.status === "pago").reduce((s, c) => s + c.valor, 0))}</b>{" · "}
@@ -1284,7 +1405,6 @@ function Cobrancas({ t }) {
   const { db, reload } = useData();
   const S = db.stats;
   const [q, setQ] = useState(""); const [st, setSt] = useState("todos"); const [qr, setQr] = useState(null); const [nova, setNova] = useState(false);
-  const [pagarOnline, pagando] = usePagarCommet();
   const [destino, setDestino] = useState(""); // "" = rateio para todas; senão, id da unidade
   const [base, setBase] = useState("fracao"); // fracao (proporcional à área) | igual (partes iguais)
   const moeda = db.cond?.moeda || "USD"; // moeda de gestão definida no Cadastro do Condomínio (padrão: dólar)
@@ -1355,9 +1475,6 @@ function Cobrancas({ t }) {
             <Badge t={t} s={qr.status} />
             {qr.tx !== "—" && <div className="rounded-lg px-3 py-1.5 text-xs" style={{ background: t.surface2, color: t.dim }}>Transação Verum Pay: <b style={{ color: t.gold }}>{qr.tx}</b> · baixa automática confirmada</div>}
             <div className="flex flex-wrap justify-center gap-2">
-              {qr.status !== "pago" && (
-                <Btn t={t} kind="primary" disabled={pagando} onClick={() => pagarOnline(qr.id)}>
-                  <QrCode size={14} /> {pagando ? "Abrindo…" : "Pagar online"}</Btn>)}
               <Btn t={t} disabled={baixandoPdf} onClick={() => baixarPdf(qr)}><Download size={14} /> {baixandoPdf ? "Gerando…" : "Baixar"}</Btn>
               <Btn t={t} onClick={() => enviarWhats(qr)}><Send size={14} /> Enviar por WhatsApp</Btn>
             </div>
@@ -1373,7 +1490,7 @@ function Cobrancas({ t }) {
                 <select name="unidade" value={destino} onChange={(e) => setDestino(e.target.value)} style={inputStyle(t)}>
                   <option value="">{L("Todas as unidades (rateio pela fração)")}</option>
                   {db.ctx.unidades.map((u) => (
-                    <option key={u.id} value={u.id}>{u.label}{moradorDa(u.label) ? ` — ${moradorDa(u.label)}` : ""}</option>))}
+                    <option key={u.id} value={u.id}>{u.responsavelId ? u.labelResp : `${u.label}${moradorDa(u.label) ? ` — ${moradorDa(u.label)}` : ""}`}</option>))}
                 </select>
               </Field>
               <Field t={t} label="Competência"><input name="competencia" type="month" defaultValue={new Date().toISOString().slice(0, 7)} style={inputStyle(t)} /></Field>
@@ -1520,7 +1637,7 @@ function Multas({ t, role }) {
           <form onSubmit={salvar}>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field t={t} label="Categoria da infração"><select name="categoria" style={inputStyle(t)}>{["Barulho após horário de silêncio","Uso indevido de vaga","Descarte irregular de resíduos","Animal sem coleira","Dano à área comum","Obra fora do horário","Outra"].map((c)=><option key={c}>{c}</option>)}</select></Field>
-              <Field t={t} label="Unidade responsável"><select name="unidade" required style={inputStyle(t)}>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
+              <Field t={t} label="Unidade responsável"><select name="unidade" required style={inputStyle(t)}>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.labelResp}</option>)}</select></Field>
               <Field t={t} label="Data e hora"><input name="data" type="datetime-local" style={inputStyle(t)} /></Field>
               <Field t={t} label="Tipo de penalidade"><select name="tipo" style={inputStyle(t)}><option>Advertência (primeira ocorrência)</option><option>Multa</option></select></Field>
               <Field t={t} label="Valor (se multa)"><input name="valor" placeholder="$ 0,00" style={inputStyle(t)} /></Field>
@@ -1697,7 +1814,7 @@ function Documentos({ t }) {
           <form onSubmit={gerar}>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field t={t} label="Tipo"><select name="tipo" value={fTipo} onChange={(e) => setFTipo(e.target.value)} style={inputStyle(t)}>{tipos.slice(1).map((x)=><option key={x}>{x}</option>)}</select></Field>
-              <Field t={t} label="Unidade (se aplicável)"><select name="unidade" value={fUni} onChange={(e) => setFUni(e.target.value)} style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
+              <Field t={t} label="Unidade (se aplicável)"><select name="unidade" value={fUni} onChange={(e) => setFUni(e.target.value)} style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.labelResp}</option>)}</select></Field>
             </div>
             {fUni && (
               <div className="mt-2 text-xs" style={{ color: t.dim }}>
@@ -1941,7 +2058,7 @@ function Portaria({ t }) {
               <Field t={t} label="Tipo"><select name="tipo" style={inputStyle(t)}><option>Visitante</option><option>Prestador de serviço</option><option>Entrega</option><option>Visitante recorrente</option></select></Field>
               <Field t={t} label="Nome / empresa"><input name="nome" required style={inputStyle(t)} /></Field>
               <Field t={t} label="E-mail do visitante (recebe o QR Code)"><input name="email" type="email" placeholder="visitante@email.com" style={inputStyle(t)} /></Field>
-              <Field t={t} label="Unidade de destino"><select name="unidade" required style={inputStyle(t)}>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
+              <Field t={t} label="Unidade de destino"><select name="unidade" required style={inputStyle(t)}>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.labelResp}</option>)}</select></Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field t={t} label="Data"><input name="data" type="date" style={inputStyle(t)} /></Field>
                 <Field t={t} label="Janela de horário"><input name="janela" placeholder="14h — 18h" style={inputStyle(t)} /></Field>
@@ -1960,7 +2077,7 @@ function Portaria({ t }) {
           <form onSubmit={gerar}>
             <div className="space-y-3">
               <Field t={t} label="Nome de quem vai acessar"><input name="nome" required style={inputStyle(t)} /></Field>
-              <Field t={t} label="Unidade que irá acessar"><select name="unidade" required style={inputStyle(t)}>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
+              <Field t={t} label="Unidade que irá acessar"><select name="unidade" required style={inputStyle(t)}>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.labelResp}</option>)}</select></Field>
               <Field t={t} label="Janela de horário (a partir de agora)">
                 <select name="janela" style={inputStyle(t)}>
                   <option value="1h-2h">1h — 2h</option>
@@ -2052,7 +2169,7 @@ function Portaria({ t }) {
           <form onSubmit={salvarEntrega}>
             <div className="space-y-3">
               <Field t={t} label="Nome do morador"><input name="morador" required style={inputStyle(t)} /></Field>
-              <Field t={t} label="Unidade correspondente"><select name="unidade" style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.label}</option>)}</select></Field>
+              <Field t={t} label="Unidade correspondente"><select name="unidade" style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.labelResp}</option>)}</select></Field>
               <Field t={t} label="Data e hora da entrega"><input name="quando" type="datetime-local" defaultValue={agoraLocal()} style={inputStyle(t)} /></Field>
               <Field t={t} label="Observação (opcional)"><input name="obs" placeholder={L("Ex.: caixa dos Correios, retirada na portaria")} style={inputStyle(t)} /></Field>
             </div>
@@ -2148,7 +2265,7 @@ function GerenciarEmails({ t }) {
                   <Field t={t} label="Unidade / apartamento">
                     {unidades.length ? (
                       <select name="unidade" required style={inputStyle(t)}>
-                        {unidades.map((u) => <option key={u.id} value={u.label}>{u.label}</option>)}
+                        {unidades.map((u) => <option key={u.id} value={u.label}>{u.labelResp}</option>)}
                       </select>
                     ) : (
                       <div className="flex h-[38px] items-center rounded-xl border border-dashed px-3 text-xs" style={{ borderColor: t.borderSoft, color: t.warn }}>
@@ -2179,16 +2296,23 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
   const [tab, setTab] = useState(() => { try { return sessionStorage.getItem("cm_tela_portal") || "inicio"; } catch { return "inicio"; } });
   useEffect(() => { try { sessionStorage.setItem("cm_tela_portal", tab); } catch { /* sem storage */ } }, [tab]);
   const [qr, setQr] = useState(null); const [chamado, setChamado] = useState(false);
+  const [formaPag, setFormaPag] = useState(null); // null = escolhendo | "qr" | "verum" | "banco"
   const [aviso, setAviso] = useState(null); // comunicado aberto para leitura completa
   const [multa, setMulta] = useState(null); // multa aberta para ver os detalhes
   const [notifOpen, setNotifOpen] = useState(false);
   const [infoPredio, setInfoPredio] = useState(false); // modal com os dados do edifício + morador
   const [copiado, setCopiado] = useState(false);
-  const [pagarOnline, pagando] = usePagarCommet();
+  const [copiadoPag, setCopiadoPag] = useState(null); // qual meio de pagamento foi copiado
   /* unidade do morador logado (escolhida pelo diretor em Gerenciar Acessos); fallback: demo 102-A */
   const unidade = morador?.unidade || (db.unidades.find((u) => u.num === "102") ? "102-A" : (db.unidades[0] ? `${db.unidades[0].num}-${db.unidades[0].bloco}` : "—"));
-  const unidadeId = db.ctx.unidades.find((u) => u.label === unidade)?.id || null;
-  const [enviarChamado, enviando] = useSubmit(async (f) => { await criarChamado(db.ctx, { ...f, unidadeId }); await reload(); setChamado(false); });
+  /* morador não abre chamado — apenas visualiza os existentes da unidade */
+  /* ocorrências: o morador pode registrar e acompanhar as registradas */
+  const [novaOcor, setNovaOcor] = useState(false);
+  const [salvarOcor, salvandoOcor] = useSubmit(async (f) => { await registrarOcorrencia(db.ctx, f); await reload(); setNovaOcor(false); });
+  const ocorrencias = db.acessos.filter((a) => a.status === "ocorrencia");
+  /* entregas registradas na portaria para a unidade do morador */
+  const minhasEntregas = db.acessos.filter((a) => a.tipo === "entrega" && a.destino === unidade);
+  const agoraLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
   const boletos = morador?.unidade
     ? db.cobr.filter((c) => c.unidade === unidade).map((c) => ({ id: c.id, comp: c.comp, desc: "Taxa condominial", valor: c.valor, venc: c.vencFull, status: c.status }))
     : db.boletos;
@@ -2205,7 +2329,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
     ...boletos.filter((b) => b.status === "vencida").map((b) => ({ txt: `${L("Cobrança de")} ${b.comp} ${L("vencida")} — ${BRL(b.valor)}`, c: "danger", go: () => setTab("pagamentos") })),
     ...boletos.filter((b) => b.status === "emitida").map((b) => ({ txt: `${L("Nova cobrança de")} ${b.comp} — ${BRL(b.valor)} · ${L("vence em")} ${b.venc}`, c: "warn", go: () => setTab("pagamentos") })),
     ...minhasMultasLista.filter((m) => m.status === "pendente").map((m) => ({ txt: `${m.valor > 0 ? L("Multa") : L("Advertência")} ${m.num} — ${L("prazo de defesa até")} ${m.prazo}`, c: "warn", go: () => setMulta(m) })),
-    ...meusChamadosLista.filter((c) => c.status === "aberto" || c.status === "andamento").map((c) => ({ txt: `${L("Chamado")} ${c.num} ${c.status === "andamento" ? L("em andamento") : L("aberto")} — ${c.desc}`, c: "info" })),
+    ...meusChamadosLista.filter((c) => c.status === "aberto" || c.status === "andamento").map((c) => ({ txt: `${L("Chamada de manutenção")} ${c.num} ${c.status === "andamento" ? L("em andamento") : L("aberta")} — ${c.desc}`, c: "info" })),
     ...db.comunic.slice(0, 2).map((c) => ({ txt: `${L("Comunicado")}: ${c.titulo}`, c: "info", go: () => setAviso(c) })),
   ], [boletos, minhasMultasLista, meusChamadosLista, db.comunic]); // eslint-disable-line react-hooks/exhaustive-deps
   const textoEndereco = [db.cond?.nome, db.cond?.endereco, `${morador?.nome || L("Morador")} — ${L("Unidade")} ${unidade}`].filter(Boolean).join("\n");
@@ -2214,6 +2338,20 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
     catch { const ta = document.createElement("textarea"); ta.value = textoEndereco; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
     setCopiado(true); setTimeout(() => setCopiado(false), 1800);
   };
+  const copiarPagamento = async (chave, texto) => {
+    try { await navigator.clipboard.writeText(texto); }
+    catch { const ta = document.createElement("textarea"); ta.value = texto; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+    setCopiadoPag(chave); setTimeout(() => setCopiadoPag(null), 1800);
+  };
+  const pagto = db.cond?.pagamentos || {};
+  const bancoLinhas = [
+    ["Titular", pagto.banco?.titular], ["Banco", pagto.banco?.banco], ["País", pagto.banco?.pais],
+    ["IBAN", pagto.banco?.iban], ["SWIFT / BIC", pagto.banco?.swift], ["Conta", pagto.banco?.conta],
+    ["Agência / roteamento", pagto.banco?.agencia], ["Observações", pagto.banco?.obs],
+  ].filter(([, v]) => v);
+  const aceitaDinheiro = !!pagto.dinheiro;
+  const temMeiosPagamento = !!(pagto.verumWallet || bancoLinhas.length || aceitaDinheiro);
+  const fecharPagar = () => { setQr(null); setFormaPag(null); };
   return (
     <div style={{ background: t.bg, color: t.text, minHeight: "100vh", fontFamily: "'Inter',system-ui,sans-serif" }}>
       <header className="sticky top-0 z-30 border-b px-4 py-3 backdrop-blur-md" style={{ background: t.glass, borderColor: t.borderSoft }}>
@@ -2278,7 +2416,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                 </div>
               </Card>)}
             <div className="grid grid-cols-2 gap-3">
-              {[["Boletos e QR", QrCode, "pagamentos"], ["Extrato", Wallet, "pagamentos"], ["Comunicados", Megaphone, "comunicados"], ["Abrir chamado", Wrench, null]].map(([l, Ic, dest]) => (
+              {[["Transferência e QR", QrCode, "pagamentos"], ["Extrato", Wallet, "pagamentos"], ["Entregas", Package, "entregas"], ["Chamada de manutenções", Wrench, null]].map(([l, Ic, dest]) => (
                 <button key={l} onClick={() => dest ? setTab(dest) : setChamado(true)}
                   className="vhover rounded-2xl border p-4 text-left" style={{ background: t.surface, borderColor: t.borderSoft }}>
                   <Ic size={18} color={t.gold} /><div className="mt-2 text-sm font-semibold">{L(l)}</div>
@@ -2303,7 +2441,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                 <div>Multas ativas: <b style={{ color: minhasMultas ? t.warn : t.text }}>{minhasMultas ? `${minhasMultas} em prazo de defesa` : "nenhuma"}</b></div>
                 <div>Vagas: <b style={{ color: t.text }}>{db.unidades.find((u) => `${u.num}-${u.bloco}` === unidade)?.vagas ?? 0}</b></div>
                 <div>Encomendas: <b style={{ color: t.gold }}>{minhasEncomendas} registrada(s)</b></div>
-                <div>Chamados abertos: <b style={{ color: t.text }}>{meusChamados}</b></div>
+                <div>Chamadas de manutenção: <b style={{ color: t.text }}>{meusChamados}</b></div>
               </div>
               {minhasMultasLista.length > 0 && (<>
                 <div className="mb-1.5 mt-3 text-xs font-semibold" style={{ color: t.dim }}>{L("MULTAS DA UNIDADE")}</div>
@@ -2319,7 +2457,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                   </button>))}</div>
               </>)}
               {meusChamadosLista.length > 0 && (<>
-                <div className="mb-1.5 mt-3 text-xs font-semibold" style={{ color: t.dim }}>{L("MEUS CHAMADOS")}</div>
+                <div className="mb-1.5 mt-3 text-xs font-semibold" style={{ color: t.dim }}>{L("CHAMADA DE MANUTENÇÕES")}</div>
                 <div className="space-y-2 text-sm">{meusChamadosLista.map((c) => (
                   <div key={c.id} className="rounded-xl px-3 py-2" style={{ background: t.surface2, color: t.text }}>
                     <div className="flex items-center justify-between gap-2">
@@ -2354,6 +2492,56 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                     : <Btn t={t} className="!px-2.5" title="Baixar comprovante"><Download size={14} /></Btn>}
                 </div>
               </Card>))}
+            {temMeiosPagamento && (<>
+              <div className="pt-3"><SectionTitle t={t}>{L("Meios de pagamento")}</SectionTitle></div>
+              {pagto.verumWallet && (
+                <Card t={t}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: t.goldSoft }}>
+                      <Wallet size={16} color={t.gold} /></div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">{L("Cripto ativos")} · <a href="https://verumcrypto.com" target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>Verum Wallet</a></div>
+                      <div className="break-all font-mono text-xs" style={{ color: t.dim }}>{pagto.verumWallet}</div>
+                      <div className="mt-1 text-[11px]" style={{ color: t.dim }}>
+                        {L("Ainda não tem a carteira?")}{" "}
+                        <a href="https://verumcrypto.com" target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>{L("Baixe a Verum Wallet e crie a sua")}</a>.
+                      </div>
+                    </div>
+                    <Btn t={t} className="!px-2.5" title={L("Copiar chave")} onClick={() => copiarPagamento("verum", pagto.verumWallet)}>
+                      {copiadoPag === "verum" ? <Check size={14} /> : <Copy size={14} />}</Btn>
+                  </div>
+                </Card>)}
+              {bancoLinhas.length > 0 && (
+                <Card t={t}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: t.goldSoft }}>
+                      <Building2 size={16} color={t.gold} /></div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">{L("Transferência bancária")}</div>
+                      <div className="mt-0.5 space-y-0.5">
+                        {bancoLinhas.map(([k, v]) => (
+                          <div key={k} className="break-words text-xs"><span style={{ color: t.dim }}>{L(k)}: </span>{v}</div>))}
+                      </div>
+                    </div>
+                    <Btn t={t} className="!px-2.5" title={L("Copiar dados")}
+                      onClick={() => copiarPagamento("banco", bancoLinhas.map(([k, v]) => `${L(k)}: ${v}`).join("\n"))}>
+                      {copiadoPag === "banco" ? <Check size={14} /> : <Copy size={14} />}</Btn>
+                  </div>
+                </Card>)}
+              {aceitaDinheiro && (
+                <Card t={t}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: t.goldSoft }}>
+                      <Banknote size={16} color={t.gold} /></div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">{L("Pagamento em dinheiro")}</div>
+                      <div className="text-xs" style={{ color: t.dim }}>{L("Pague presencialmente na administração do condomínio e peça o recibo.")}</div>
+                    </div>
+                  </div>
+                </Card>)}
+              <div className="text-[11px]" style={{ color: t.dim }}>
+                {L("Após pagar por um destes meios, envie o comprovante à administração para baixa da cobrança.")}</div>
+            </>)}
           </div>)}
         {tab === "comunicados" && (
           <div className="vfade space-y-2">
@@ -2369,11 +2557,49 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                 </div>
               </Card>))}
           </div>)}
+        {tab === "entregas" && (
+          <div className="vfade space-y-2">
+            <SectionTitle t={t}>{L("Entregas da unidade")} {unidade}</SectionTitle>
+            {minhasEntregas.length === 0 && <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+              {L("Nenhuma entrega registrada para a sua unidade ainda.")}</div>}
+            {minhasEntregas.map((e) => (
+              <Card t={t} key={e.id}>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: t.goldSoft }}>
+                    <Package size={16} color={t.gold} /></div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold">{e.nome}</div>
+                    <div className="text-xs" style={{ color: t.dim }}>{e.data} · {e.hora}{e.via && e.via !== "Portaria" ? ` · ${e.via}` : ""}</div>
+                  </div>
+                  <Badge t={t} s={e.status} />
+                </div>
+              </Card>))}
+            <div className="text-[11px]" style={{ color: t.dim }}>
+              {L("Entregas são registradas pela portaria — retire a sua apresentando um documento.")}</div>
+          </div>)}
+        {tab === "ocorrencias" && (
+          <div className="vfade space-y-2">
+            <SectionTitle t={t} action={<Btn t={t} kind="primary" onClick={() => setNovaOcor(true)}><Plus size={14} /> {L("Registrar")}</Btn>}>Ocorrências</SectionTitle>
+            {ocorrencias.length === 0 && <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+              {L("Nenhuma ocorrência registrada ainda. Toque em Registrar para relatar algo à administração.")}</div>}
+            {ocorrencias.map((o) => (
+              <Card t={t} key={o.id}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">{o.nome}</div>
+                    <div className="text-xs" style={{ color: t.dim }}>{o.data} · {o.hora}{o.via && o.via !== o.nome ? ` · ${o.via}` : ""}</div>
+                  </div>
+                  <Badge t={t} s="ocorrencia" />
+                </div>
+              </Card>))}
+            <div className="text-[11px]" style={{ color: t.dim }}>
+              {L("As ocorrências registradas ficam visíveis para a administração e a portaria.")}</div>
+          </div>)}
       </main>
       {/* navegação inferior mobile-first */}
       <nav className="fixed bottom-0 left-0 right-0 z-30 border-t px-4 py-2 backdrop-blur-md" style={{ background: t.glass, borderColor: t.borderSoft }}>
         <div className="mx-auto flex max-w-lg justify-around">
-          {[["inicio","Início",Home],["pagamentos","Pagamentos",QrCode],["comunicados","Avisos",Megaphone]].map(([k,l,Ic]) => (
+          {[["inicio","Início",Home],["pagamentos","Pagamentos",QrCode],["comunicados","Avisos",Megaphone],["ocorrencias","Ocorrências",AlertCircle]].map(([k,l,Ic]) => (
             <button key={k} onClick={() => setTab(k)} className="relative flex flex-col items-center gap-0.5 rounded-lg px-4 py-1.5 text-[10px] font-medium"
               style={{ color: tab === k ? t.gold : t.dim }}>
               <Ic size={18} /> {L(l)}
@@ -2420,18 +2646,93 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
           </div>
         </Modal>)}
       {qr && (
-        <Modal t={t} onClose={() => setQr(null)}>
-          <ModalHeader t={t} title={`Pagar ${qr.desc} — ${qr.comp}`} onClose={() => setQr(null)} />
-          <div className="flex flex-col items-center gap-3 text-center">
-            <QRMock seed={qr.id} />
-            <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valor)}</div>
-            <div className="text-xs" style={{ color: t.dim }}>Aponte a câmera do seu app de pagamento.<br />A confirmação é automática e o comprovante ficará disponível aqui.</div>
-            <div className="flex flex-wrap justify-center gap-2">
-              <Btn t={t} kind="primary" disabled={pagando} onClick={() => pagarOnline(qr.id)}>
-                <QrCode size={14} /> {pagando ? "Abrindo…" : "Pagar online"}</Btn>
-              <Btn t={t} kind="soft"><Download size={14} /> Copiar código</Btn>
-            </div>
-          </div>
+        <Modal t={t} onClose={fecharPagar}>
+          <ModalHeader t={t} title={formaPag === null ? L("Forma de pagamento") : `${L("Pagar")} ${qr.desc} — ${qr.comp}`} onClose={fecharPagar} />
+          {formaPag === null && (
+            <div className="space-y-2">
+              <div className="text-center">
+                <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valor)}</div>
+                <div className="text-xs" style={{ color: t.dim }}>{qr.desc} · {qr.comp} · {L("vencimento")} {qr.venc}</div>
+              </div>
+              <div className="pt-1 text-xs" style={{ color: t.dim }}>{L("Escolha como deseja pagar:")}</div>
+              {!temMeiosPagamento && (
+                <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+                  {L("O condomínio ainda não cadastrou meios de pagamento. Fale com a administração.")}</div>)}
+              {[
+                ["qr", "QR Verum Pay", QrCode, !!pagto.verumWallet],
+                ["verum", "Cripto ativos · Verum Wallet", Wallet, !!pagto.verumWallet],
+                ["banco", "Transferência bancária", Building2, bancoLinhas.length > 0],
+                ["dinheiro", "Pagamento em dinheiro", Banknote, aceitaDinheiro],
+              ].filter(([, , , tem]) => tem).map(([k, l, Ic]) => (
+                <button key={k} type="button" onClick={() => setFormaPag(k)}
+                  className="flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left hover:opacity-90"
+                  style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: t.goldSoft }}>
+                    <Ic size={16} color={t.gold} /></span>
+                  <span className="flex-1 text-sm font-medium">{L(l)}</span>
+                  <ChevronRight size={15} color={t.dim} />
+                </button>))}
+            </div>)}
+          {formaPag === "qr" && (
+            <div className="flex flex-col items-center gap-3 text-center">
+              {/* QR dinâmico: chave pública da carteira do condomínio + valor desta cobrança */}
+              <QRReal value={`verum:${pagto.verumWallet}?amount=${Number(qr.valor).toFixed(2)}&currency=${db.cond?.moeda || "USD"}&ref=${qr.id}`} size={180} />
+              <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valor)}</div>
+              <div className="text-xs" style={{ color: t.dim }}>{L("Escaneie com a")}{" "}<a href="https://verumcrypto.com" target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>Verum Wallet</a>{" "}{L("para pagar — o QR já contém a carteira do condomínio e o valor desta cobrança.")}</div>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Btn t={t} onClick={() => setFormaPag(null)}><ChevronLeft size={14} /> {L("Voltar")}</Btn>
+                {pagto.verumWallet && (
+                  <Btn t={t} kind="soft" onClick={() => copiarPagamento("qr:chave", pagto.verumWallet)}>
+                    {copiadoPag === "qr:chave" ? <Check size={14} /> : <Copy size={14} />} {L("Copiar chave")}</Btn>)}
+              </div>
+            </div>)}
+          {formaPag === "dinheiro" && (
+            <div className="space-y-2">
+              <div className="text-center">
+                <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valor)}</div>
+                <div className="text-xs" style={{ color: t.dim }}>{qr.desc} · {qr.comp} · {L("vencimento")} {qr.venc}</div>
+              </div>
+              <div className="rounded-xl border px-3 py-3 text-xs leading-relaxed" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+                {L("Pague em dinheiro presencialmente na administração do condomínio, dentro do horário de atendimento. Exija o recibo no ato do pagamento — ele é o seu comprovante para a baixa da cobrança.")}</div>
+              <div className="flex justify-between pt-1">
+                <Btn t={t} onClick={() => setFormaPag(null)}><ChevronLeft size={14} /> {L("Voltar")}</Btn>
+                <Btn t={t} kind="primary" onClick={fecharPagar}><Check size={14} /> {L("Concluir")}</Btn>
+              </div>
+            </div>)}
+          {(formaPag === "verum" || formaPag === "banco") && (
+            <div className="space-y-2">
+              <div className="text-center">
+                <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valor)}</div>
+                <div className="text-xs" style={{ color: t.dim }}>
+                  {formaPag === "verum"
+                    ? <>{L("Envie o valor para a carteira")}{" "}<a href="https://verumcrypto.com" target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>Verum Wallet</a>{" "}{L("do condomínio:")}</>
+                    : L("Transfira o valor usando os dados abaixo:")}
+                </div>
+              </div>
+              {(formaPag === "verum"
+                ? [["Chave pública da carteira", pagto.verumWallet]]
+                : bancoLinhas
+              ).map(([k, v]) => (
+                <div key={k} className="flex items-center gap-2 rounded-xl border px-3 py-2" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[10px] font-semibold uppercase" style={{ color: t.dim }}>{L(k)}</div>
+                    <div className={`break-words text-xs font-medium ${formaPag === "verum" ? "break-all font-mono" : ""}`}>{v}</div>
+                  </div>
+                  <Btn t={t} className="!px-2" title={L("Copiar")} onClick={() => copiarPagamento("pagar:" + k, v)}>
+                    {copiadoPag === "pagar:" + k ? <Check size={13} /> : <Copy size={13} />}</Btn>
+                </div>))}
+              {formaPag === "verum" && (
+                <div className="text-[11px]" style={{ color: t.dim }}>
+                  {L("Ainda não tem a carteira?")}{" "}
+                  <a href="https://verumcrypto.com" target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>{L("Baixe a Verum Wallet e crie a sua")}</a>.
+                </div>)}
+              <div className="rounded-xl border px-3 py-2 text-[11px]" style={{ borderColor: t.borderSoft, color: t.dim }}>
+                {L("Após pagar, envie o comprovante à administração para baixa da cobrança.")}</div>
+              <div className="flex justify-between pt-1">
+                <Btn t={t} onClick={() => setFormaPag(null)}><ChevronLeft size={14} /> {L("Voltar")}</Btn>
+                <Btn t={t} kind="primary" onClick={fecharPagar}><Check size={14} /> {L("Concluir")}</Btn>
+              </div>
+            </div>)}
         </Modal>)}
       {multa && (
         <Modal t={t} onClose={() => setMulta(null)}>
@@ -2462,15 +2763,37 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
         </Modal>)}
       {chamado && (
         <Modal t={t} onClose={() => setChamado(false)}>
-          <ModalHeader t={t} title="Abrir chamado" onClose={() => setChamado(false)} />
-          <form onSubmit={enviarChamado}>
+          <ModalHeader t={t} title="Chamada de manutenções" onClose={() => setChamado(false)} />
+          {meusChamadosLista.length === 0 ? (
+            <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+              {L("Nenhuma chamada de manutenção registrada para a sua unidade.")}</div>
+          ) : (
+            <div className="space-y-2 text-sm">{meusChamadosLista.map((c) => (
+              <div key={c.id} className="rounded-xl px-3 py-2" style={{ background: t.surface2, color: t.text }}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{c.desc}</div>
+                    <div className="text-xs" style={{ color: t.dim }}>{c.num} · {c.cat} · {L("aberto em")} {c.aberto}</div>
+                  </div>
+                  <Badge t={t} s={c.status} />
+                </div>
+              </div>))}</div>
+          )}
+          <div className="mt-3 rounded-xl border px-3 py-2 text-[11px]" style={{ borderColor: t.borderSoft, color: t.dim }}>
+            {L("A abertura de chamados é feita pela administração — procure a portaria ou o síndico para registrar uma solicitação.")}</div>
+          <div className="mt-5 flex justify-end"><Btn t={t} onClick={() => setChamado(false)}>Fechar</Btn></div>
+        </Modal>)}
+      {novaOcor && (
+        <Modal t={t} onClose={() => setNovaOcor(false)}>
+          <ModalHeader t={t} title="Registrar ocorrência" onClose={() => setNovaOcor(false)} />
+          <form onSubmit={salvarOcor}>
             <div className="space-y-3">
-              <Field t={t} label="Categoria"><select name="categoria" style={inputStyle(t)}><option>Hidráulica</option><option>Elétrica</option><option>Área comum</option><option>Outro</option></select></Field>
-              <Field t={t} label="Descrição"><textarea name="desc" required rows={3} style={{ ...inputStyle(t), resize: "vertical" }} /></Field>
-              <Field t={t} label="Foto (opcional)"><FileField t={t} name="midias" accept="image/*" height={56} hint="Anexar foto" /></Field>
+              <Field t={t} label="Título"><input name="titulo" required placeholder={L("Ex.: Barulho na área da piscina")} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Descrição"><textarea name="descricao" rows={3} placeholder={L("Descreva o que aconteceu")} style={{ ...inputStyle(t), resize: "vertical" }} /></Field>
+              <Field t={t} label="Data e hora"><input name="quando" type="datetime-local" defaultValue={agoraLocal()} style={inputStyle(t)} /></Field>
             </div>
-            <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setChamado(false)}>Cancelar</Btn>
-              <Btn t={t} kind="primary" type="submit" disabled={enviando}><Send size={14} /> {enviando ? "Enviando…" : "Enviar chamado"}</Btn></div>
+            <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovaOcor(false)}>Cancelar</Btn>
+              <Btn t={t} kind="primary" type="submit" disabled={salvandoOcor}><Check size={14} /> {salvandoOcor ? "Salvando…" : "Registrar ocorrência"}</Btn></div>
           </form>
         </Modal>)}
     </div>
@@ -2478,7 +2801,102 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
 }
 
 /* ══════════════ PAYWALL — LICENÇA SAAS ══════════════
-   Bloqueia o acesso ao sistema enquanto a assinatura do condomínio não
+/* ══════════════ PLANOS — GERENCIAR ASSINATURA (só o diretor vê) ══════════════
+   Mostra o plano contratado e permite upgrade/downgrade e a escolha do ciclo
+   de pagamento (mensal ou anual). A troca grava o novo plano no banco e abre
+   o checkout Commet do novo valor; a confirmação chega pelo webhook. */
+function Planos({ t }) {
+  const { db, reload } = useData();
+  const tenant = (db.tenants || []).find((x) => x.id === db.ctx.condominioId);
+  const [planos, setPlanos] = useState(null);
+  const [ciclo, setCiclo] = useState("mensal");
+  const [agindo, setAgindo] = useState(null); // nome do plano em processamento
+  const [verificando, setVerificando] = useState(false);
+  useEffect(() => { listarPlanos().then(setPlanos).catch(() => setPlanos([])); }, []);
+  const usd = (v) => `US$ ${Number(v || 0).toFixed(2)}`;
+  const preco = (p) => (ciclo === "anual" && Number(p.preco_anual) > 0 ? Number(p.preco_anual) : Number(p.preco_mensal));
+  const atual = (planos || []).find((p) => p.nome === tenant?.plano);
+  const licencaAtiva = tenant?.status === "ativo";
+  const contratar = async (p) => {
+    const troca = !!atual && p.nome !== atual.nome;
+    if (troca && !window.confirm(`${L("Trocar o plano de")} ${atual.nome} ${L("para")} ${p.nome} (${usd(preco(p))}/${ciclo === "anual" ? L("ano") : L("mês")})? ${L("O checkout do novo valor será aberto em seguida.")}`)) return;
+    setAgindo(p.nome);
+    try {
+      if (troca) await trocarPlanoLicenca(db.ctx.condominioId, p.nome);
+      const resp = await assinarLicencaCommet(db.ctx.condominioId, ciclo, troca || licencaAtiva);
+      if (resp?.checkoutUrl) window.open(resp.checkoutUrl, "_blank", "noopener");
+      else if (resp?.trocaAplicada) alert(resp.agendadaPara
+        ? `${L("Troca de plano agendada — o novo plano vale a partir de")} ${resp.agendadaPara.slice(0, 10)}.`
+        : L("Troca de plano aplicada na assinatura atual — sem novo checkout; a anterior foi substituída automaticamente."));
+      await reload();
+    } catch (err) { alert("Não foi possível abrir o checkout: " + (err?.message || err)); }
+    finally { setAgindo(null); }
+  };
+  const verificar = async () => {
+    setVerificando(true);
+    try { await verificarLicencaCommet(db.ctx.condominioId); await reload(); }
+    finally { setVerificando(false); }
+  };
+  if (planos === null) return <div className="vfade text-xs" style={{ color: t.dim }}>{L("Carregando planos…")}</div>;
+  return (
+    <div className="vfade max-w-3xl space-y-4">
+      <Card t={t} className="p-5">
+        <SectionTitle t={t} action={<Btn t={t} disabled={verificando} onClick={verificar}><RefreshCw size={13} /> {verificando ? "Verificando…" : L("Verificar pagamento")}</Btn>}>
+          Plano contratado</SectionTitle>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl" style={{ background: t.goldSoft }}><Star size={18} color={t.gold} /></div>
+          <div className="flex-1">
+            <div className="text-base font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{tenant?.plano || "—"}</div>
+            <div className="text-xs" style={{ color: t.dim }}>
+              {tenant?.precoPlano ? `${usd(tenant.precoPlano)}/${L("mês")}` : "—"}
+              {tenant?.precoPlanoAnual > 0 && ` · ${usd(tenant.precoPlanoAnual)}/${L("ano")}`}
+              {tenant?.venc !== "—" && ` · ${L("renova em")} ${tenant.venc}`}
+            </div>
+          </div>
+          {tenant && <Badge t={t} s={tenant.status} />}
+        </div>
+        {!licencaAtiva && (
+          <div className="mt-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
+            <AlertCircle size={13} className="mr-1 inline" /> {L("A licença ainda não está ativa — escolha o ciclo abaixo e conclua o pagamento do plano contratado.")}</div>)}
+      </Card>
+      <div className="flex items-center gap-2">
+        <span className="text-xs" style={{ color: t.dim }}>{L("Ciclo de pagamento:")}</span>
+        {[["mensal", "Mensal"], ["anual", "Anual"]].map(([k, l]) => (
+          <button key={k} onClick={() => setCiclo(k)} className="rounded-lg px-3 py-1.5 text-xs font-medium"
+            style={{ background: ciclo === k ? t.goldSoft : "transparent", color: ciclo === k ? t.gold : t.dim, border: `1px solid ${ciclo === k ? t.border : t.borderSoft}` }}>{L(l)}</button>))}
+        <span className="text-[11px]" style={{ color: t.dim }}>{L("Cobrança em dólar (USD) via Commet.")}</span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {planos.map((p) => {
+          const ehAtual = p.nome === tenant?.plano;
+          const upgrade = atual ? preco(p) > preco(atual) : true;
+          return (
+            <Card t={t} key={p.nome}>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{p.nome}</div>
+                  {ehAtual && <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: t.goldSoft, color: t.gold }}>{L("Plano atual")}</span>}
+                </div>
+                <div className="text-xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>
+                  {usd(preco(p))}<span className="text-xs font-normal" style={{ color: t.dim }}>/{ciclo === "anual" ? L("ano") : L("mês")}</span></div>
+                <div className="text-xs" style={{ color: t.dim }}>
+                  {p.limite_unidades ? `${L("Até")} ${p.limite_unidades} ${L("unidades")}` : L("Unidades ilimitadas")}</div>
+                {ehAtual && licencaAtiva
+                  ? <Btn t={t} className="w-full" disabled><CheckCircle2 size={13} /> {L("Contratado")}</Btn>
+                  : <Btn t={t} kind={ehAtual || upgrade ? "primary" : "soft"} className="w-full" disabled={agindo === p.nome}
+                      onClick={() => contratar(p)}>
+                      {agindo === p.nome ? "Abrindo…" : ehAtual ? L("Pagar agora") : upgrade ? L("Fazer upgrade") : L("Fazer downgrade")}</Btn>}
+              </div>
+            </Card>);
+        })}
+      </div>
+      <div className="text-[11px]" style={{ color: t.dim }}>
+        {L("Na troca de plano, a assinatura atual é atualizada automaticamente no Commet (upgrade cobra a diferença com rateio; downgrade é agendado para o fim do período já pago) — a anterior é substituída, sem cobrança dupla. Após pagar, use \"Verificar pagamento\" para sincronizar o status.")}</div>
+    </div>
+  );
+}
+
+/* Bloqueia o acesso ao sistema enquanto a assinatura do condomínio não
    estiver ativa. O pagamento abre o checkout Commet; a ativação chega
    pelo webhook (subscription.activated) e o botão "Verificar" recarrega. */
 function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload }) {
@@ -2512,8 +2930,8 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
   const pagar = async () => {
     setGerando(true); setErro("");
     try {
-      const url = await assinarLicencaCommet(condominioId, ciclo);
-      window.open(url, "_blank", "noopener");
+      const resp = await assinarLicencaCommet(condominioId, ciclo);
+      if (resp?.checkoutUrl) window.open(resp.checkoutUrl, "_blank", "noopener");
     } catch (e) { setErro(e.message); }
     finally { setGerando(false); }
   };
@@ -2702,7 +3120,7 @@ export default function App() {
     unidades: <Unidades t={t} role={role} />, pessoas: <Pessoas t={t} />, financeiro: <Financeiro t={t} />,
     cobrancas: <Cobrancas t={t} />, multas: <Multas t={t} role={role} />, comunicados: <Comunicados t={t} />,
     documentos: <Documentos t={t} />, chamados: <Chamados t={t} />, portaria: <Portaria t={t} />,
-    emails: <GerenciarEmails t={t} />,
+    emails: <GerenciarEmails t={t} />, planos: <Planos t={t} />,
   };
   const current = NAV.find((n) => n.id === screen);
 

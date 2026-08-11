@@ -1,10 +1,11 @@
 /* POST /api/commet/webhook — recebe os eventos do Commet.
-   É este endpoint que CONFIRMA que o pagamento foi feito:
+   O Commet cuida SOMENTE da licença SaaS (assinatura do plano do condomínio);
+   as cobranças condominiais são pagas pelos meios cadastrados no condomínio.
    - valida a assinatura HMAC-SHA256 (header "commet-signature") com o COMMET_WEBHOOK_SECRET;
-   - em payment.received: marca a cobrança como paga e registra o pagamento no Supabase.
+   - em eventos de assinatura: sincroniza o status da licença no Supabase.
    Registre-o no Commet com:
      commet webhooks create --url https://SEU-DOMINIO/api/commet/webhook \
-       --events '["payment.received","payment.failed"]'
+       --events '["subscription.activated","subscription.reactivated","trial.converted","subscription.past_due","subscription.canceled"]'
    Para testar localmente: commet listen 3000 */
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
@@ -45,44 +46,14 @@ export default async function handler(req, res) {
 
   try {
     const payload = JSON.parse(corpo);
-    const { event, data, timestamp } = payload;
-
-    if (event === "payment.received") {
-      /* localiza a cobrança pelo metadata (preferência) ou pelo id do pagamento */
-      const cobrancaId = data?.metadata?.cobrancaId || null;
-      const filtro = cobrancaId
-        ? supabase.from("cobrancas").select("id, condominio_id, vencimento, status").eq("id", cobrancaId)
-        : supabase.from("cobrancas").select("id, condominio_id, vencimento, status").eq("provider_charge_id", data.id);
-      const { data: cobs, error } = await filtro.limit(1);
-      if (error) throw new Error(error.message);
-      const cob = cobs?.[0];
-      if (!cob) { console.warn("[commet/webhook] cobrança não encontrada para", data?.id); return res.status(200).json({ ok: true }); }
-
-      const pagoEm = timestamp || new Date().toISOString();
-      const atrasado = cob.vencimento && pagoEm.slice(0, 10) > cob.vencimento;
-
-      /* idempotência: provider_event_id é único — reentregas do webhook não duplicam */
-      const { error: ePag } = await supabase.from("pagamentos").insert({
-        condominio_id: cob.condominio_id, cobranca_id: cob.id,
-        valor_pago: Number(data.amount || 0) / 100, pago_em: pagoEm,
-        origem: "webhook", provider_event_id: data.id, provider_tx_id: data.id,
-      });
-      if (ePag && !ePag.message.includes("duplicate")) throw new Error(ePag.message);
-
-      await supabase.from("cobrancas")
-        .update({ status: atrasado ? "paga_em_atraso" : "paga", provider_charge_id: data.id })
-        .eq("id", cob.id);
-    }
-
-    if (event === "payment.failed") {
-      console.warn("[commet/webhook] pagamento falhou:", data?.id, data?.customerId || "");
-    }
+    const { event, data } = payload;
 
     /* ── Licença SaaS (assinatura da mensalidade do CondoMaster) ──
        customerId volta como o externalId informado na criação = condominio_id */
     const STATUS_ASSINATURA = {
       "subscription.activated": "ativa",
       "subscription.reactivated": "ativa",
+      "subscription.plan_changed": "ativa", // upgrade/downgrade concluído — segue ativa
       "trial.converted": "ativa",
       "subscription.past_due": "inadimplente",
       "subscription.canceled": "cancelada",

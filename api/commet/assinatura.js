@@ -22,7 +22,7 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: "COMMET_API_KEY não configurada no .env do servidor." });
 
   try {
-    const { condominioId, ciclo } = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+    const { condominioId, ciclo, troca } = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
     if (!condominioId) return res.status(400).json({ error: "Informe condominioId." });
 
     const { data: ass, error } = await supabase
@@ -34,7 +34,9 @@ export default async function handler(req, res) {
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!ass) return res.status(404).json({ error: "Condomínio sem assinatura cadastrada." });
-    if (ass.status === "ativa") return res.status(409).json({ error: "A licença deste condomínio já está ativa." });
+    /* troca de plano (upgrade/downgrade): permite abrir um novo checkout mesmo
+       com a licença ativa — a nova assinatura substitui a anterior */
+    if (ass.status === "ativa" && !troca) return res.status(409).json({ error: "A licença deste condomínio já está ativa." });
 
     const commet = new Commet({ apiKey: process.env.COMMET_API_KEY });
     const plano = ass.saas_planos;
@@ -90,6 +92,29 @@ export default async function handler(req, res) {
     if (!cliente?.id) return res.status(502).json({ error: "Commet não criou o cliente." });
 
     const origem = req.headers.origin || `https://${req.headers.host}`;
+
+    /* upgrade/downgrade com assinatura ativa: troca o plano DA ASSINATURA
+       EXISTENTE no Commet (changePlan faz o rateio e substitui a anterior
+       automaticamente — sem cobrança dupla e sem precisar cancelar à mão) */
+    if (troca) {
+      const ativa = dado(await commet.subscriptions.getActive({ customerId: cliente.id }).catch(() => null));
+      if (ativa?.id) {
+        const respTroca = await commet.subscriptions.changePlan({
+          id: ativa.id, newPlanId: planoCommet.id, newBillingInterval: intervalo,
+          successUrl: `${origem}/?licenca=ok`,
+        });
+        if (respTroca?.error) return res.status(502).json({ error: `Commet: ${respTroca.error.message || respTroca.error}` });
+        const mudanca = dado(respTroca);
+        /* upgrade normalmente exige checkout da diferença; downgrade é agendado
+           para o fim do período já pago — sem checkout */
+        return res.status(200).json({
+          checkoutUrl: mudanca?.checkoutUrl || null,
+          trocaAplicada: !mudanca?.requiresCheckout,
+          agendadaPara: mudanca?.scheduledFor || null,
+        });
+      }
+    }
+
     const resposta = await commet.subscriptions.create({
       planId: planoCommet.id,
       customerId: cliente.id,

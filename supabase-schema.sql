@@ -80,6 +80,11 @@ create table condominios (
   endereco            jsonb not null,
   tipo                condominio_tipo not null,
   porte               condominio_porte not null,
+  -- regras_internas também guarda "gestao" e "pagamentos":
+  --   pagamentos: { verum_wallet: chave pública da carteira Verum Wallet (verumcrypto.com),
+  --                 dinheiro: boolean — aceita pagamento em dinheiro (ausente = true),
+  --                 banco: { titular, banco, pais, iban, swift, conta, agencia, obs } }
+  --   (campos IBAN/SWIFT deixam o modelo global — funciona em qualquer país)
   regras_internas     jsonb,
   identidade_visual   jsonb,
   encargos_atraso     jsonb not null default '{"multa_pct":2,"juros_am_pct":1}'::jsonb,

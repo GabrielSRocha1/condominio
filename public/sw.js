@@ -3,7 +3,8 @@
    - Navegação (HTML): rede primeiro, com fallback ao cache para abrir offline.
    - Assets da mesma origem (JS/CSS/ícones, com hash no nome): cache primeiro.
    - Supabase e outras origens externas: sempre rede — dados nunca são cacheados. */
-const CACHE = "condomaster-v1";
+const VERSION = "1.1.0";
+const CACHE = `condomaster-v${VERSION}`;
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (e) => {

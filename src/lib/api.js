@@ -137,6 +137,14 @@ export async function loadAll(condominioId) {
     cor: condRow.identidade_visual?.cor_primaria || null,
     sindico: condRow.regras_internas?.gestao?.sindico || "",
     moeda: condRow.regras_internas?.moeda || "USD",
+    pagamentos: (() => {
+      const pg = condRow.regras_internas?.pagamentos || {};
+      return {
+        verumWallet: pg.verum_wallet || pg.cripto || "", // pg.cripto: formato antigo (texto livre)
+        dinheiro: pg.dinheiro !== false, // padrão: aceita dinheiro
+        banco: { ...(pg.banco || {}), obs: pg.banco?.obs || pg.transferencia || "" },
+      };
+    })(),
   };
 
   const uLabel = (u) => (u ? `${u.numero}-${u.blocos?.nome || "?"}` : "—");
@@ -243,7 +251,7 @@ export async function loadAll(condominioId) {
 
   /* acessos */
   const acessos = acessosRaw.map((a) => ({
-    id: a.id, hora: a.ocorrido_em ? a.ocorrido_em.slice(11, 16) : "—",
+    id: a.id, hora: a.ocorrido_em ? a.ocorrido_em.slice(11, 16) : "—", data: ddmm(a.ocorrido_em),
     nome: a.pessoa_nome, destino: a.unidades ? uLabel(a.unidades) : (a.detalhes || "—"),
     tipo: ACESSO_UI[a.tipo]?.tipo || "visitante", via: a.detalhes || "Portaria",
     status: ACESSO_UI[a.tipo]?.status || a.tipo,
@@ -379,10 +387,15 @@ export async function loadAll(condominioId) {
     condominioId: cid, condominioNome: principal.nome_fantasia, moeda: cond.moeda,
     usuarioId: usuarios[0]?.usuario_id || null,
     blocos, categorias,
-    unidades: unidadesRaw.map((u) => ({
-      id: u.id, label: uLabel(u), responsavelId: u.responsavel_financeiro_id, fracao: num(u.fracao_ideal),
-      bloco: u.blocos?.nome || "", tipo: u.tipo, andar: u.andar,
-    })),
+    unidades: unidadesRaw.map((u) => {
+      /* labelResp: unidade + responsável financeiro — usado nos dropdowns de unidade */
+      const respNome = pessoasRaw.find((p) => p.id === u.responsavel_financeiro_id)?.nome || "";
+      return {
+        id: u.id, label: uLabel(u), labelResp: uLabel(u) + (respNome ? ` — ${respNome}` : ""),
+        responsavelId: u.responsavel_financeiro_id, fracao: num(u.fracao_ideal),
+        bloco: u.blocos?.nome || "", tipo: u.tipo, andar: u.andar,
+      };
+    }),
     /* nome + unidade + papel — todo select de pessoas usa `label` para exibição.
        papel = vínculo de maior prioridade; unidade = primeiro vínculo que tem uma */
     pessoas: pessoasRaw.map((p) => {
@@ -464,13 +477,15 @@ export async function criarAcesso(ctx, f) {
   await q(supabase.from("usuario_perfis").insert({
     usuario_id: usuario.id, condominio_id: ctx.condominioId, perfil_id: perfil.id,
   }).select(), "usuario_perfis");
-  if (ehMorador) {
-    const un = ctx.unidades.find((u) => u.label === f.unidade || u.id === f.unidade);
-    await q(supabase.from("pessoa_vinculos").insert({
-      condominio_id: ctx.condominioId, pessoa_id: pessoa.id, unidade_id: un?.id || null,
-      papel: "morador", inicio: new Date().toISOString().slice(0, 10),
-    }).select(), "pessoa_vinculos");
-  }
+  /* o perfil escolhido vira o papel da pessoa no condomínio (lista Pessoas);
+     morador ganha também o vínculo com a unidade */
+  const un = ehMorador ? ctx.unidades.find((u) => u.label === f.unidade || u.id === f.unidade) : null;
+  await q(supabase.from("pessoa_vinculos").insert({
+    condominio_id: ctx.condominioId, pessoa_id: pessoa.id, unidade_id: un?.id || null,
+    papel: f.perfil, inicio: new Date().toISOString().slice(0, 10),
+  }).select(), "pessoa_vinculos");
+  /* morador vinculado à unidade vira o responsável financeiro dela automaticamente */
+  if (un) await salvarResponsavelUnidade(ctx, un.id, pessoa.id);
   return { id: usuario.id };
 }
 
@@ -530,34 +545,19 @@ export async function loginDiretor(email, senha) {
   }
 }
 
-/* Checkout Commet: pede ao backend (/api/commet/checkout) o link de pagamento.
-   A chave secreta do Commet fica só no servidor; o front recebe apenas a URL. */
-export async function pagarComCommet(cobrancaId) {
-  let r;
-  try {
-    r = await fetch("/api/commet/checkout", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cobrancaId }),
-    });
-  } catch {
-    throw new Error("Não foi possível falar com o backend de pagamentos.");
-  }
-  let corpo = null; try { corpo = await r.json(); } catch { /* sem JSON */ }
-  if (!r.ok) throw new Error(corpo?.error || (r.status === 404
-    ? "Backend de pagamentos ainda não publicado — as funções /api sobem no deploy (Vercel/Netlify), não no npm run dev."
-    : `Erro ${r.status} ao criar o pagamento.`));
-  return corpo.checkoutUrl;
-}
+/* O Commet é usado SOMENTE para a licença SaaS (plano do condomínio).
+   As cobranças condominiais são pagas pelos meios cadastrados no condomínio
+   (carteira Verum Wallet / transferência bancária) — sem gateway. */
 
 /* Licença SaaS: pede ao backend (/api/commet/assinatura) o checkout da
    assinatura recorrente da licença do CondoMaster para um condomínio.
    ciclo: "mensal" ou "anual" — a cobrança é sempre em dólar (USD). */
-export async function assinarLicencaCommet(condominioId, ciclo = "mensal") {
+export async function assinarLicencaCommet(condominioId, ciclo = "mensal", troca = false) {
   let r;
   try {
     r = await fetch("/api/commet/assinatura", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ condominioId, ciclo }),
+      body: JSON.stringify({ condominioId, ciclo, troca }),
     });
   } catch {
     throw new Error("Não foi possível falar com o backend de pagamentos.");
@@ -566,7 +566,28 @@ export async function assinarLicencaCommet(condominioId, ciclo = "mensal") {
   if (!r.ok) throw new Error(corpo?.error || (r.status === 404
     ? "Backend de pagamentos ainda não publicado — as funções /api sobem no deploy (Vercel/Netlify), não no npm run dev."
     : `Erro ${r.status} ao criar a assinatura.`));
-  return corpo.checkoutUrl;
+  /* { checkoutUrl } na contratação; na troca de plano pode vir sem checkout
+     (trocaAplicada / agendadaPara) quando o Commet aplica direto na assinatura */
+  return corpo;
+}
+
+/* Upgrade/downgrade: troca o plano da assinatura no banco (via backend).
+   Depois da troca, o pagamento é feito pelo checkout de assinarLicencaCommet. */
+export async function trocarPlanoLicenca(condominioId, plano) {
+  let r;
+  try {
+    r = await fetch("/api/commet/plano", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ condominioId, plano }),
+    });
+  } catch {
+    throw new Error("Não foi possível falar com o backend de pagamentos.");
+  }
+  let corpo = null; try { corpo = await r.json(); } catch { /* sem JSON */ }
+  if (!r.ok) throw new Error(corpo?.error || (r.status === 404
+    ? "Backend de pagamentos ainda não publicado — as funções /api sobem no deploy (Vercel/Netlify), não no npm run dev."
+    : `Erro ${r.status} ao trocar o plano.`));
+  return corpo;
 }
 
 /* Confere no Commet (via backend) se a licença foi paga e sincroniza o
@@ -593,42 +614,70 @@ export async function criarUnidade(ctx, f) {
   let bloco = ctx.blocos.find((b) => b.nome.toLowerCase() === String(f.bloco || "").trim().toLowerCase());
   if (!bloco) bloco = (await q(supabase.from("blocos").insert({ condominio_id: ctx.condominioId, nome: String(f.bloco || "A").trim() }).select(), "blocos"))[0];
 
-  let numeros = [String(f.numero).trim()];
+  /* decompõe o número em prefixo + dígitos + sufixo (ex.: "1D" → "", "1", "D") */
+  const partes = (s) => String(s).trim().match(/^(\D*)(\d+)(\D*)$/);
   const ate = String(f.numeroAte || "").trim();
-  if (ate) {
-    /* aceita letras junto com o número (ex.: 1D até 4D → 1D, 2D, 3D, 4D; ou A1 até A10) */
-    const m1 = String(f.numero).trim().match(/^(\D*)(\d+)(\D*)$/);
-    const m2 = ate.match(/^(\D*)(\d+)(\D*)$/);
-    if (!m1 || !m2) throw new Error("Para criar um intervalo, use um número com ou sem letras (ex.: 1 até 100, ou 1D até 4D).");
+  const andarIni = String(f.andar ?? "").trim() ? parseInt(f.andar, 10) : null;
+  const andarFim = String(f.andarAte ?? "").trim() ? parseInt(f.andarAte, 10) : null;
+
+  let itens; // [{ numero, andar }]
+  if (andarFim != null) {
+    /* intervalo de andares: as unidades do intervalo são criadas EM CADA andar,
+       numeradas como andar + sequência (andares 1 a 12, unidades 1 a 4 →
+       101…104, 201…204 … 1201…1204), cada uma já com o próprio andar */
+    if (andarIni == null) throw new Error("Informe o andar inicial do intervalo (ex.: 1 até 12).");
+    if (andarFim < andarIni) throw new Error("O andar final deve ser maior ou igual ao inicial.");
+    const m1 = partes(f.numero);
+    const m2 = ate ? partes(ate) : m1;
+    if (!m1 || !m2) throw new Error("Para criar por andares, use números nas unidades (ex.: 1 até 4).");
     const [, prefixo, n1, sufixo] = m1;
-    const [, p2, n2, s2] = m2;
-    if ((p2 && p2 !== prefixo) || (s2 && s2 !== sufixo))
+    if ((m2[1] && m2[1] !== prefixo) || (m2[3] && m2[3] !== sufixo))
       throw new Error("As letras do início e do fim do intervalo devem ser iguais (ex.: 1D até 4D).");
-    const ini = parseInt(n1, 10), fim = parseInt(n2, 10);
+    const ini = parseInt(n1, 10), fim = parseInt(m2[2], 10);
     if (fim < ini) throw new Error("O número final deve ser maior ou igual ao inicial.");
-    if (fim - ini + 1 > 500) throw new Error("Máximo de 500 unidades por vez.");
-    const pad = n1.startsWith("0") ? n1.length : 0; // preserva zeros à esquerda (ex.: 001 a 010)
-    numeros = Array.from({ length: fim - ini + 1 }, (_, i) => `${prefixo}${String(ini + i).padStart(pad, "0")}${sufixo}`);
+    const pad = Math.max(2, n1.startsWith("0") ? n1.length : 0); // 1º andar + unidade 1 → 101
+    itens = [];
+    for (let a = andarIni; a <= andarFim; a++)
+      for (let n = ini; n <= fim; n++)
+        itens.push({ numero: `${prefixo}${a}${String(n).padStart(pad, "0")}${sufixo}`, andar: a });
+  } else {
+    let numeros = [String(f.numero).trim()];
+    if (ate) {
+      /* aceita letras junto com o número (ex.: 1D até 4D → 1D, 2D, 3D, 4D; ou A1 até A10) */
+      const m1 = partes(f.numero);
+      const m2 = partes(ate);
+      if (!m1 || !m2) throw new Error("Para criar um intervalo, use um número com ou sem letras (ex.: 1 até 100, ou 1D até 4D).");
+      const [, prefixo, n1, sufixo] = m1;
+      const [, p2, n2, s2] = m2;
+      if ((p2 && p2 !== prefixo) || (s2 && s2 !== sufixo))
+        throw new Error("As letras do início e do fim do intervalo devem ser iguais (ex.: 1D até 4D).");
+      const ini = parseInt(n1, 10), fim = parseInt(n2, 10);
+      if (fim < ini) throw new Error("O número final deve ser maior ou igual ao inicial.");
+      const pad = n1.startsWith("0") ? n1.length : 0; // preserva zeros à esquerda (ex.: 001 a 010)
+      numeros = Array.from({ length: fim - ini + 1 }, (_, i) => `${prefixo}${String(ini + i).padStart(pad, "0")}${sufixo}`);
+    }
+    itens = numeros.map((numero) => ({ numero, andar: andarIni }));
   }
+  if (itens.length > 500) throw new Error("Máximo de 500 unidades por vez.");
 
   const jaExistem = await q(
-    supabase.from("unidades").select("numero").eq("condominio_id", ctx.condominioId).eq("bloco_id", bloco.id).in("numero", numeros),
+    supabase.from("unidades").select("numero").eq("condominio_id", ctx.condominioId).eq("bloco_id", bloco.id).in("numero", itens.map((i) => i.numero)),
     "unidades"
   );
   const existentes = new Set(jaExistem.map((u) => u.numero));
-  const novos = numeros.filter((n) => !existentes.has(n));
-  if (!novos.length) throw new Error(numeros.length === 1
-    ? `A unidade ${numeros[0]} já existe neste bloco.`
+  const novos = itens.filter((i) => !existentes.has(i.numero));
+  if (!novos.length) throw new Error(itens.length === 1
+    ? `A unidade ${itens[0].numero} já existe neste bloco.`
     : "Todas as unidades desse intervalo já existem neste bloco.");
 
   const base = {
     condominio_id: ctx.condominioId, bloco_id: bloco.id,
-    tipo: UNIDADE_TIPO_ENUM[f.tipo] || "apartamento", andar: f.andar ? Number(f.andar) : null,
+    tipo: UNIDADE_TIPO_ENUM[f.tipo] || "apartamento",
     status: UNIDADE_STATUS_ENUM[f.status] || "vaga",
     area_privativa_m2: parseBRL(f.area) || null,
     fracao_ideal: 0, // recalculada logo abaixo a partir da área privativa
   };
-  await q(supabase.from("unidades").insert(novos.map((numero) => ({ ...base, numero }))).select(), "unidades");
+  await q(supabase.from("unidades").insert(novos.map(({ numero, andar }) => ({ ...base, numero, andar }))).select(), "unidades");
   await recalcularFracoes(ctx);
   return novos.length;
 }
@@ -725,6 +774,9 @@ export async function criarPessoa(ctx, f) {
     unidade_id: f.unidade || null, papel: PAPEL_ENUM[f.papel] || "morador",
     inicio: f.inicio || new Date().toISOString().slice(0, 10),
   }).select(), "pessoa_vinculos");
+  /* vincular a uma unidade torna a pessoa o responsável financeiro dela
+     automaticamente (pode ser trocado depois, na tela Unidades) */
+  if (f.unidade) await salvarResponsavelUnidade(ctx, f.unidade, p.id);
 }
 
 /* Edição: atualiza o cadastro e o vínculo principal (papel/unidade/início).
@@ -746,6 +798,9 @@ export async function atualizarPessoa(ctx, pessoa, f) {
       condominio_id: ctx.condominioId, pessoa_id: pessoa.id, ...dados,
       inicio: f.inicio || new Date().toISOString().slice(0, 10),
     }).select(), "pessoa_vinculos");
+  /* nova unidade vinculada → a pessoa passa a ser o responsável financeiro dela */
+  if (f.unidade && f.unidade !== pessoa.unidadeId)
+    await salvarResponsavelUnidade(ctx, f.unidade, pessoa.id);
 }
 
 /* Exclusão: antes de apagar, confere onde a pessoa é referenciada e explica
@@ -785,6 +840,15 @@ export async function criarLancamento(ctx, f) {
     centro_custo: f.centro || null, forma_pagamento: FORMA_ENUM[f.forma] || null,
     status: "aguardando_aprovacao", lancado_por: uid, nota_fiscal_url: nf?.url || null,
   }).select(), "lancamentos");
+}
+
+/* Aprovação do lançamento (aba Aprovação do Financeiro) — igual às multas:
+   aprovado libera a conta para pagamento; rejeitado cancela o lançamento. */
+export async function decidirLancamento(ctx, id, aprovar) {
+  const uid = precisaUsuario(ctx);
+  await q(supabase.from("lancamentos").update({
+    status: aprovar ? "aprovado" : "rejeitado", aprovado_por: uid,
+  }).eq("id", id).select(), "lancamentos");
 }
 
 /* Dar baixa numa conta a pagar (aba Contas a pagar do Financeiro) */
@@ -1005,6 +1069,7 @@ export async function obterCondominio(ctx) {
   const [c] = await q(supabase.from("condominios").select("*").eq("id", ctx.condominioId), "condominios");
   if (!c) throw new Error("Condomínio não encontrado para esta conta.");
   const r = c.regras_internas || {}, g = r.gestao || {}, e = c.endereco || {};
+  const pg = r.pagamentos || {}, bc = pg.banco || {}; // pg.cripto/pg.transferencia: formato antigo (texto livre)
   return {
     nome: c.nome_fantasia, razao: c.razao_social, cnpj: c.cnpj, inscricao: c.inscricao_municipal || "",
     tipo: COND_TIPO_LABEL[c.tipo] || "Residencial", porte: COND_PORTE_LABEL[c.porte] || "Médio padrão",
@@ -1014,6 +1079,11 @@ export async function obterCondominio(ctx) {
     silencio: r.silencio || "", mudancas: r.mudancas || "", obras: r.obras || "",
     visitantes: r.visitantes || "", animais: r.animais || "", areas: r.areas_comuns || "",
     moeda: r.moeda || "USD",
+    verumWallet: pg.verum_wallet || pg.cripto || "",
+    dinheiro: pg.dinheiro !== false, // padrão: aceita dinheiro
+    bancoTitular: bc.titular || "", bancoNome: bc.banco || "", bancoPais: bc.pais || "",
+    bancoIban: bc.iban || "", bancoSwift: bc.swift || "", bancoConta: bc.conta || "",
+    bancoAgencia: bc.agencia || "", bancoObs: bc.obs || pg.transferencia || "",
     logoUrl: c.identidade_visual?.logo_url || null, cor: c.identidade_visual?.cor_primaria || "#D4AF37",
     atualizadoEm: c.atualizado_em,
   };
@@ -1031,6 +1101,15 @@ export async function salvarCondominio(ctx, f) {
       silencio: f.silencio || "", mudancas: f.mudancas || "", obras: f.obras || "",
       visitantes: f.visitantes || "", animais: f.animais || "", areas_comuns: f.areas || "",
       moeda: f.moeda || "USD",
+      /* meios de pagamento das cobranças: carteira Verum Wallet + dados bancários
+         em campos separados (IBAN/SWIFT) para funcionar em qualquer país */
+      pagamentos: {
+        verum_wallet: f.verumWallet || "",
+        dinheiro: f.dinheiro === "on", // checkbox: ausente = desativado
+        banco: { titular: f.bancoTitular || "", banco: f.bancoNome || "", pais: f.bancoPais || "",
+          iban: f.bancoIban || "", swift: f.bancoSwift || "", conta: f.bancoConta || "",
+          agencia: f.bancoAgencia || "", obs: f.bancoObs || "" },
+      },
       gestao: { administradora: f.administradora || "", sindico: f.sindico || "",
         diretor_adm: f.diretorAdm || "", tesouraria: f.tesouraria || "", inicio_gestao: f.inicioGestao || "" },
     },
@@ -1044,13 +1123,30 @@ export async function obterIdentidade(ctx) {
   return c?.identidade_visual || {};
 }
 
+/* Converte a URL pública do bucket de volta no caminho interno; apaga o arquivo.
+   Falha no storage não interrompe o fluxo — o banco é a fonte de verdade do logo. */
+async function apagarDoStorage(url) {
+  const caminho = decodeURIComponent(String(url || "").split("/object/public/documentos/")[1] || "");
+  if (!caminho) return;
+  try { await supabase.storage.from("documentos").remove([caminho]); } catch { /* arquivo órfão fica no bucket */ }
+}
+
 export async function salvarLogoCondominio(ctx, arquivo) {
   const [logo] = await uploadArquivos(ctx, arquivo, "identidade");
   if (!logo) throw new Error("Escolha um arquivo de imagem.");
   const atual = await obterIdentidade(ctx);
   await q(supabase.from("condominios").update({ identidade_visual: { ...atual, logo_url: logo.url } })
     .eq("id", ctx.condominioId).select(), "condominios");
+  if (atual.logo_url && atual.logo_url !== logo.url) await apagarDoStorage(atual.logo_url);
   return logo.url;
+}
+
+export async function removerLogoCondominio(ctx) {
+  const atual = await obterIdentidade(ctx);
+  const { logo_url, ...resto } = atual;
+  await q(supabase.from("condominios").update({ identidade_visual: resto })
+    .eq("id", ctx.condominioId).select(), "condominios");
+  if (logo_url) await apagarDoStorage(logo_url);
 }
 
 /* Gestão do chamado (tela Manutenção): designar responsável depois de criado,
