@@ -57,6 +57,8 @@ create type acesso_tipo            as enum ('entrada','saida','entrega','ocorren
 -- ═══════════════════════ GRUPO SaaS ═══════════════════════
 
 -- 1 · saas_planos — Planos comerciais do SaaS
+-- CONTRATO DE MOEDA: preços SEMPRE em dólar (USD) — é o valor cobrado via
+-- Commet; a moeda escolhida no cadastro do condomínio é só de exibição.
 create table saas_planos (
   id               uuid primary key default gen_random_uuid(),
   nome             varchar(60) not null,

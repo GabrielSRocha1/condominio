@@ -107,7 +107,7 @@ if (process.argv.includes("--pagar")) {
   } else {
     const r = await commet.payments.create({
       amount: Math.round((Number(cob.valor_original || 0) + Number(cob.encargos || 0)) * 100),
-      currency: env.COMMET_CURRENCY || "brl",
+      currency: env.COMMET_CURRENCY || "usd",
       description: `TESTE CondoMaster · ${cob.competencia}`,
       metadata: { cobrancaId: cob.id },
     });

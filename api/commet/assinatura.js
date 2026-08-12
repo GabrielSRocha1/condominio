@@ -21,9 +21,21 @@ export default async function handler(req, res) {
   if (!process.env.COMMET_API_KEY || process.env.COMMET_API_KEY.startsWith("COLE_AQUI"))
     return res.status(503).json({ error: "COMMET_API_KEY não configurada no .env do servidor." });
 
+  /* ── Trava de moeda: a licença SaaS é cobrada SEMPRE em dólar (USD). ──
+     A moeda nunca é parametrizável pelo cliente; se o .env estiver com outra
+     moeda, o handler recusa antes de tocar no Commet. */
+  const moedaEnv = (envVal("COMMET_CURRENCY") || "usd").toLowerCase();
+  if (moedaEnv !== "usd")
+    return res.status(503).json({ error: `COMMET_CURRENCY deve ser "usd" — a licença é cobrada sempre em dólar (valor atual: "${moedaEnv}").` });
+
   try {
-    const { condominioId, ciclo, troca } = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+    const corpo = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+    const { condominioId, ciclo, troca } = corpo;
     if (!condominioId) return res.status(400).json({ error: "Informe condominioId." });
+    /* moeda vinda do corpo é ignorada por definição — e recusada se divergir */
+    const moedaPedida = String(corpo.currency || corpo.moeda || "").toLowerCase();
+    if (moedaPedida && moedaPedida !== "usd")
+      return res.status(400).json({ error: "A moeda da licença não é parametrizável: a cobrança é sempre em dólar (USD)." });
 
     const { data: ass, error } = await supabase
       .from("saas_assinaturas")
@@ -52,6 +64,17 @@ export default async function handler(req, res) {
     /* plano no Commet: reaproveita pelo code ou pelo nome; cria com os preços mensal e anual se não existir */
     const planos = dado(await commet.plans.list({ includePrivate: true })) || [];
     let planoCommet = planos.find((p) => p.code === codigo || p.name === nomeCommet);
+    /* plano reaproveitado: garante que continua sendo um plano em dólar puro —
+       o preço-base do Commet é USD por construção (moeda da conta); só recusa
+       se a API devolver moeda explícita ≠ usd ou se houver preços regionais,
+       que permitiriam checkout em moeda local */
+    if (planoCommet) {
+      const precoErrado = (planoCommet.prices || []).find((pr) =>
+        (pr.currency && String(pr.currency).toLowerCase() !== "usd") ||
+        (pr.regionalPrices || []).length > 0);
+      if (precoErrado)
+        return res.status(502).json({ error: `O plano ${codigo} no Commet não está em dólar puro (USD) — corrija ou remova o plano no painel do Commet.` });
+    }
     if (!planoCommet) {
       planoCommet = dado(await commet.plans.create({ name: nomeCommet, code: codigo, isPublic: false }));
       if (!planoCommet?.id) return res.status(502).json({ error: "Commet não criou o plano." });

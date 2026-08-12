@@ -59,6 +59,15 @@ export default async function handler(req, res) {
       "subscription.canceled": "cancelada",
     };
     if (STATUS_ASSINATURA[event] && data?.customerId) {
+      /* trava de moeda: só ATIVA a licença se a fatura foi cobrada em dólar.
+         invoiceCurrency só existe nos eventos activated/reactivated; eventos de
+         bloqueio (past_due/canceled) passam sempre — revogar acesso é seguro.
+         Responde 200 mesmo assim: 4xx faria o Commet reentregar para sempre. */
+      const moedaFatura = String(data.invoiceCurrency || "").toLowerCase();
+      if (STATUS_ASSINATURA[event] === "ativa" && moedaFatura && moedaFatura !== "usd") {
+        console.error(`[commet/webhook] evento ${event} do condomínio ${data.customerId} IGNORADO: fatura em ${moedaFatura}, esperado usd.`);
+        return res.status(200).json({ ok: false, ignorado: "moeda_diferente_de_usd" });
+      }
       const novo = { status: STATUS_ASSINATURA[event] };
       if (novo.status === "ativa") {
         novo.bloqueada_em = null;

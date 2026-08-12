@@ -1,17 +1,17 @@
-# Integração Commet — recebimento e confirmação de pagamentos
+# Integração Commet — licença SaaS (assinatura do plano do condomínio)
 
-O CondoMaster Pro usa o **Commet** (commet.co) como conta de recebimento do SaaS.
-O fluxo implementado:
+O CondoMaster Pro usa o **Commet** (commet.co) SOMENTE para cobrar a licença
+SaaS dos condomínios clientes (as cobranças condominiais são pagas pelos meios
+cadastrados no próprio condomínio). O fluxo implementado:
 
-1. O síndico/morador clica em **Pagar online** → o front chama `POST /api/commet/checkout`.
-2. A função de backend cria um link de pagamento (`commet.payments.create`) com o valor
-   da cobrança em centavos e `metadata.cobrancaId`, e devolve a `checkoutUrl`.
-3. O cliente paga na página hospedada do Commet (qualquer cartão).
-4. O Commet chama `POST /api/commet/webhook` com o evento **`payment.received`** —
-   a assinatura HMAC-SHA256 (header `commet-signature`) é validada com o
-   `COMMET_WEBHOOK_SECRET` e a cobrança é **confirmada**: status vira `paga`
-   (ou `paga_em_atraso`) e o pagamento é registrado na tabela `pagamentos`
-   (idempotente via `provider_event_id`).
+1. O painel (tela Planos ou Paywall) chama `POST /api/commet/assinatura`.
+2. A função de backend cria/reaproveita o plano e o cliente no Commet e abre
+   uma assinatura recorrente, devolvendo a `checkoutUrl` da página hospedada.
+3. O cliente paga na página do Commet (qualquer cartão internacional).
+4. O Commet chama `POST /api/commet/webhook` — a assinatura HMAC-SHA256
+   (header `commet-signature`) é validada com o `COMMET_WEBHOOK_SECRET` e o
+   status da licença é sincronizado em `saas_assinaturas`
+   (`subscription.activated` → `ativa`, etc.).
 
 ## Passo a passo para ativar
 
@@ -30,7 +30,7 @@ O fluxo implementado:
 3. **Webhook** — com a CLI (`npm i -g commet`, depois `commet login`):
    ```bash
    commet webhooks create --url https://SEU-DOMINIO/api/commet/webhook \
-     --events '["payment.received","payment.failed"]'
+     --events '["subscription.activated","subscription.reactivated","subscription.plan_changed","trial.converted","subscription.past_due","subscription.canceled"]'
    ```
    Guarde o `whsec_...` devolvido em `COMMET_WEBHOOK_SECRET`.
 
@@ -46,21 +46,42 @@ O fluxo implementado:
 
 ## Arquivos da integração
 
-- `api/commet/checkout.js` — cria o link de pagamento (usa a API key secreta).
-- `api/commet/webhook.js` — confirma o pagamento e dá baixa no Supabase.
-- `src/lib/api.js` → `pagarComCommet()` — chamada do front (só recebe a URL).
-- Botões "Pagar online": modal de QR da tela Cobranças e modal de pagamento
-  do portal do morador.
+- `api/commet/assinatura.js` — cria/reaproveita plano e cliente no Commet e
+  abre o checkout da assinatura (também faz upgrade/downgrade via `changePlan`).
+- `api/commet/webhook.js` — sincroniza o status da licença em `saas_assinaturas`.
+- `api/commet/licenca.js` — verificação ativa ("Já paguei — verificar").
+- `api/commet/plano.js` — troca o plano da assinatura no Supabase.
+- `src/lib/api.js` → `assinarLicencaCommet()`, `trocarPlanoLicenca()`,
+  `verificarLicencaCommet()` — chamadas do front.
+
+## Moeda — sempre USD
+
+- A licença SaaS é cobrada **sempre em dólar (USD)**. A moeda é decisão do
+  backend: fixa, validada e não parametrizável pelo cliente. A moeda escolhida
+  no cadastro do condomínio é só de **exibição** das finanças internas.
+- `COMMET_CURRENCY=usd` é obrigatório no `.env` e nas variáveis de ambiente do
+  deploy (Vercel → Settings → Environment Variables) — o handler de assinatura
+  recusa qualquer outro valor com erro claro, e moeda vinda no corpo da
+  requisição é rejeitada.
+- **Passo manual**: a conta/organização Commet deve estar configurada em
+  **USD** (o SDK não tem parâmetro de moeda — a moeda-base dos preços vem da
+  conta). Confira no painel do Commet.
+- Os planos usados são `condomaster_<plano>_usd` (nome "CondoMaster <plano>
+  (USD)"). Os três planos legados em BRL (code sem sufixo `_usd`) ficam órfãos
+  no Commet: fora de plan groups e nunca reutilizados pelo lookup — não apagar
+  (histórico), não usar.
+- Não configurar *regional pricing* nos planos `_usd` — o backend recusa
+  planos com preços regionais (permitiriam checkout em moeda local).
+- O webhook só **ativa** a licença se a fatura do evento veio em USD
+  (`invoiceCurrency`); eventos de bloqueio passam sempre.
 
 ## Observações
 
-- Moeda padrão `brl` (`COMMET_CURRENCY` no `.env`).
-- A cobrança direcionada guarda o `provider_charge_id` (`pay_...`) — o webhook
-  encontra a cobrança por `metadata.cobrancaId` ou por esse id.
-- **Assinaturas SaaS (implementado)** — a mensalidade dos condomínios clientes
+- **Assinaturas SaaS** — a mensalidade dos condomínios clientes
   usa `api/commet/assinatura.js`: cria/reaproveita o plano no Commet (code
-  `condomaster_<plano>`, preço mensal em centavos), o cliente (externalId =
-  `condominio_id`) e a assinatura recorrente, devolvendo a `checkoutUrl`.
+  `condomaster_<plano>_usd`, preços mensal e anual em centavos de dólar), o
+  cliente (externalId = `condominio_id`) e a assinatura recorrente,
+  devolvendo a `checkoutUrl`.
   O acesso ao sistema é **bloqueado por paywall**: qualquer perfil do
   condomínio (exceto a administradora, dona do SaaS) só entra com a
   assinatura `ativa` — caso contrário cai na tela "Assinatura pendente",
