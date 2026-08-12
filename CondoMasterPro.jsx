@@ -1137,7 +1137,7 @@ function Pessoas({ t }) {
     catch (err) { alert(err?.message || err); }
     finally { setExcluindo(false); }
   };
-  const papeis = ["Proprietário","Inquilino","Morador","Dependente","Síndico","Funcionário","Prestador","Visitante recorrente"];
+  const papeis = ["Proprietário","Inquilino","Morador","Dependente","Síndico","Tesouraria","Funcionário","Prestador","Visitante recorrente"];
   const rows = db.pessoas.filter((p) => (papel === "todos" || p.papel === papel) && p.nome.toLowerCase().includes(q.toLowerCase()));
   return (
     <div className="vfade">
@@ -2847,13 +2847,12 @@ function Planos({ t }) {
   const [agindo, setAgindo] = useState(null); // nome do plano em processamento
   const [verificando, setVerificando] = useState(false);
   useEffect(() => { listarPlanos().then(setPlanos).catch(() => setPlanos([])); }, []);
-  const usd = (v) => `US$ ${Number(v || 0).toFixed(2)}`;
   const preco = (p) => (ciclo === "anual" && Number(p.preco_anual) > 0 ? Number(p.preco_anual) : Number(p.preco_mensal));
   const atual = (planos || []).find((p) => p.nome === tenant?.plano);
   const licencaAtiva = tenant?.status === "ativo";
   const contratar = async (p) => {
     const troca = !!atual && p.nome !== atual.nome;
-    if (troca && !window.confirm(`${L("Trocar o plano de")} ${atual.nome} ${L("para")} ${p.nome} (${usd(preco(p))}/${ciclo === "anual" ? L("ano") : L("mês")})? ${L("O checkout do novo valor será aberto em seguida.")}`)) return;
+    if (troca && !window.confirm(`${L("Trocar o plano de")} ${atual.nome} ${L("para")} ${p.nome} (${USD(preco(p))}/${ciclo === "anual" ? L("ano") : L("mês")})? ${L("O checkout do novo valor será aberto em seguida.")}`)) return;
     setAgindo(p.nome);
     try {
       if (troca) await trocarPlanoLicenca(db.ctx.condominioId, p.nome);
@@ -2882,8 +2881,8 @@ function Planos({ t }) {
           <div className="flex-1">
             <div className="text-base font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{tenant?.plano || "—"}</div>
             <div className="text-xs" style={{ color: t.dim }}>
-              {tenant?.precoPlano ? `${usd(tenant.precoPlano)}/${L("mês")}` : "—"}
-              {tenant?.precoPlanoAnual > 0 && ` · ${usd(tenant.precoPlanoAnual)}/${L("ano")}`}
+              {tenant?.precoPlano ? `${USD(tenant.precoPlano)}/${L("mês")}` : "—"}
+              {tenant?.precoPlanoAnual > 0 && ` · ${USD(tenant.precoPlanoAnual)}/${L("ano")}`}
               {tenant?.venc !== "—" && ` · ${L("renova em")} ${tenant.venc}`}
             </div>
           </div>
@@ -2898,7 +2897,7 @@ function Planos({ t }) {
         {[["mensal", "Mensal"], ["anual", "Anual"]].map(([k, l]) => (
           <button key={k} onClick={() => setCiclo(k)} className="rounded-lg px-3 py-1.5 text-xs font-medium"
             style={{ background: ciclo === k ? t.goldSoft : "transparent", color: ciclo === k ? t.gold : t.dim, border: `1px solid ${ciclo === k ? t.border : t.borderSoft}` }}>{L(l)}</button>))}
-        <span className="text-[11px]" style={{ color: t.dim }}>{L("Cobrança em dólar (USD) via Commet.")}</span>
+        <span className="text-[11px]" style={{ color: t.dim }}>{L("Cobrança em dólar (USD)")} · Commet</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         {planos.map((p) => {
@@ -2912,7 +2911,7 @@ function Planos({ t }) {
                   {ehAtual && <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: t.goldSoft, color: t.gold }}>{L("Plano atual")}</span>}
                 </div>
                 <div className="text-xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>
-                  {usd(preco(p))}<span className="text-xs font-normal" style={{ color: t.dim }}>/{ciclo === "anual" ? L("ano") : L("mês")}</span></div>
+                  {USD(preco(p))}<span className="text-xs font-normal" style={{ color: t.dim }}>/{ciclo === "anual" ? L("ano") : L("mês")}</span></div>
                 <div className="text-xs" style={{ color: t.dim }}>
                   {p.limite_unidades ? `${L("Até")} ${p.limite_unidades} ${L("unidades")}` : L("Unidades ilimitadas")}</div>
                 {ehAtual && licencaAtiva
@@ -3210,13 +3209,25 @@ export default function App() {
               <div className="min-w-0 flex-1">
                 <h1 className="truncate text-base font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{L(current?.label || "Dashboard")}</h1>
                 <div className="hidden text-xs sm:block" style={{ color: t.dim }}>
-                  {L({dashboard:"Visão geral do condomínio em tempo real",condominio:"Cadastro-mãe: dados legais, gestão e regras internas",
-                    unidades:"96 unidades · 2 torres + térreo comercial",pessoas:"Papéis separados: proprietário, inquilino, funcionário e prestador",
-                    financeiro:"Competência 06/2026 · aprovações do síndico ativas",cobrancas:"QR Code Verum Pay com baixa automática",
-                    multas:"Fluxo com prova, defesa e aprovação",comunicados:"Envio por portal, e-mail e WhatsApp",
-                    documentos:"Arquivo timbrado com retenção histórica",chamados:"Ordens de serviço por categoria e prioridade",
-                    portaria:"Controle de acessos, entregas e ocorrências",
-                    emails:"E-mails e senhas de acesso dos perfis síndico, tesouraria e morador"}[screen])}</div>
+                  {(() => { /* subtítulo com dados reais do condomínio (era texto fictício) */
+                    const fixo = {dashboard:"Visão geral do condomínio em tempo real",condominio:"Cadastro-mãe: dados legais, gestão e regras internas",
+                      portaria:"Controle de acessos, entregas e ocorrências",
+                      emails:"E-mails e senhas de acesso dos perfis síndico, tesouraria e morador"}[screen];
+                    if (fixo) return L(fixo);
+                    if (!db) return "";
+                    const n = (qtd, sing, plu) => `${qtd} ${L(qtd === 1 ? sing : plu)}`;
+                    switch (screen) {
+                      case "unidades":    return `${n(db.unidades.length, "unidade", "unidades")} · ${n(db.ctx.blocos.length, "bloco/torre", "blocos/torres")}`;
+                      case "pessoas":     return n(db.pessoas.length, "pessoa cadastrada", "pessoas cadastradas");
+                      case "financeiro":  return `${L("Competência")} ${db.mesAtualReal.split("-").reverse().join("/")} · ${L("aprovações do síndico ativas")}`;
+                      case "cobrancas":   return `${n(db.cobr.filter((c) => c.status === "emitida").length, "cobrança em aberto", "cobranças em aberto")} · ${n(db.cobr.filter((c) => c.status === "vencida").length, "vencida", "vencidas")}`;
+                      case "multas":      return n(db.multas.length, "multa/advertência registrada", "multas/advertências registradas");
+                      case "comunicados": return n(db.comunic.length, "comunicado publicado", "comunicados publicados");
+                      case "documentos":  return n(db.docs.length, "documento arquivado", "documentos arquivados");
+                      case "chamados":    return n(db.chamados.filter((c) => c.status !== "concluido" && c.status !== "cancelado").length, "chamado em aberto", "chamados em aberto");
+                      default: return "";
+                    }
+                  })()}</div>
               </div>
               <LangSel t={t} lang={lang} onLang={onLang} />
               <div className="relative">
