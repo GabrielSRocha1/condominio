@@ -664,6 +664,23 @@ begin
   end loop;
 end $$;
 
+-- ═══════════════════════ PROTEÇÃO: perfis nativos ═══════════════════════
+-- Perfis com sistema = true são os papéis que o código referencia pelo nome
+-- (login, criação de acessos) — excluí-los quebra o app. O trigger bloqueia
+-- o DELETE mesmo para a service_role e para o SQL Editor.
+create or replace function bloquear_delete_perfil_sistema() returns trigger
+language plpgsql as $$
+begin
+  if old.sistema then
+    raise exception 'O perfil "%" é nativo do sistema e não pode ser excluído.', old.nome;
+  end if;
+  return old;
+end $$;
+
+create trigger trg_perfis_protege_sistema
+  before delete on perfis
+  for each row execute function bloquear_delete_perfil_sistema();
+
 -- ═══════════════════════ ROW LEVEL SECURITY ═══════════════════════
 -- ⚠️  ATENÇÃO: as políticas abaixo são de DESENVOLVIMENTO — liberam leitura e
 -- escrita para qualquer requisição com a chave anon/authenticated, para você
