@@ -611,8 +611,9 @@ const precisaUsuario = (ctx) => {
 /* Cria uma unidade ou um intervalo delas (f.numero até f.numeroAte, ex.: 1 a 100).
    Números que já existem no bloco são pulados. Retorna quantas foram criadas. */
 export async function criarUnidade(ctx, f) {
-  let bloco = ctx.blocos.find((b) => b.nome.toLowerCase() === String(f.bloco || "").trim().toLowerCase());
-  if (!bloco) bloco = (await q(supabase.from("blocos").insert({ condominio_id: ctx.condominioId, nome: String(f.bloco || "A").trim() }).select(), "blocos"))[0];
+  const nomeBloco = String(f.bloco || "").trim() || "A"; // bloco é opcional — vazio cai no bloco "A"
+  let bloco = ctx.blocos.find((b) => b.nome.toLowerCase() === nomeBloco.toLowerCase());
+  if (!bloco) bloco = (await q(supabase.from("blocos").insert({ condominio_id: ctx.condominioId, nome: nomeBloco }).select(), "blocos"))[0];
 
   /* decompõe o número em prefixo + dígitos + sufixo (ex.: "1D" → "", "1", "D") */
   const partes = (s) => String(s).trim().match(/^(\D*)(\d+)(\D*)$/);
@@ -723,6 +724,19 @@ export async function atualizarUnidade(ctx, id, f) {
 export async function salvarResponsavelUnidade(ctx, unidadeId, pessoaId) {
   await q(supabase.from("unidades").update({ responsavel_financeiro_id: pessoaId || null })
     .eq("id", unidadeId).select(), "unidades");
+}
+
+/* Exclusão da unidade (modal da tela Unidades — exclusiva do diretor).
+   Soft delete: marca deletado_em em vez de apagar, preservando o histórico de
+   cobranças, multas e vínculos. Depois refaz as frações ideais do prédio,
+   que passam a ser rateadas sem a unidade excluída. */
+export async function excluirUnidade(ctx, id) {
+  const abertas = await q(supabase.from("cobrancas").select("id").eq("unidade_id", id)
+    .in("status", ["rascunho", "emitida", "vencida", "pagamento_divergente"]).limit(1), "cobrancas");
+  if (abertas.length) throw new Error("Não é possível excluir: esta unidade tem cobranças em aberto. Quite ou cancele as cobranças antes.");
+  await q(supabase.from("unidades").update({ deletado_em: new Date().toISOString(), responsavel_financeiro_id: null })
+    .eq("id", id).select(), "unidades");
+  await recalcularFracoes(ctx);
 }
 
 /* Altera a área privativa de uma unidade e refaz as frações do prédio todo */

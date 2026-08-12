@@ -18,7 +18,7 @@ import {
   criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, baixarPdfCobranca, loginDiretor,
   assinarLicencaCommet, verificarLicencaCommet, listarPlanos, trocarPlanoLicenca, registrarDiretor,
   criarAcesso, listarAcessos, removerAcesso, loginUsuario, setAuthToken,
-  salvarLogoCondominio, removerLogoCondominio, obterCondominio, salvarCondominio, salvarAreaUnidade, salvarResponsavelUnidade, atualizarUnidade,
+  salvarLogoCondominio, removerLogoCondominio, obterCondominio, salvarCondominio, salvarAreaUnidade, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
 } from "./src/lib/api.js";
@@ -960,14 +960,46 @@ function Unidades({ t, role }) {
     catch (err) { alert("Não foi possível salvar: " + (err?.message || err)); }
     finally { setSalvandoArea(false); }
   };
-  const rows = db.unidades.filter((u) => (st === "todos" || u.status === st) &&
-    (u.num + u.bloco + u.tipo + u.resp).toLowerCase().includes(q.toLowerCase()));
+  const [excluindo, setExcluindo] = useState(false);
+  const excluir = async () => {
+    if (!confirm(`${L("Excluir a unidade")} ${sel.num} — ${L("Bloco")} ${sel.bloco}? ${L("O histórico de cobranças e multas é preservado, mas a unidade sai do rateio e das listagens.")}`)) return;
+    setExcluindo(true);
+    try { await excluirUnidade(db.ctx, sel.id); await reload(); setSel(null); }
+    catch (err) { alert(err?.message || err); }
+    finally { setExcluindo(false); }
+  };
+  /* busca estruturada: "bloco X" filtra pelo bloco, "andar X" filtra pelo andar,
+     termo que começa com número busca pelo número da unidade; o restante (tipo,
+     status, responsável) busca por texto livre. Combinável: "bloco b andar 3 vaga" */
+  const buscaUnidade = (u) => {
+    const termos = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    for (let i = 0; i < termos.length; i++) {
+      const termo = termos[i], valor = termos[i + 1];
+      if (termo === "bloco" || termo === "torre") {
+        if (!valor) continue; // ainda digitando o bloco — não filtra nada
+        if (!String(u.bloco).toLowerCase().startsWith(valor)) return false;
+        i++; continue;
+      }
+      if (termo === "andar") {
+        if (!valor) continue; // ainda digitando o andar — não filtra nada
+        if (String(u.andar ?? "").toLowerCase() !== valor) return false;
+        i++; continue;
+      }
+      if (/^\d/.test(termo)) { // começa com dígito → número da unidade
+        if (!String(u.num).toLowerCase().startsWith(termo)) return false;
+        continue;
+      }
+      if (![u.num, u.tipo, u.tipoRaw, u.status, u.resp].join(" ").toLowerCase().includes(termo)) return false;
+    }
+    return true;
+  };
+  const rows = db.unidades.filter((u) => (st === "todos" || u.status === st) && buscaUnidade(u));
   const cols = [{k:"num",l:"Unidade"},{k:"andar",l:"Andar"},{k:"tipo",l:"Tipo"},{k:"status",l:"Status"},{k:"resp",l:"Responsável financeiro"},{k:"fracao",l:"Fração ideal"},{k:"saldo",l:"Saldo"}];
   return (
     <div className="vfade">
-      <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por número, bloco ou responsável…"
+      <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por unidade, andar, tipo, status ou responsável…"
         action={podeCriar ? <Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Unidade</Btn> : null}>
-        <Sel t={t} value={st} onChange={setSt} opts={[["todos","Todos os status"],["ocupada","Ocupada"],["alugada","Alugada"],["vaga","Vaga"]]} />
+        <Sel t={t} value={st} onChange={setSt} opts={[["todos","Todos os status"],["ocupada","Ocupada"],["alugada","Alugada"],["vaga","Vaga"],["vendida","Vendida"],["reservada","Reservada"],["inativa","Inativa"]]} />
       </Toolbar>
       <Tbl t={t} cols={cols} rows={rows} onRowClick={(r) => { setSel(r); setHist(null); setRespSel(r.respId || "");
         setEd({ numero: r.num, bloco: r.bloco === "?" ? "" : r.bloco, tipo: r.tipoRaw, status: r.status, andar: r.andar ?? "" }); }}
@@ -1053,8 +1085,10 @@ function Unidades({ t, role }) {
                 <span className="rounded-full px-2 py-0.5" style={{ background: t.surface2, color: t.text }}>{p.papel}</span>
                 <span className="ml-auto" style={{ color: t.dim }}>{p.tel !== "—" ? p.tel : ""}</span></>))}</div>);
           })()}
-          <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setSel(null)}>Fechar</Btn>
-            <Btn t={t} kind="primary" disabled={salvandoArea} onClick={salvarUnidade}><Check size={14} /> {salvandoArea ? "Salvando…" : "Salvar alterações"}</Btn></div>
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            {podeCriar && <Btn t={t} kind="danger" disabled={excluindo || salvandoArea} onClick={excluir} className="mr-auto"><Trash2 size={14} /> {excluindo ? "Excluindo…" : "Excluir"}</Btn>}
+            <Btn t={t} onClick={() => setSel(null)}>Fechar</Btn>
+            <Btn t={t} kind="primary" disabled={salvandoArea || excluindo} onClick={salvarUnidade}><Check size={14} /> {salvandoArea ? "Salvando…" : "Salvar alterações"}</Btn></div>
         </Modal>)}
       {novo && podeCriar && (
         <Modal t={t} onClose={() => setNovo(false)} wide>
@@ -1062,7 +1096,7 @@ function Unidades({ t, role }) {
           <form onSubmit={salvar}>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field t={t} label="Tipo"><select name="tipo" style={inputStyle(t)}>{["Apartamento","Sala comercial","Loja","Cobertura","Box","Depósito"].map((x)=><option key={x}>{x}</option>)}</select></Field>
-              <Field t={t} label="Bloco / torre"><input name="bloco" required placeholder="Ex.: B" style={inputStyle(t)} /></Field>
+              <Field t={t} label="Bloco / torre (opcional)"><input name="bloco" placeholder={L("Ex.: B — vazio usa o bloco A")} style={inputStyle(t)} /></Field>
               <Field t={t} label="Número (ou início do intervalo)"><input name="numero" required placeholder={L("Ex.: 402, 1 ou 1D")} style={inputStyle(t)} /></Field>
               <Field t={t} label="Até o número (opcional)"><input name="numeroAte" placeholder={L("Ex.: 100 ou 4D — vazio cria só uma")} style={inputStyle(t)} /></Field>
               <Field t={t} label="Andar (ou início do intervalo)"><input name="andar" type="number" placeholder={L("Ex.: 1")} style={inputStyle(t)} /></Field>
