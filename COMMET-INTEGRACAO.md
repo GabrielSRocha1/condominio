@@ -51,6 +51,9 @@ cadastrados no próprio condomínio). O fluxo implementado:
 - `api/commet/webhook.js` — sincroniza o status da licença em `saas_assinaturas`.
 - `api/commet/licenca.js` — verificação ativa ("Já paguei — verificar").
 - `api/commet/plano.js` — troca o plano da assinatura no Supabase.
+- `api/commet/cancelar-assinatura.js` — cancelamento pelo cliente (agendado:
+  acesso até o fim do período pago; o webhook marca "cancelada" ao terminar).
+- `api/commet/estender-teste.js` — extensão única do teste gratuito (+30 dias).
 - `src/lib/api.js` → `assinarLicencaCommet()`, `trocarPlanoLicenca()`,
   `verificarLicencaCommet()` — chamadas do front.
 

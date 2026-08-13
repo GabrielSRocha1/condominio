@@ -16,7 +16,7 @@ import {
 import {
   loadAll, criarCondominio, criarUnidade, criarPessoa, criarLancamento, decidirLancamento, criarPenalidade, decidirPenalidade,
   criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, baixarPdfCobranca, loginDiretor,
-  assinarLicencaCommet, verificarLicencaCommet, estenderTesteCommet, listarPlanos, trocarPlanoLicenca, registrarDiretor,
+  assinarLicencaCommet, verificarLicencaCommet, estenderTesteCommet, cancelarAssinaturaCommet, listarPlanos, trocarPlanoLicenca, registrarDiretor,
   criarAcesso, listarAcessos, removerAcesso, loginUsuario, setAuthToken,
   salvarLogoCondominio, removerLogoCondominio, obterCondominio, salvarCondominio, salvarAreaUnidade, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
@@ -2852,6 +2852,19 @@ function Planos({ t }) {
   const licencaAtiva = tenant?.status === "ativo";
   const emTeste = tenant?.status === "teste" && !!tenant?.testeFim; // teste gratuito em andamento
   const [estendendo, setEstendendo] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
+  const cancelar = async () => {
+    if (!window.confirm(L("Cancelar a assinatura? O acesso continua até o fim do período já pago e nenhuma cobrança futura será feita."))) return;
+    setCancelando(true);
+    try {
+      const resp = await cancelarAssinaturaCommet(db.ctx.condominioId);
+      alert(resp?.fimAcesso
+        ? `${L("Cancelamento agendado — o acesso continua até")} ${resp.fimAcesso.split("-").reverse().join("/")}.`
+        : L("Assinatura cancelada."));
+      await reload();
+    } catch (err) { alert("Não foi possível cancelar: " + (err?.message || err)); }
+    finally { setCancelando(false); }
+  };
   const estender = async () => {
     if (!window.confirm(L("Estender o teste gratuito por mais 30 dias? Esta extensão só pode ser usada uma vez."))) return;
     setEstendendo(true);
@@ -2947,6 +2960,11 @@ function Planos({ t }) {
       </div>
       <div className="text-[11px]" style={{ color: t.dim }}>
         {L("Na troca de plano, a assinatura atual é atualizada automaticamente no Commet (upgrade cobra a diferença com rateio; downgrade é agendado para o fim do período já pago) — a anterior é substituída, sem cobrança dupla. Após pagar, use \"Verificar pagamento\" para sincronizar o status.")}</div>
+      {(licencaAtiva || emTeste) && (
+        <div className="text-right">
+          <button onClick={cancelar} disabled={cancelando} className="text-[11px] underline opacity-70 hover:opacity-100" style={{ color: t.dim, background: "none", border: "none" }}>
+            {cancelando ? "Cancelando…" : L("Cancelar assinatura")}</button>
+        </div>)}
     </div>
   );
 }

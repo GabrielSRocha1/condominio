@@ -608,6 +608,25 @@ export async function verificarLicencaCommet(condominioId) {
   } catch { return false; }
 }
 
+/* Cancela a assinatura da licença (agendado: acesso até o fim do período
+   já pago, sem cobranças futuras). Devolve { cancelada, fimAcesso }. */
+export async function cancelarAssinaturaCommet(condominioId) {
+  let r;
+  try {
+    r = await fetch("/api/commet/cancelar-assinatura", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ condominioId }),
+    });
+  } catch {
+    throw new Error("Não foi possível falar com o backend de pagamentos.");
+  }
+  const corpo = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(corpo?.error || (r.status === 404
+    ? "Backend de pagamentos ainda não publicado — as funções /api sobem no deploy (Vercel/Netlify), não no npm run dev."
+    : `Erro ${r.status} ao cancelar a assinatura.`));
+  return corpo;
+}
+
 /* Extensão única do teste gratuito: +30 dias (via backend, que cancela e
    recria a assinatura trial no Commet com o cartão já salvo). */
 export async function estenderTesteCommet(condominioId) {
