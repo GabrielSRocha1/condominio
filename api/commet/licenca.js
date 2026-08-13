@@ -29,9 +29,10 @@ export default async function handler(req, res) {
     /* o customer foi criado com externalId = condominioId */
     const assinatura = dado(await commet.subscriptions.getActive({ customerId: condominioId }).catch(() => null));
 
-    /* active/trialing/past_due concedem acesso segundo o Commet; aqui o
-       produto só libera com pagamento confirmado (active) */
+    /* active = pagamento confirmado; trialing = teste gratuito em andamento
+       (cartão salvo, nada cobrado ainda) — os dois liberam o acesso */
     const ativa = assinatura?.status === "active";
+    const teste = assinatura?.status === "trialing";
     if (ativa) {
       const novo = { status: "ativa", bloqueada_em: null };
       if (assinatura.nextBillingDate || assinatura.endDate)
@@ -42,9 +43,20 @@ export default async function handler(req, res) {
         .eq("condominio_id", condominioId)
         .neq("status", "cancelada");
       if (error) throw new Error(error.message);
+    } else if (teste) {
+      /* sincroniza o fim do teste — fallback para quando o webhook
+         trial.started não alcança o servidor (ex.: desenvolvimento local) */
+      const novo = { status: "teste" };
+      if (assinatura.trialEndsAt) novo.teste_fim = String(assinatura.trialEndsAt).slice(0, 10);
+      const { error } = await supabase
+        .from("saas_assinaturas")
+        .update(novo)
+        .eq("condominio_id", condominioId)
+        .neq("status", "cancelada");
+      if (error) throw new Error(error.message);
     }
 
-    return res.status(200).json({ ativa, statusCommet: assinatura?.status || null });
+    return res.status(200).json({ ativa, teste, statusCommet: assinatura?.status || null });
   } catch (e) {
     console.error("[commet/licenca]", e);
     return res.status(500).json({ error: e.message || "Erro ao verificar a licença." });

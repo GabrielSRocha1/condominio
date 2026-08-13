@@ -5,7 +5,7 @@
    - em eventos de assinatura: sincroniza o status da licença no Supabase.
    Registre-o no Commet com:
      commet webhooks create --url https://SEU-DOMINIO/api/commet/webhook \
-       --events '["subscription.activated","subscription.reactivated","trial.converted","subscription.past_due","subscription.canceled"]'
+       --events '["subscription.activated","subscription.reactivated","subscription.plan_changed","trial.started","trial.will_end","trial.expired","trial.converted","subscription.past_due","subscription.canceled"]'
    Para testar localmente: commet listen 3000 */
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
@@ -50,15 +50,36 @@ export default async function handler(req, res) {
 
     /* ── Licença SaaS (assinatura da mensalidade do CondoMaster) ──
        customerId volta como o externalId informado na criação = condominio_id */
+    /* início do teste gratuito: o checkout salvou o cartão sem cobrar — mantém
+       "teste" e grava o fim do período (é o teste_fim que governa o acesso no
+       app). Não toca em teste_estendido: a recriação feita pela extensão também
+       dispara este evento, com o novo trialEndsAt. */
+    if (event === "trial.started" && data?.customerId) {
+      const novo = { status: "teste" };
+      if (data.trialEndsAt) novo.teste_fim = String(data.trialEndsAt).slice(0, 10);
+      const { error: eT } = await supabase.from("saas_assinaturas").update(novo)
+        .eq("condominio_id", data.customerId).neq("status", "cancelada");
+      if (eT) console.error("[commet/webhook] trial.started não gravado:", eT.message);
+      else console.log(`[commet/webhook] teste do condomínio ${data.customerId} até ${novo.teste_fim || "?"}`);
+      return res.status(200).json({ ok: true });
+    }
+    if (event === "trial.will_end" && data?.customerId)
+      console.log(`[commet/webhook] teste do condomínio ${data.customerId} termina em ${data.trialEndsAt || "3 dias"}`);
+
     const STATUS_ASSINATURA = {
       "subscription.activated": "ativa",
       "subscription.reactivated": "ativa",
       "subscription.plan_changed": "ativa", // upgrade/downgrade concluído — segue ativa
-      "trial.converted": "ativa",
+      "trial.expired": "ativa",  // fim do teste: o Commet cobrou o cartão salvo
+      "trial.converted": "ativa", // converteu antes do fim (troca de plano no trial)
       "subscription.past_due": "inadimplente",
       "subscription.canceled": "cancelada",
     };
     if (STATUS_ASSINATURA[event] && data?.customerId) {
+      /* cancelamento técnico da extensão do teste (cancela e recria a assinatura
+         com o trial maior) — não é um cancelamento do cliente; ignora */
+      if (event === "subscription.canceled" && data.cancelReason === "extensao_teste_30d")
+        return res.status(200).json({ ok: true, ignorado: "extensao_teste" });
       /* trava de moeda: só ATIVA a licença se a fatura foi cobrada em dólar.
          invoiceCurrency só existe nos eventos activated/reactivated; eventos de
          bloqueio (past_due/canceled) passam sempre — revogar acesso é seguro.

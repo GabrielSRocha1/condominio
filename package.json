@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@commet/node": "^7.6.0",
+    "@commet/node": "^9.0.0",
     "@supabase/supabase-js": "^2.110.2",
     "@vercel/analytics": "^2.0.1",
     "jspdf": "^4.2.1",

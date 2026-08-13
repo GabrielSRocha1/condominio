@@ -104,6 +104,8 @@ create table saas_assinaturas (
   status                 assinatura_status not null default 'teste',
   inicio                 date not null,
   renovacao              date,
+  teste_fim              date,                 -- fim do teste gratuito; NULL = teste não iniciado no Commet
+  teste_estendido        boolean not null default false, -- extensão única de +30 dias já usada
   forma_pagamento        assinatura_pagamento not null,
   bloqueada_em           timestamptz,
   checklist_implantacao  jsonb,

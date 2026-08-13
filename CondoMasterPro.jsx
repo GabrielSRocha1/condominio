@@ -16,7 +16,7 @@ import {
 import {
   loadAll, criarCondominio, criarUnidade, criarPessoa, criarLancamento, decidirLancamento, criarPenalidade, decidirPenalidade,
   criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, baixarPdfCobranca, loginDiretor,
-  assinarLicencaCommet, verificarLicencaCommet, listarPlanos, trocarPlanoLicenca, registrarDiretor,
+  assinarLicencaCommet, verificarLicencaCommet, estenderTesteCommet, listarPlanos, trocarPlanoLicenca, registrarDiretor,
   criarAcesso, listarAcessos, removerAcesso, loginUsuario, setAuthToken,
   salvarLogoCondominio, removerLogoCondominio, obterCondominio, salvarCondominio, salvarAreaUnidade, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
@@ -2850,8 +2850,22 @@ function Planos({ t }) {
   const preco = (p) => (ciclo === "anual" && Number(p.preco_anual) > 0 ? Number(p.preco_anual) : Number(p.preco_mensal));
   const atual = (planos || []).find((p) => p.nome === tenant?.plano);
   const licencaAtiva = tenant?.status === "ativo";
+  const emTeste = tenant?.status === "teste" && !!tenant?.testeFim; // teste gratuito em andamento
+  const [estendendo, setEstendendo] = useState(false);
+  const estender = async () => {
+    if (!window.confirm(L("Estender o teste gratuito por mais 30 dias? Esta extensão só pode ser usada uma vez."))) return;
+    setEstendendo(true);
+    try {
+      const resp = await estenderTesteCommet(db.ctx.condominioId);
+      if (resp?.checkoutUrl) window.open(resp.checkoutUrl, "_blank", "noopener"); // cartão precisa de reconfirmação
+      await reload();
+    } catch (err) { alert("Não foi possível estender o teste: " + (err?.message || err)); }
+    finally { setEstendendo(false); }
+  };
   const contratar = async (p) => {
     const troca = !!atual && p.nome !== atual.nome;
+    /* changePlan durante o trial converte o teste e cobra na hora — espelho do 409 do backend */
+    if (troca && emTeste) { alert(L("A troca de plano durante o teste gratuito é cobrada imediatamente — aguarde o fim do teste para trocar.")); return; }
     if (troca && !window.confirm(`${L("Trocar o plano de")} ${atual.nome} ${L("para")} ${p.nome} (${USD(preco(p))}/${ciclo === "anual" ? L("ano") : L("mês")})? ${L("O checkout do novo valor será aberto em seguida.")}`)) return;
     setAgindo(p.nome);
     try {
@@ -2888,7 +2902,15 @@ function Planos({ t }) {
           </div>
           {tenant && <Badge t={t} s={tenant.status} />}
         </div>
-        {!licencaAtiva && (
+        {emTeste ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
+            <AlertCircle size={13} className="inline" />
+            <span>{L("Teste gratuito — termina em")} <b>{Math.max(0, tenant.diasTeste)} {L("dia(s)")}</b>. {L("Depois, a cobrança é feita automaticamente no cartão cadastrado.")}</span>
+            {!tenant.testeEstendido && (
+              <Btn t={t} className="!px-2 !py-1 text-xs" disabled={estendendo} onClick={estender}>
+                <Plus size={12} /> {estendendo ? "Estendendo…" : L("Estender teste por +30 dias")}</Btn>)}
+          </div>
+        ) : !licencaAtiva && (
           <div className="mt-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
             <AlertCircle size={13} className="mr-1 inline" /> {L("A licença ainda não está ativa — escolha o ciclo abaixo e conclua o pagamento do plano contratado.")}</div>)}
       </Card>
@@ -2914,8 +2936,8 @@ function Planos({ t }) {
                   {USD(preco(p))}<span className="text-xs font-normal" style={{ color: t.dim }}>/{ciclo === "anual" ? L("ano") : L("mês")}</span></div>
                 <div className="text-xs" style={{ color: t.dim }}>
                   {p.limite_unidades ? `${L("Até")} ${p.limite_unidades} ${L("unidades")}` : L("Unidades ilimitadas")}</div>
-                {ehAtual && licencaAtiva
-                  ? <Btn t={t} className="w-full" disabled><CheckCircle2 size={13} /> {L("Contratado")}</Btn>
+                {ehAtual && (licencaAtiva || emTeste)
+                  ? <Btn t={t} className="w-full" disabled><CheckCircle2 size={13} /> {emTeste && !licencaAtiva ? L("Em teste") : L("Contratado")}</Btn>
                   : <Btn t={t} kind={ehAtual || upgrade ? "primary" : "soft"} className="w-full" disabled={agindo === p.nome}
                       onClick={() => contratar(p)}>
                       {agindo === p.nome ? "Abrindo…" : ehAtual ? L("Pagar agora") : upgrade ? L("Fazer upgrade") : L("Fazer downgrade")}</Btn>}
@@ -2969,8 +2991,13 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
     finally { setGerando(false); }
   };
 
+  /* teste ainda não iniciado no Commet (sem teste_fim): o checkout salva o
+     cartão SEM cobrar e libera 30 dias grátis; teste_fim no passado = expirou */
+  const trialNovo = licenca === "teste" && !tenant?.testeFim;
   const MSG = {
-    teste: "O período de avaliação requer a ativação da assinatura para continuar.",
+    teste: trialNovo
+      ? "Ative seu teste gratuito de 30 dias — cadastre o cartão; nada será cobrado agora."
+      : "O período de avaliação terminou. Ative a assinatura para continuar.",
     inadimplente: "A mensalidade está em atraso. Regularize o pagamento para voltar a acessar.",
     bloqueada: "A licença deste condomínio foi bloqueada. Regularize o pagamento para reativar.",
     cancelada: "A assinatura foi cancelada. Reative-a para voltar a usar o sistema.",
@@ -3010,7 +3037,7 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
           <div className="mt-5 space-y-2">
             {ehDiretor && (
               <Btn t={t} kind="primary" className="w-full" disabled={gerando} onClick={pagar}>
-                <QrCode size={15} /> {gerando ? L("Gerando checkout…") : L("Pagar assinatura")}</Btn>)}
+                <QrCode size={15} /> {gerando ? L("Gerando checkout…") : trialNovo ? L("Iniciar teste gratuito de 30 dias") : L("Pagar assinatura")}</Btn>)}
             <Btn t={t} className="w-full" disabled={verificando}
               onClick={async () => { setErro(""); if (!(await verificar())) setErro(ehDiretor ? L("O Commet ainda não confirmou este pagamento. Aguarde alguns instantes e verifique de novo.") : L("O acesso ainda não foi liberado. Tente novamente mais tarde.")); }}>
               <RefreshCw size={15} className={verificando ? "vpulse" : ""} /> {ehDiretor ? L("Já paguei — verificar") : L("Tentar novamente")}</Btn>
@@ -3133,9 +3160,11 @@ export default function App() {
       <SetupCondominio t={t} role={role} diretor={diretorConta} dark={dark} setDark={setDark} onCriado={aoCriarCondominio} onSair={sair} />
     </DataCtx.Provider>);
 
-  /* ── PAYWALL: sem assinatura ativa, nenhum perfil do condomínio entra ── */
+  /* ── PAYWALL: entra com licença ativa OU teste gratuito válido (iniciado
+     no Commet — teste_fim preenchido — e ainda dentro do prazo) ── */
   const tenantPrincipal = db && !db.vazio ? db.tenants.find((x) => x.id === db.ctx.condominioId) : null;
-  if (db && tenantPrincipal && tenantPrincipal.status !== "ativo") return (
+  const testeValido = tenantPrincipal?.status === "teste" && tenantPrincipal.testeFim && tenantPrincipal.diasTeste >= 0;
+  if (db && tenantPrincipal && tenantPrincipal.status !== "ativo" && !testeValido) return (
     <DataCtx.Provider value={dataValue}>{globalStyle}
       <Paywall t={t} role={role} licenca={tenantPrincipal.status} tenant={tenantPrincipal} condominioId={db.ctx.condominioId}
         onLogout={sair} onReload={reload} />

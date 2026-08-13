@@ -30,7 +30,7 @@ cadastrados no próprio condomínio). O fluxo implementado:
 3. **Webhook** — com a CLI (`npm i -g commet`, depois `commet login`):
    ```bash
    commet webhooks create --url https://SEU-DOMINIO/api/commet/webhook \
-     --events '["subscription.activated","subscription.reactivated","subscription.plan_changed","trial.converted","subscription.past_due","subscription.canceled"]'
+     --events '["subscription.activated","subscription.reactivated","subscription.plan_changed","trial.started","trial.will_end","trial.expired","trial.converted","subscription.past_due","subscription.canceled"]'
    ```
    Guarde o `whsec_...` devolvido em `COMMET_WEBHOOK_SECRET`.
 
@@ -53,6 +53,28 @@ cadastrados no próprio condomínio). O fluxo implementado:
 - `api/commet/plano.js` — troca o plano da assinatura no Supabase.
 - `src/lib/api.js` → `assinarLicencaCommet()`, `trocarPlanoLicenca()`,
   `verificarLicencaCommet()` — chamadas do front.
+
+## Teste gratuito — 30 dias com cartão antecipado
+
+- Todo condomínio novo nasce com `saas_assinaturas.status = 'teste'` e
+  `teste_fim = NULL`. O paywall pede a ativação do teste: o checkout do Commet
+  **salva o cartão sem cobrar** (trial de 30 dias configurado nos preços dos
+  planos via `trialDays`) e o webhook `trial.started` grava `teste_fim` — é
+  essa data que libera o acesso no app.
+- Ao fim do teste o Commet **cobra o cartão automaticamente** e dispara
+  `trial.expired` → licença `ativa`.
+- **Extensão única de +30 dias** (self-service do diretor, tela Planos):
+  `api/commet/estender-teste.js`. O Commet não tem API para mover o fim de um
+  trial em andamento, então o endpoint cancela a assinatura em teste (reason
+  `extensao_teste_30d`, ignorado pelo webhook) e recria outra com
+  `customTrialDays = dias restantes + 30` (SDK ≥ 9), reaproveitando o cartão
+  salvo. `teste_estendido = true` trava a segunda extensão.
+- Troca de plano durante o teste é bloqueada (o `changePlan` do Commet
+  converte o trial e cobra na hora).
+- Quem já iniciou um teste (`teste_fim` preenchido) nunca ganha outro:
+  o checkout seguinte vai com `skipTrial: true`.
+- Rode `supabase-teste-gratis.sql` uma vez no SQL Editor (colunas
+  `teste_fim`/`teste_estendido`) e registre os eventos `trial.*` no webhook.
 
 ## Moeda — sempre USD
 

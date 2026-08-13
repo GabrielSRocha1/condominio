@@ -92,7 +92,7 @@ const ACESSO_UI = {
 /* ─────────── carga completa ─────────── */
 export async function loadAll(condominioId) {
   const tenantsRaw = await q(
-    supabase.from("condominios").select("id, nome_fantasia, saas_assinaturas(status, renovacao, saas_planos(nome, preco_mensal, preco_anual)), unidades(count)").order("criado_em"),
+    supabase.from("condominios").select("id, nome_fantasia, saas_assinaturas(status, renovacao, teste_fim, teste_estendido, saas_planos(nome, preco_mensal, preco_anual)), unidades(count)").order("criado_em"),
     "condominios"
   );
   if (!tenantsRaw.length) return { vazio: true }; // banco em branco: o app mostra o fluxo de primeiro acesso
@@ -275,6 +275,10 @@ export async function loadAll(condominioId) {
       precoPlano: num(a?.saas_planos?.preco_mensal),
       precoPlanoAnual: num(a?.saas_planos?.preco_anual),
       venc: a?.renovacao ? ddmm(a.renovacao) : "—",
+      /* teste gratuito: NULL em testeFim = teste ainda não iniciado no Commet */
+      testeFim: a?.teste_fim || null,
+      testeEstendido: !!a?.teste_estendido,
+      diasTeste: a?.teste_fim ? Math.ceil((new Date(`${a.teste_fim}T23:59:59`) - Date.now()) / 86400000) : null,
     };
   });
 
@@ -591,7 +595,8 @@ export async function trocarPlanoLicenca(condominioId, plano) {
 }
 
 /* Confere no Commet (via backend) se a licença foi paga e sincroniza o
-   status no banco. Retorna true quando a assinatura está ativa. */
+   status no banco. Retorna true quando a assinatura está ativa OU o teste
+   gratuito está em andamento (trialing — cartão salvo, nada cobrado). */
 export async function verificarLicencaCommet(condominioId) {
   try {
     const r = await fetch("/api/commet/licenca", {
@@ -599,8 +604,27 @@ export async function verificarLicencaCommet(condominioId) {
       body: JSON.stringify({ condominioId }),
     });
     const corpo = await r.json().catch(() => null);
-    return Boolean(r.ok && corpo?.ativa);
+    return Boolean(r.ok && (corpo?.ativa || corpo?.teste));
   } catch { return false; }
+}
+
+/* Extensão única do teste gratuito: +30 dias (via backend, que cancela e
+   recria a assinatura trial no Commet com o cartão já salvo). */
+export async function estenderTesteCommet(condominioId) {
+  let r;
+  try {
+    r = await fetch("/api/commet/estender-teste", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ condominioId }),
+    });
+  } catch {
+    throw new Error("Não foi possível falar com o backend de pagamentos.");
+  }
+  const corpo = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(corpo?.error || (r.status === 404
+    ? "Backend de pagamentos ainda não publicado — as funções /api sobem no deploy (Vercel/Netlify), não no npm run dev."
+    : `Erro ${r.status} ao estender o teste.`));
+  return corpo;
 }
 
 const precisaUsuario = (ctx) => {

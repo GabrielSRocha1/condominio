@@ -39,7 +39,7 @@ export default async function handler(req, res) {
 
     const { data: ass, error } = await supabase
       .from("saas_assinaturas")
-      .select("id, status, condominios(id, nome_fantasia, cnpj), saas_planos(id, nome, preco_mensal, preco_anual)")
+      .select("id, status, teste_fim, teste_estendido, condominios(id, nome_fantasia, cnpj), saas_planos(id, nome, preco_mensal, preco_anual)")
       .eq("condominio_id", condominioId)
       .neq("status", "cancelada")
       .limit(1)
@@ -49,6 +49,9 @@ export default async function handler(req, res) {
     /* troca de plano (upgrade/downgrade): permite abrir um novo checkout mesmo
        com a licença ativa — a nova assinatura substitui a anterior */
     if (ass.status === "ativa" && !troca) return res.status(409).json({ error: "A licença deste condomínio já está ativa." });
+    /* teste gratuito de 30 dias: só na PRIMEIRA assinatura do condomínio —
+       quem já iniciou um teste (teste_fim preenchido) paga direto; troca idem */
+    const elegivelTeste = ass.status === "teste" && !ass.teste_fim && !troca;
 
     const commet = new Commet({ apiKey: process.env.COMMET_API_KEY });
     const plano = ass.saas_planos;
@@ -66,14 +69,21 @@ export default async function handler(req, res) {
     let planoCommet = planos.find((p) => p.code === codigo || p.name === nomeCommet);
     /* plano reaproveitado: garante que continua sendo um plano em dólar puro —
        o preço-base do Commet é USD por construção (moeda da conta); só recusa
-       se a API devolver moeda explícita ≠ usd ou se houver preços regionais,
-       que permitiriam checkout em moeda local */
+       se a API devolver moeda explícita ≠ usd ou se houver preços por mercado
+       em moeda local (marketPrices/regionalPrices), que permitiriam checkout
+       fora do dólar */
     if (planoCommet) {
       const precoErrado = (planoCommet.prices || []).find((pr) =>
         (pr.currency && String(pr.currency).toLowerCase() !== "usd") ||
-        (pr.regionalPrices || []).length > 0);
+        (pr.marketPrices || pr.regionalPrices || []).some((m) => String(m.currency).toLowerCase() !== "usd"));
       if (precoErrado)
         return res.status(502).json({ error: `O plano ${codigo} no Commet não está em dólar puro (USD) — corrija ou remova o plano no painel do Commet.` });
+      /* planos criados antes do teste gratuito não têm trial configurado —
+         corrige o preço no Commet (o trial só vale quando skipTrial não é enviado) */
+      for (const pr of planoCommet.prices || []) {
+        if (pr.trialDays !== 30)
+          await commet.plans.updatePrice({ id: planoCommet.id, priceId: pr.id, trialDays: 30 });
+      }
     }
     if (!planoCommet) {
       planoCommet = dado(await commet.plans.create({ name: nomeCommet, code: codigo, isPublic: false }));
@@ -82,6 +92,7 @@ export default async function handler(req, res) {
         id: planoCommet.id,
         billingInterval: "monthly",
         price: Math.round(Number(plano.preco_mensal) * 100), // centavos de dólar
+        trialDays: 30, // teste gratuito — aplicado só quando a assinatura não envia skipTrial
         isDefault: true,
       });
       if (Number(plano.preco_anual) > 0) {
@@ -89,6 +100,7 @@ export default async function handler(req, res) {
           id: planoCommet.id,
           billingInterval: "yearly",
           price: Math.round(Number(plano.preco_anual) * 100), // centavos de dólar
+          trialDays: 30,
         });
       }
     }
@@ -121,6 +133,9 @@ export default async function handler(req, res) {
        automaticamente — sem cobrança dupla e sem precisar cancelar à mão) */
     if (troca) {
       const ativa = dado(await commet.subscriptions.getActive({ customerId: cliente.id }).catch(() => null));
+      /* changePlan durante o trial CONVERTE o teste e cobra na hora — bloqueia */
+      if (ativa?.status === "trialing")
+        return res.status(409).json({ error: "A troca de plano durante o teste gratuito é cobrada imediatamente — aguarde o fim do teste para trocar." });
       if (ativa?.id) {
         const respTroca = await commet.subscriptions.changePlan({
           id: ativa.id, newPlanId: planoCommet.id, newBillingInterval: intervalo,
@@ -138,11 +153,13 @@ export default async function handler(req, res) {
       }
     }
 
+    /* elegível ao teste: o checkout salva o cartão SEM cobrar e o trial de 30
+       dias do preço se aplica; caso contrário skipTrial força a cobrança direta */
     const resposta = await commet.subscriptions.create({
       planId: planoCommet.id,
       customerId: cliente.id,
       billingInterval: intervalo,
-      skipTrial: true,
+      skipTrial: !elegivelTeste,
       name: `Licença CondoMaster · ${cond.nome_fantasia}`,
       successUrl: `${origem}/?licenca=ok`,
     });
@@ -151,7 +168,7 @@ export default async function handler(req, res) {
     const urlCheckout = assinatura?.checkoutUrl || assinatura?.url;
     if (!urlCheckout) return res.status(502).json({ error: "Commet não devolveu a URL de checkout da assinatura." });
 
-    return res.status(200).json({ checkoutUrl: urlCheckout, subscriptionId: assinatura.id });
+    return res.status(200).json({ checkoutUrl: urlCheckout, subscriptionId: assinatura.id, trial: elegivelTeste, trialDays: elegivelTeste ? 30 : 0 });
   } catch (e) {
     console.error("[commet/assinatura]", e);
     return res.status(500).json({ error: e.message || "Erro ao criar a assinatura." });
