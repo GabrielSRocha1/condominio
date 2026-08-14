@@ -2927,7 +2927,9 @@ function Planos({ t }) {
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
             <AlertCircle size={13} className="inline" />
             <span>{L("Teste gratuito — termina em")} <b>{Math.max(0, tenant.diasTeste)} {L("dia(s)")}</b>. {L("Depois, a cobrança é feita automaticamente no cartão cadastrado.")}</span>
-            {!tenant.testeEstendido && (
+            {!tenant.testeEstendido && tenant.diasTeste <= 5 && (
+              /* a extensão só é oferecida nos últimos 5 dias do teste —
+                 antes disso o botão fica invisível */
               <Btn t={t} className="!px-2 !py-1 text-xs" disabled={estendendo} onClick={estender}>
                 <Plus size={12} /> {estendendo ? "Estendendo…" : L("Estender teste por +30 dias")}</Btn>)}
           </div>
