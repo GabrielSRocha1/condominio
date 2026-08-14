@@ -124,6 +124,11 @@ checkout do Commet abre com **total $0** — a assinatura nasce ativa e o acesso
 - Se a assinatura já nascer ativa (100% off sem checkout), o backend devolve
   `ativado: true` e o paywall confirma e libera na hora; se vier `checkoutUrl`,
   o paywall avisa "conclua no checkout aberto (o total deve ser $0)".
+- **"Redemptions: 0" no promo code é esperado** (decisão de projeto): como a
+  Offer é aplicada por `offerId`, não há "resgate" do promo code e o contador
+  do dashboard não sobe — logo `maxRedemptions` não é imposto pelo Commet
+  (o backend valida `isActive`/`expiresAt` antes de aplicar). Para saber quem
+  usou o código, veja as Subscriptions com a tag PAGOMANUAL no dashboard.
 - **Gestão 100% no dashboard do Commet**: se o pagamento manual atrasar,
   pause/cancele a assinatura do cliente lá — o webhook
   (`subscription.past_due`/`subscription.canceled`) bloqueia o app sozinho.
