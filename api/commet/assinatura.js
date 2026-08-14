@@ -46,15 +46,38 @@ export default async function handler(req, res) {
     if (moedaPedida && moedaPedida !== "usd")
       return res.status(400).json({ error: "A moeda da licença não é parametrizável: a cobrança é sempre em dólar (USD)." });
 
-    const { data: ass, error } = await supabase
+    const CAMPOS_ASS = "id, status, teste_fim, teste_estendido, condominios(id, nome_fantasia, cnpj), saas_planos(id, nome, preco_mensal, preco_anual)";
+    let { data: ass, error } = await supabase
       .from("saas_assinaturas")
-      .select("id, status, teste_fim, teste_estendido, condominios(id, nome_fantasia, cnpj), saas_planos(id, nome, preco_mensal, preco_anual)")
+      .select(CAMPOS_ASS)
       .eq("condominio_id", condominioId)
       .neq("status", "cancelada")
       .limit(1)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    if (!ass) return res.status(404).json({ error: "Condomínio sem assinatura cadastrada." });
+    if (!ass) {
+      /* licença cancelada querendo voltar: "cancelada" é terminal para os
+         webhooks (todos os updates usam .neq status cancelada), então a linha
+         precisa ser ressuscitada ANTES do checkout — senão a confirmação do
+         pagamento nunca gravaria. Volta para "teste" (com o teste_fim antigo,
+         já consumido → o checkout sai com skipTrial e cobra direto). */
+      const { data: cancelada, error: eCanc } = await supabase
+        .from("saas_assinaturas")
+        .select(CAMPOS_ASS)
+        .eq("condominio_id", condominioId)
+        .eq("status", "cancelada")
+        .order("criado_em", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (eCanc) throw new Error(eCanc.message);
+      if (!cancelada) return res.status(404).json({ error: "Condomínio sem assinatura cadastrada." });
+      const { error: eRev } = await supabase
+        .from("saas_assinaturas")
+        .update({ status: "teste", cancelamento_agendado_em: null, acesso_ate: null, bloqueada_em: null })
+        .eq("id", cancelada.id);
+      if (eRev) throw new Error(eRev.message);
+      ass = { ...cancelada, status: "teste" };
+    }
     /* troca de plano (upgrade/downgrade): permite abrir um novo checkout mesmo
        com a licença ativa — a nova assinatura substitui a anterior */
     if (ass.status === "ativa" && !troca) return res.status(409).json({ error: "A licença deste condomínio já está ativa." });

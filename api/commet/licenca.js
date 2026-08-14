@@ -62,13 +62,14 @@ export default async function handler(req, res) {
         .eq("condominio_id", condominioId)
         .neq("status", "cancelada");
       if (error) throw new Error(error.message);
-    } else {
-      /* o Commet NÃO tem assinatura ativa/trialing para este cliente. Se a
-         licença local ainda diz "ativa" (ou teste em andamento), ela foi
-         cancelada por fora — ex.: no dashboard do Commet — e o webhook não
-         alcançou este ambiente. Sincroniza o bloqueio aqui, no mesmo caminho
-         do botão "Verificar pagamento". Conta pré-checkout (teste sem
-         teste_fim) fica intocada: nunca existiu assinatura no Commet. */
+    } else if (!assinatura) {
+      /* o Commet NÃO tem assinatura NENHUMA para este cliente. Se a licença
+         local ainda diz "ativa" (ou teste em andamento), ela foi cancelada
+         por fora — ex.: no dashboard do Commet — e o webhook não alcançou
+         este ambiente. Sincroniza o bloqueio aqui, no mesmo caminho do botão
+         "Verificar pagamento". Conta pré-checkout (teste sem teste_fim) fica
+         intocada, e assinatura pending_payment (checkout aberto aguardando
+         pagamento) também — não é cancelamento, é reativação em andamento. */
       const { data: local } = await supabase
         .from("saas_assinaturas")
         .select("status, teste_fim")
