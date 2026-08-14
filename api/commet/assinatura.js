@@ -185,17 +185,30 @@ export default async function handler(req, res) {
       }
     }
 
+    /* código de ativação: resolve o promo code para a Offer e aplica por
+       offerId — uma Offer aplicada assim NÃO exige associação prévia com o
+       plano (doc do SDK), o que evita o "This code can't be used with this
+       plan" das restrições de plano do promo code. offerId é mutuamente
+       exclusivo com skipTrial/customTrialDays: a Offer substitui o trial
+       automático e o desconto de 99.99% vale em todo pagamento. */
+    let offerAtivacao = null;
+    if (codigoAtivacao) {
+      const promos = dado(await commet.promoCodes.list({ limit: 50 }).catch(() => null));
+      const promo = (promos?.data || (Array.isArray(promos) ? promos : []))
+        .find((p) => String(p.code || "").toUpperCase() === codigoAtivacao);
+      const vencido = promo?.expiresAt && new Date(promo.expiresAt) < new Date();
+      if (!promo || promo.isActive === false || vencido)
+        return res.status(400).json({ error: "Código de ativação inválido ou expirado." });
+      offerAtivacao = promo.offerId;
+    }
+
     /* elegível ao teste: o checkout salva o cartão SEM cobrar e o trial de 30
-       dias do preço se aplica; caso contrário skipTrial força a cobrança direta.
-       Com código de ativação, o trial sai de cena (skipTrial) — a ativação vem
-       do desconto de 100% da Offer, e o status segue governado pelos webhooks
-       normais (activated/canceled/reactivated), gerenciáveis no dashboard. */
+       dias do preço se aplica; caso contrário skipTrial força a cobrança direta */
     const resposta = await commet.subscriptions.create({
       planId: planoCommet.id,
       customerId: cliente.id,
       billingInterval: intervalo,
-      skipTrial: codigoAtivacao ? true : !elegivelTeste,
-      ...(codigoAtivacao ? { promoCode: codigoAtivacao } : {}),
+      ...(offerAtivacao ? { offerId: offerAtivacao } : { skipTrial: !elegivelTeste }),
       name: `Licença CondoMaster · ${cond.nome_fantasia}`,
       successUrl: `${origem}/?licenca=ok`,
     });
@@ -209,21 +222,16 @@ export default async function handler(req, res) {
     const urlCheckout = assinatura?.checkoutUrl || assinatura?.url;
 
     if (codigoAtivacao) {
-      /* prova de que a Offer foi aplicada: o Commet devolve o desconto na
-         assinatura (promoCode/offerId/discount) ou o total zerado. Sem essa
-         evidência, o checkout abriria cobrando o preço cheio — desfaz a
-         assinatura recém-criada e explica o que falta no dashboard. */
-      const total = [assinatura?.totalAmount, assinatura?.amount, assinatura?.price].find((v) => typeof v === "number");
-      /* a Offer é de 99.99% (o Commet não aceita 100%) — qualquer evidência de
-         desconto próximo do total conta como aplicada */
-      const descontoAplicado =
-        Boolean(assinatura?.promoCode || assinatura?.offerId || assinatura?.offer || assinatura?.discount) ||
-        Number(assinatura?.discountPercent) >= 99 || total === 0;
+      /* prova de que a Offer foi aplicada: offerApplications da assinatura
+         criada. Sem essa evidência, o checkout abriria cobrando o preço
+         cheio — desfaz a assinatura recém-criada e explica. */
+      const aplicacoes = assinatura?.offerApplications || [];
+      const descontoAplicado = aplicacoes.some((a) => a?.offerId === offerAtivacao) || aplicacoes.length > 0;
       if (!descontoAplicado) {
         if (assinatura?.id)
           await commet.subscriptions.cancel({ id: assinatura.id, immediate: true, reason: "codigo_nao_aplicado" }).catch(() => {});
         return res.status(502).json({
-          error: "O Commet não aplicou o código de ativação — confira no dashboard se a Offer com o promo code existe (desconto de 99.99%+, sem expiração) e cobre este plano. Nenhuma cobrança foi gerada.",
+          error: "O Commet não aplicou o código de ativação — confira no dashboard se a Offer do promo code está ativa (desconto de 99.99%, sem expiração). Nenhuma cobrança foi gerada.",
         });
       }
       /* com 100% de desconto a assinatura pode nascer ativa, sem checkout —
