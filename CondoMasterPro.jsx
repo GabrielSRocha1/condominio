@@ -2999,7 +2999,20 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
   const [erro, setErro] = useState("");
   /* ciclo de cobrança da licença — sempre em dólar (USD) */
   const [ciclo, setCiclo] = useState("mensal");
-  const temAnual = Boolean(tenant?.precoPlanoAnual);
+  /* escolha de plano no próprio paywall: o diretor pode assinar/reativar em
+     outro plano — a troca grava no banco (trocarPlanoLicenca) antes do
+     checkout, e o preço exibido acompanha a seleção */
+  const [planos, setPlanos] = useState(null);
+  const [planoSel, setPlanoSel] = useState(null);
+  useEffect(() => { if (ehDiretor) listarPlanos().then(setPlanos).catch(() => setPlanos([])); }, [ehDiretor]);
+  const nomePlano = planoSel || tenant?.plano || "—";
+  const planoInfo = (planos || []).find((p) => p.nome === nomePlano) || null;
+  const precoMes = planoInfo ? Number(planoInfo.preco_mensal) : tenant?.precoPlano;
+  const precoAno = planoInfo ? Number(planoInfo.preco_anual) : tenant?.precoPlanoAnual;
+  const temAnual = Boolean(precoAno);
+  const aplicarPlanoEscolhido = async () => {
+    if (planoSel && tenant?.plano && planoSel !== tenant.plano) await trocarPlanoLicenca(condominioId, planoSel);
+  };
 
   /* pergunta ao Commet (via backend) se o pagamento foi confirmado e, se sim,
      recarrega — libera o acesso mesmo antes de o webhook chegar */
@@ -3021,6 +3034,7 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
   const pagar = async () => {
     setGerando(true); setErro("");
     try {
+      await aplicarPlanoEscolhido();
       const resp = await assinarLicencaCommet(condominioId, ciclo);
       if (resp?.checkoutUrl) window.open(resp.checkoutUrl, "_blank", "noopener");
     } catch (e) { setErro(e.message); }
@@ -3039,6 +3053,7 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
     if (!codigo.trim()) return;
     setAtivandoCodigo(true); setErro(""); setAvisoCodigo("");
     try {
+      await aplicarPlanoEscolhido();
       const resp = await assinarLicencaCommet(condominioId, ciclo, false, codigo.trim());
       if (resp?.ativado) {
         /* 100% de desconto sem checkout: a assinatura já nasceu ativa */
@@ -3079,7 +3094,15 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
           {ehDiretor && tenant && tenant.plano !== "—" && (
             <div className="mt-4 rounded-xl border p-3 text-sm" style={{ borderColor: t.borderSoft }}>
               <div className="flex items-center justify-between">
-                <span style={{ color: t.dim }}>{L("Plano")}</span><b>{tenant.plano}</b></div>
+                <span style={{ color: t.dim }}>{L("Plano")}</span><b>{nomePlano}</b></div>
+              {(planos || []).length > 1 && (
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {planos.map((p) => (
+                    <button key={p.nome} type="button" onClick={() => setPlanoSel(p.nome)}
+                      className="rounded-xl border px-1 py-1.5 text-xs font-semibold"
+                      style={{ borderColor: nomePlano === p.nome ? t.gold : t.borderSoft, color: nomePlano === p.nome ? t.gold : t.dim, background: nomePlano === p.nome ? t.goldSoft : "transparent" }}>
+                      {p.nome}</button>))}
+                </div>)}
               {temAnual && (
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   {[["mensal", L("Mensal")], ["anual", L("Anual")]].map(([v, rotulo]) => (
@@ -3088,11 +3111,14 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
                       style={{ borderColor: ciclo === v ? t.gold : t.borderSoft, color: ciclo === v ? t.gold : t.dim, background: ciclo === v ? t.goldSoft : "transparent" }}>
                       {rotulo}</button>))}
                 </div>)}
-              {tenant.precoPlano ? (
+              {precoMes ? (
                 <div className="mt-2 flex items-center justify-between">
                   <span style={{ color: t.dim }}>{ciclo === "anual" && temAnual ? L("Anuidade") : L("Mensalidade")}</span>
-                  <b>{ciclo === "anual" && temAnual ? `${USD(tenant.precoPlanoAnual)}/ano` : `${USD(tenant.precoPlano)}/mês`}</b></div>) : null}
-              <div className="mt-1 text-right text-[11px]" style={{ color: t.dim }}>{L("Cobrança em dólar (USD)")}</div>
+                  <b>{ciclo === "anual" && temAnual ? `${USD(precoAno)}/ano` : `${USD(precoMes)}/mês`}</b></div>) : null}
+              {planoInfo && (
+                <div className="mt-1 text-right text-[11px]" style={{ color: t.dim }}>
+                  {planoInfo.limite_unidades ? `${L("Até")} ${planoInfo.limite_unidades} ${L("unidades")} · ` : `${L("Unidades ilimitadas")} · `}{L("Cobrança em dólar (USD)")}</div>)}
+              {!planoInfo && <div className="mt-1 text-right text-[11px]" style={{ color: t.dim }}>{L("Cobrança em dólar (USD)")}</div>}
             </div>)}
           {erro && <div className="mt-3 rounded-xl border p-2.5 text-xs" style={{ borderColor: t.danger, color: t.danger }}>{erro}</div>}
           <div className="mt-5 space-y-2">
