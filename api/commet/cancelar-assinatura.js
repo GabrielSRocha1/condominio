@@ -40,7 +40,18 @@ export default async function handler(req, res) {
     const atual = cliente?.id
       ? dado(await commet.subscriptions.getActive({ customerId: cliente.id }).catch(() => null))
       : null;
-    if (!atual?.id) return res.status(409).json({ error: "Nenhuma assinatura em andamento no Commet para este condomínio." });
+    if (!atual?.id) {
+      /* nada em andamento no Commet: a assinatura já foi cancelada por fora
+         (ex.: dashboard) e o webhook não alcançou este ambiente. O botão só
+         aparece com licença ativa/teste iniciado, então aqui é seguro apenas
+         sincronizar o status local e responder sucesso — não é um erro. */
+      const { error: eSync } = await supabase.from("saas_assinaturas")
+        .update({ status: "cancelada" })
+        .eq("condominio_id", condominioId)
+        .neq("status", "cancelada");
+      if (eSync) throw new Error(eSync.message);
+      return res.status(200).json({ cancelada: true, imediato: true, fimAcesso: null, sincronizada: true });
+    }
 
     /* pending_payment (checkout nunca concluído) não tem período pago — encerra
        na hora; trialing/active são agendados para o fim do período/teste */

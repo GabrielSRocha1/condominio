@@ -76,10 +76,11 @@ export default async function handler(req, res) {
       "subscription.canceled": "cancelada",
     };
     if (STATUS_ASSINATURA[event] && data?.customerId) {
-      /* cancelamento técnico da extensão do teste (cancela e recria a assinatura
-         com o trial maior) — não é um cancelamento do cliente; ignora */
-      if (event === "subscription.canceled" && data.cancelReason === "extensao_teste_30d")
-        return res.status(200).json({ ok: true, ignorado: "extensao_teste" });
+      /* cancelamentos técnicos do próprio backend — não são cancelamentos do
+         cliente; ignora (extensão do teste recria a assinatura; código de
+         ativação desfaz uma assinatura em que a Offer não foi aplicada) */
+      if (event === "subscription.canceled" && ["extensao_teste_30d", "codigo_nao_aplicado"].includes(data.cancelReason))
+        return res.status(200).json({ ok: true, ignorado: data.cancelReason });
       /* trava de moeda: só ATIVA a licença se a fatura foi cobrada em dólar.
          invoiceCurrency só existe nos eventos activated/reactivated; eventos de
          bloqueio (past_due/canceled) passam sempre — revogar acesso é seguro.

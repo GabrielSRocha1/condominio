@@ -31,6 +31,15 @@ export default async function handler(req, res) {
   try {
     const corpo = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
     const { condominioId, ciclo, troca } = corpo;
+    /* código de ativação (ex.: PAGOMANUAL) — promo code de uma Offer criada no
+       dashboard do Commet (100% de desconto, forever). Validação em duas etapas:
+       o código é conferido AQUI contra COMMET_CODIGO_ATIVACAO (recusa cedo, sem
+       abrir checkout) e, depois do create, a resposta do Commet precisa provar
+       que o desconto foi aplicado — senão a assinatura é desfeita na hora. */
+    const codigoAtivacao = String(corpo.codigo || "").trim().toUpperCase();
+    const codigoEsperado = (envVal("COMMET_CODIGO_ATIVACAO") || "PAGOMANUAL").toUpperCase();
+    if (codigoAtivacao && codigoAtivacao !== codigoEsperado)
+      return res.status(400).json({ error: "Código de ativação inválido." });
     if (!condominioId) return res.status(400).json({ error: "Informe condominioId." });
     /* moeda vinda do corpo é ignorada por definição — e recusada se divergir */
     const moedaPedida = String(corpo.currency || corpo.moeda || "").toLowerCase();
@@ -154,21 +163,57 @@ export default async function handler(req, res) {
     }
 
     /* elegível ao teste: o checkout salva o cartão SEM cobrar e o trial de 30
-       dias do preço se aplica; caso contrário skipTrial força a cobrança direta */
+       dias do preço se aplica; caso contrário skipTrial força a cobrança direta.
+       Com código de ativação, o trial sai de cena (skipTrial) — a ativação vem
+       do desconto de 100% da Offer, e o status segue governado pelos webhooks
+       normais (activated/canceled/reactivated), gerenciáveis no dashboard. */
     const resposta = await commet.subscriptions.create({
       planId: planoCommet.id,
       customerId: cliente.id,
       billingInterval: intervalo,
-      skipTrial: !elegivelTeste,
+      skipTrial: codigoAtivacao ? true : !elegivelTeste,
+      ...(codigoAtivacao ? { promoCode: codigoAtivacao } : {}),
       name: `Licença CondoMaster · ${cond.nome_fantasia}`,
       successUrl: `${origem}/?licenca=ok`,
     });
-    if (resposta?.error) return res.status(502).json({ error: `Commet: ${resposta.error.message || resposta.error}` });
+    if (resposta?.error) {
+      const msg = String(resposta.error.message || resposta.error);
+      if (codigoAtivacao && /promo|offer|coupon|c(ó|o)digo|cupom/i.test(msg))
+        return res.status(400).json({ error: "Código de ativação inválido ou expirado." });
+      return res.status(502).json({ error: `Commet: ${msg}` });
+    }
     const assinatura = dado(resposta);
     const urlCheckout = assinatura?.checkoutUrl || assinatura?.url;
+
+    if (codigoAtivacao) {
+      /* prova de que a Offer foi aplicada: o Commet devolve o desconto na
+         assinatura (promoCode/offerId/discount) ou o total zerado. Sem essa
+         evidência, o checkout abriria cobrando o preço cheio — desfaz a
+         assinatura recém-criada e explica o que falta no dashboard. */
+      const total = [assinatura?.totalAmount, assinatura?.amount, assinatura?.price].find((v) => typeof v === "number");
+      /* a Offer é de 99.99% (o Commet não aceita 100%) — qualquer evidência de
+         desconto próximo do total conta como aplicada */
+      const descontoAplicado =
+        Boolean(assinatura?.promoCode || assinatura?.offerId || assinatura?.offer || assinatura?.discount) ||
+        Number(assinatura?.discountPercent) >= 99 || total === 0;
+      if (!descontoAplicado) {
+        if (assinatura?.id)
+          await commet.subscriptions.cancel({ id: assinatura.id, immediate: true, reason: "codigo_nao_aplicado" }).catch(() => {});
+        return res.status(502).json({
+          error: "O Commet não aplicou o código de ativação — confira no dashboard se a Offer com o promo code existe (desconto de 99.99%+, sem expiração) e cobre este plano. Nenhuma cobrança foi gerada.",
+        });
+      }
+      /* com 100% de desconto a assinatura pode nascer ativa, sem checkout —
+         devolve ativado:true e o front confirma via verificação/webhook */
+      if (!urlCheckout)
+        return res.status(200).json({ ativado: true, subscriptionId: assinatura.id });
+      return res.status(200).json({ checkoutUrl: urlCheckout, subscriptionId: assinatura.id, codigoAplicado: true, trial: false, trialDays: 0 });
+    }
+
     if (!urlCheckout) return res.status(502).json({ error: "Commet não devolveu a URL de checkout da assinatura." });
 
-    return res.status(200).json({ checkoutUrl: urlCheckout, subscriptionId: assinatura.id, trial: elegivelTeste, trialDays: elegivelTeste ? 30 : 0 });
+    const comTrial = elegivelTeste;
+    return res.status(200).json({ checkoutUrl: urlCheckout, subscriptionId: assinatura.id, trial: comTrial, trialDays: comTrial ? 30 : 0 });
   } catch (e) {
     console.error("[commet/assinatura]", e);
     return res.status(500).json({ error: e.message || "Erro ao criar a assinatura." });

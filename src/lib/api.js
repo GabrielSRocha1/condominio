@@ -561,13 +561,14 @@ export async function loginDiretor(email, senha) {
 
 /* Licença SaaS: pede ao backend (/api/commet/assinatura) o checkout da
    assinatura recorrente da licença do CondoMaster para um condomínio.
-   ciclo: "mensal" ou "anual" — a cobrança é sempre em dólar (USD). */
-export async function assinarLicencaCommet(condominioId, ciclo = "mensal", troca = false) {
+   ciclo: "mensal" ou "anual" — a cobrança é sempre em dólar (USD).
+   codigo: código de ativação (promo code de uma Offer do Commet) — opcional. */
+export async function assinarLicencaCommet(condominioId, ciclo = "mensal", troca = false, codigo = "") {
   let r;
   try {
     r = await fetch("/api/commet/assinatura", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ condominioId, ciclo, troca }),
+      body: JSON.stringify({ condominioId, ciclo, troca, ...(codigo ? { codigo } : {}) }),
     });
   } catch {
     throw new Error("Não foi possível falar com o backend de pagamentos.");

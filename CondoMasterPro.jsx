@@ -2846,6 +2846,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
    Mostra o plano contratado e permite upgrade/downgrade e a escolha do ciclo
    de pagamento (mensal ou anual). A troca grava o novo plano no banco e abre
    o checkout Commet do novo valor; a confirmação chega pelo webhook. */
+const EXTENSAO_TESTE_HABILITADA = false; // oferta de +30 dias de teste desativada temporariamente
 function Planos({ t }) {
   const { db, reload } = useData();
   const tenant = (db.tenants || []).find((x) => x.id === db.ctx.condominioId);
@@ -2934,7 +2935,7 @@ function Planos({ t }) {
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
             <AlertCircle size={13} className="inline" />
             <span>{L("Teste gratuito — termina em")} <b>{Math.max(0, tenant.diasTeste)} {L("dia(s)")}</b>. {L("Depois, a cobrança é feita automaticamente no cartão cadastrado.")}</span>
-            {!tenant.testeEstendido && tenant.diasTeste <= 5 && (
+            {EXTENSAO_TESTE_HABILITADA && !tenant.testeEstendido && tenant.diasTeste <= 5 && (
               /* a extensão só é oferecida nos últimos 5 dias do teste —
                  antes disso o botão fica invisível */
               <Btn t={t} className="!px-2 !py-1 text-xs" disabled={estendendo} onClick={estender}>
@@ -3026,6 +3027,31 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
     finally { setGerando(false); }
   };
 
+  /* código de ativação (pagamento manual): promo code de uma Offer do Commet
+     com 100% de desconto — o checkout abre com total $0 e a ativação chega
+     pelo webhook, como em qualquer assinatura. A gestão (pausar/reativar) é
+     feita no dashboard do Commet. */
+  const [mostrarCodigo, setMostrarCodigo] = useState(false);
+  const [codigo, setCodigo] = useState("");
+  const [ativandoCodigo, setAtivandoCodigo] = useState(false);
+  const [avisoCodigo, setAvisoCodigo] = useState("");
+  const ativarComCodigo = async () => {
+    if (!codigo.trim()) return;
+    setAtivandoCodigo(true); setErro(""); setAvisoCodigo("");
+    try {
+      const resp = await assinarLicencaCommet(condominioId, ciclo, false, codigo.trim());
+      if (resp?.ativado) {
+        /* 100% de desconto sem checkout: a assinatura já nasceu ativa */
+        setAvisoCodigo(L("Código aplicado — liberando o acesso…"));
+        if (!(await verificar())) setAvisoCodigo(L("Código aplicado. Se o acesso não liberar em instantes, use \"Já paguei — verificar\"."));
+      } else if (resp?.checkoutUrl) {
+        setAvisoCodigo(L("Código aplicado — conclua no checkout aberto (o total deve ser $0)."));
+        window.open(resp.checkoutUrl, "_blank", "noopener");
+      }
+    } catch (e) { setErro(e.message); }
+    finally { setAtivandoCodigo(false); }
+  };
+
   /* teste ainda não iniciado no Commet (sem teste_fim): o checkout salva o
      cartão SEM cobrar e libera 30 dias grátis; teste_fim no passado = expirou */
   const trialNovo = licenca === "teste" && !tenant?.testeFim;
@@ -3078,6 +3104,26 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
               <RefreshCw size={15} className={verificando ? "vpulse" : ""} /> {ehDiretor ? L("Já paguei — verificar") : L("Tentar novamente")}</Btn>
             <Btn t={t} className="w-full" onClick={onLogout}><LogOut size={15} /> {L("Sair")}</Btn>
           </div>
+          {ehDiretor && !mostrarCodigo && (
+            <button type="button" onClick={() => setMostrarCodigo(true)}
+              className="mt-3 text-[11px] underline opacity-70 hover:opacity-100"
+              style={{ color: t.dim, background: "none", border: "none" }}>
+              {L("Tenho um código de ativação")}</button>)}
+          {ehDiretor && mostrarCodigo && (
+            <div className="mt-3 space-y-2">
+              <div className="flex gap-2">
+                <input value={codigo} onChange={(e) => setCodigo(e.target.value.toUpperCase())}
+                  placeholder={L("Código de ativação")} autoFocus
+                  onKeyDown={(e) => { if (e.key === "Enter") ativarComCodigo(); }}
+                  className="min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm outline-none"
+                  style={{ background: t.bg, borderColor: t.borderSoft, color: t.text }} />
+                <Btn t={t} kind="primary" disabled={ativandoCodigo || !codigo.trim()} onClick={ativarComCodigo}>
+                  {ativandoCodigo ? L("Ativando…") : L("Ativar")}</Btn>
+              </div>
+              {avisoCodigo && (
+                <div className="rounded-xl border p-2.5 text-xs" style={{ borderColor: t.gold + "55", background: t.goldSoft, color: t.gold }}>
+                  {avisoCodigo}</div>)}
+            </div>)}
           {ehDiretor && (
           <p className="mt-4 text-[11px]" style={{ color: t.dim }}>
             {L("O pagamento abre em uma nova aba, em ambiente seguro. A liberação é automática após a confirmação.")}</p>)}

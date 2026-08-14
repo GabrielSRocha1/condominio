@@ -18,8 +18,14 @@ const supabase = createClient(
 const dado = (r) => (r && typeof r === "object" && "data" in r ? r.data : r);
 const slug = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
 
+/* oferta de +30 dias desativada temporariamente — espelha a flag
+   EXTENSAO_TESTE_HABILITADA do front (CondoMasterPro.jsx) */
+const EXTENSAO_TESTE_HABILITADA = false;
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
+  if (!EXTENSAO_TESTE_HABILITADA)
+    return res.status(503).json({ error: "A extensão do teste gratuito está temporariamente indisponível." });
   if (!process.env.COMMET_API_KEY || process.env.COMMET_API_KEY.startsWith("COLE_AQUI"))
     return res.status(503).json({ error: "COMMET_API_KEY não configurada no .env do servidor." });
   const moedaEnv = (envVal("COMMET_CURRENCY") || "usd").toLowerCase();

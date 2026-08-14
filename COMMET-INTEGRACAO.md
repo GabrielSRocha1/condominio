@@ -95,6 +95,44 @@ cadastrados no próprio condomínio). O fluxo implementado:
 - Rode `supabase-teste-gratis.sql` uma vez no SQL Editor (colunas
   `teste_fim`/`teste_estendido`) e registre os eventos `trial.*` no webhook.
 
+## Código de ativação — pagamento manual (ex.: PAGOMANUAL)
+
+Para clientes que pagam por fora (transferência, acerto direto), o paywall tem
+o link **"Tenho um código de ativação"**: o diretor digita o código e o
+checkout do Commet abre com **total $0** — a assinatura nasce ativa e o acesso
+é liberado por tempo indeterminado, sem cobrança no cartão.
+
+- **Passo manual no dashboard do Commet** (pré-requisito, JÁ FEITO): Offer
+  com promo code `PAGOMANUAL`, desconto **99.99%** (o Commet não aceita 100%)
+  em **every payment**, expiração **Never**, aplicável aos três planos
+  `condomaster_*_usd` (sem restrição de ciclo). Com 99.99% cada fatura sai por
+  ~US$ 0,01 — na prática, de graça. Manter a Offer privada e enviar o código
+  **seletivamente**.
+- O backend (`api/commet/assinatura.js`) valida em duas etapas:
+  1. o código digitado é conferido contra `COMMET_CODIGO_ATIVACAO`
+     (default `PAGOMANUAL`) — errado, recusa na hora, sem abrir checkout;
+  2. após o `subscriptions.create` (com `promoCode` e `skipTrial: true`), a
+     resposta do Commet precisa **provar** que o desconto foi aplicado
+     (promoCode/offerId/discount na assinatura ou total $0). Sem essa prova —
+     tipicamente quando a Offer não existe ou não cobre o plano — a assinatura
+     recém-criada é cancelada (`reason: codigo_nao_aplicado`, ignorado pelo
+     webhook) e o paywall mostra o erro, **sem abrir checkout de preço cheio**.
+- Se a assinatura já nascer ativa (100% off sem checkout), o backend devolve
+  `ativado: true` e o paywall confirma e libera na hora; se vier `checkoutUrl`,
+  o paywall avisa "conclua no checkout aberto (o total deve ser $0)".
+- **Gestão 100% no dashboard do Commet**: se o pagamento manual atrasar,
+  pause/cancele a assinatura do cliente lá — o webhook
+  (`subscription.past_due`/`subscription.canceled`) bloqueia o app sozinho.
+  Ao confirmar o pagamento, reative — `subscription.reactivated` → licença
+  `ativa` e o acesso volta. Nenhum SQL ou tela extra é necessário.
+- **Fallback sem webhook** (ex.: desenvolvimento local): o botão
+  "Verificar pagamento"/"Já paguei — verificar" (`api/commet/licenca.js`)
+  também sincroniza o **cancelamento**: licença local `ativa` (ou teste
+  iniciado) sem assinatura correspondente no Commet → status vira
+  `cancelada`. O "Cancelar assinatura" da tela Planos idem: se a assinatura
+  já foi cancelada por fora, ele apenas sincroniza o status local e responde
+  sucesso, em vez de errar.
+
 ## Moeda — sempre USD
 
 - A licença SaaS é cobrada **sempre em dólar (USD)**. A moeda é decisão do
