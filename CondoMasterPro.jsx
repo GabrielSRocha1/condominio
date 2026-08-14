@@ -995,8 +995,15 @@ function Unidades({ t, role }) {
   };
   const rows = db.unidades.filter((u) => (st === "todos" || u.status === st) && buscaUnidade(u));
   const cols = [{k:"num",l:"Unidade"},{k:"andar",l:"Andar"},{k:"tipo",l:"Tipo"},{k:"status",l:"Status"},{k:"resp",l:"Responsável financeiro"},{k:"fracao",l:"Fração ideal"},{k:"saldo",l:"Saldo"}];
+  /* franquia de unidades do plano: acima dela nada é bloqueado — o excedente
+     é cobrado pelo Commet na fatura da licença (feature medida) */
+  const limiteUn = db.tenants.find((x) => x.id === db.ctx.condominioId)?.limiteUnidades;
   return (
     <div className="vfade">
+      {limiteUn && db.unidades.length > limiteUn && (
+        <div className="mb-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
+          <AlertCircle size={13} className="mr-1 inline" />
+          {L("Acima da franquia do plano")} ({db.unidades.length} / {limiteUn} {L("unidades")}) — {L("o excedente é cobrado por unidade adicional na fatura da licença.")}</div>)}
       <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por unidade, andar, tipo, status ou responsável…"
         action={podeCriar ? <Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Unidade</Btn> : null}>
         <Sel t={t} value={st} onChange={setSt} opts={[["todos","Todos os status"],["ocupada","Ocupada"],["alugada","Alugada"],["vaga","Vaga"],["vendida","Vendida"],["reservada","Reservada"],["inativa","Inativa"]]} />

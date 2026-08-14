@@ -30,6 +30,8 @@ export default {
   "Assinatura cancelada.": "サブスクリプションを解約しました。",
   "Assinatura cancelada em": "解約日：", "o acesso será desativado em": "アクセス停止日：",
   "Nenhuma cobrança futura será feita.": "今後の請求は発生しません。",
+  "Acima da franquia do plano": "プランの上限を超えています",
+  "o excedente é cobrado por unidade adicional na fatura da licença.": "超過分はライセンス請求書に住戸ごとに加算されます。",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "役割を分離：所有者、入居者、従業員、業者",
   "Competência 06/2026 · aprovações do síndico ativas": "対象月 06/2026 · 管理者承認が有効",
   "QR Code Verum Pay com baixa automática": "Verum Pay QRコードで自動消込",

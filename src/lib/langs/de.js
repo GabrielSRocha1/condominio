@@ -30,6 +30,8 @@ export default {
   "Assinatura cancelada.": "Abonnement gekündigt.",
   "Assinatura cancelada em": "Abonnement gekündigt am", "o acesso será desativado em": "der Zugang wird deaktiviert am",
   "Nenhuma cobrança futura será feita.": "Es erfolgen keine weiteren Abbuchungen.",
+  "Acima da franquia do plano": "Über dem Inklusivkontingent des Tarifs",
+  "o excedente é cobrado por unidade adicional na fatura da licença.": "der Mehrverbrauch wird pro zusätzlicher Einheit über die Lizenzrechnung abgerechnet.",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "Getrennte Rollen: Eigentümer, Mieter, Mitarbeiter und Dienstleister",
   "Competência 06/2026 · aprovações do síndico ativas": "Periode 06/2026 · Freigaben des Verwalters aktiv",
   "QR Code Verum Pay com baixa automática": "Verum-Pay-QR-Code mit automatischer Verbuchung",

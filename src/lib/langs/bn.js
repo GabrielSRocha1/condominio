@@ -30,6 +30,8 @@ export default {
   "Assinatura cancelada.": "সাবস্ক্রিপশন বাতিল হয়েছে।",
   "Assinatura cancelada em": "সাবস্ক্রিপশন বাতিল হয়েছে", "o acesso será desativado em": "অ্যাক্সেস নিষ্ক্রিয় হবে",
   "Nenhuma cobrança futura será feita.": "ভবিষ্যতে কোনো চার্জ কাটা হবে না।",
+  "Acima da franquia do plano": "প্ল্যানের অন্তর্ভুক্ত সীমার বেশি",
+  "o excedente é cobrado por unidade adicional na fatura da licença.": "অতিরিক্ত প্রতিটি ইউনিটের চার্জ লাইসেন্স বিলে যোগ হবে।",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "আলাদা ভূমিকা: মালিক, ভাড়াটে, কর্মচারী ও সেবাদাতা",
   "Competência 06/2026 · aprovações do síndico ativas": "সময়কাল ০৬/২০২৬ · ব্যবস্থাপকের অনুমোদন সক্রিয়",
   "QR Code Verum Pay com baixa automática": "স্বয়ংক্রিয় সমন্বয়সহ Verum Pay QR কোড",

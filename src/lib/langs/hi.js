@@ -30,6 +30,8 @@ export default {
   "Assinatura cancelada.": "सदस्यता रद्द कर दी गई।",
   "Assinatura cancelada em": "सदस्यता रद्द की गई:", "o acesso será desativado em": "एक्सेस निष्क्रिय होगा:",
   "Nenhuma cobrança futura será feita.": "आगे कोई शुल्क नहीं लगेगा।",
+  "Acima da franquia do plano": "प्लान की शामिल सीमा से अधिक",
+  "o excedente é cobrado por unidade adicional na fatura da licença.": "अतिरिक्त प्रत्येक यूनिट का शुल्क लाइसेंस बिल में जोड़ा जाएगा।",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "अलग-अलग भूमिकाएँ: मालिक, किरायेदार, कर्मचारी और सेवा प्रदाता",
   "Competência 06/2026 · aprovações do síndico ativas": "अवधि 06/2026 · प्रबंधक की स्वीकृतियाँ सक्रिय",
   "QR Code Verum Pay com baixa automática": "स्वचालित मिलान वाला Verum Pay QR कोड",

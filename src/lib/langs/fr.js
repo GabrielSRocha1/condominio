@@ -30,6 +30,8 @@ export default {
   "Assinatura cancelada.": "Abonnement annulé.",
   "Assinatura cancelada em": "Abonnement annulé le", "o acesso será desativado em": "l'accès sera désactivé le",
   "Nenhuma cobrança futura será feita.": "Aucun prélèvement futur ne sera effectué.",
+  "Acima da franquia do plano": "Au-delà du quota inclus dans le forfait",
+  "o excedente é cobrado por unidade adicional na fatura da licença.": "l'excédent est facturé par unité supplémentaire sur la facture de la licence.",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "Rôles séparés : propriétaire, locataire, employé et prestataire",
   "Competência 06/2026 · aprovações do síndico ativas": "Période 06/2026 · approbations du syndic actives",
   "QR Code Verum Pay com baixa automática": "QR Code Verum Pay avec règlement automatique",

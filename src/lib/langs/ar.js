@@ -30,6 +30,8 @@ export default {
   "Assinatura cancelada.": "تم إلغاء الاشتراك.",
   "Assinatura cancelada em": "تم إلغاء الاشتراك في", "o acesso será desativado em": "سيتم إيقاف الوصول في",
   "Nenhuma cobrança futura será feita.": "لن تُخصم أي مبالغ مستقبلًا.",
+  "Acima da franquia do plano": "تجاوز الحد المشمول في الباقة",
+  "o excedente é cobrado por unidade adicional na fatura da licença.": "يُحتسب الفائض عن كل وحدة إضافية في فاتورة الترخيص.",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "أدوار منفصلة: مالك ومستأجر وموظف ومزوّد خدمة",
   "Competência 06/2026 · aprovações do síndico ativas": "الفترة 06/2026 · موافقات المدير مفعّلة",
   "QR Code Verum Pay com baixa automática": "رمز QR من Verum Pay مع تسوية تلقائية",

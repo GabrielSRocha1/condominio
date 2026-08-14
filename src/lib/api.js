@@ -92,7 +92,7 @@ const ACESSO_UI = {
 /* ─────────── carga completa ─────────── */
 export async function loadAll(condominioId) {
   const tenantsRaw = await q(
-    supabase.from("condominios").select("id, nome_fantasia, saas_assinaturas(status, renovacao, teste_fim, teste_estendido, cancelamento_agendado_em, acesso_ate, saas_planos(nome, preco_mensal, preco_anual)), unidades(count)").order("criado_em"),
+    supabase.from("condominios").select("id, nome_fantasia, saas_assinaturas(status, renovacao, teste_fim, teste_estendido, cancelamento_agendado_em, acesso_ate, saas_planos(nome, preco_mensal, preco_anual, limite_unidades)), unidades(count)").order("criado_em"),
     "condominios"
   );
   if (!tenantsRaw.length) return { vazio: true }; // banco em branco: o app mostra o fluxo de primeiro acesso
@@ -282,6 +282,9 @@ export async function loadAll(condominioId) {
       /* cancelamento agendado: aviso na tela Planos até o fim do acesso */
       canceladoEm: a?.cancelamento_agendado_em || null,
       acessoAte: a?.acesso_ate || null,
+      /* franquia de unidades do plano (NULL = ilimitado) — excedente é
+         cobrado pelo Commet via feature medida, sem bloqueio no app */
+      limiteUnidades: a?.saas_planos?.limite_unidades ?? null,
     };
   });
 
@@ -654,6 +657,18 @@ const precisaUsuario = (ctx) => {
   return ctx.usuarioId;
 };
 
+/* Espelha no Commet o total de unidades ativas (feature medida "UND" —
+   franquia do plano + excedente por unidade). Fire-and-forget: falha ou
+   backend ausente (npm run dev) não interrompem o cadastro. */
+const sincronizarUsoUnidades = (condominioId) => {
+  try {
+    fetch("/api/commet/uso-unidades", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ condominioId }),
+    }).catch(() => { /* sem backend local */ });
+  } catch { /* ambiente sem fetch */ }
+};
+
 /* Cria uma unidade ou um intervalo delas (f.numero até f.numeroAte, ex.: 1 a 100).
    Números que já existem no bloco são pulados. Retorna quantas foram criadas. */
 export async function criarUnidade(ctx, f) {
@@ -726,6 +741,7 @@ export async function criarUnidade(ctx, f) {
   };
   await q(supabase.from("unidades").insert(novos.map(({ numero, andar }) => ({ ...base, numero, andar }))).select(), "unidades");
   await recalcularFracoes(ctx);
+  sincronizarUsoUnidades(ctx.condominioId); // franquia/excedente da licença
   return novos.length;
 }
 
@@ -783,6 +799,7 @@ export async function excluirUnidade(ctx, id) {
   await q(supabase.from("unidades").update({ deletado_em: new Date().toISOString(), responsavel_financeiro_id: null })
     .eq("id", id).select(), "unidades");
   await recalcularFracoes(ctx);
+  sincronizarUsoUnidades(ctx.condominioId); // franquia/excedente da licença
 }
 
 /* Altera a área privativa de uma unidade e refaz as frações do prédio todo */

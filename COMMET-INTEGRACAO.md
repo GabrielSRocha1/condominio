@@ -54,6 +54,22 @@ cadastrados no próprio condomínio). O fluxo implementado:
 - `api/commet/cancelar-assinatura.js` — cancelamento pelo cliente (agendado:
   acesso até o fim do período pago; o webhook marca "cancelada" ao terminar).
 - `api/commet/estender-teste.js` — extensão única do teste gratuito (+30 dias).
+- `api/commet/uso-unidades.js` — espelha o total de unidades ativas na
+  feature medida "UND" (franquia do plano + excedente por unidade).
+
+## Franquia de unidades — excedente cobrado, sem bloqueio
+
+- `saas_planos.limite_unidades` é a **franquia** do plano (100/500/2000) —
+  o app não bloqueia o cadastro acima dela; a tela Unidades mostra um aviso
+  e o excedente é cobrado pelo Commet na fatura da assinatura.
+- O front chama `POST /api/commet/uso-unidades` após criar/excluir unidade
+  (fire-and-forget); o endpoint conta as unidades ativas no Supabase e
+  sincroniza a feature `100_unidades` (exibida como "UND"; code configurável
+  via `COMMET_FEATURE_UNIDADES`) — `seats.set` para feature de contagem,
+  `usage.set` para feature medida.
+- **Passo manual no painel Commet**: a feature `100_unidades` deve estar
+  anexada aos TRÊS planos `_usd` com as franquias respectivas (Essencial 100,
+  Standard 500, Premium 2000) e o excedente por unidade habilitado.
 - `src/lib/api.js` → `assinarLicencaCommet()`, `trocarPlanoLicenca()`,
   `verificarLicencaCommet()` — chamadas do front.
 

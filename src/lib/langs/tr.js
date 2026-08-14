@@ -30,6 +30,8 @@ export default {
   "Assinatura cancelada.": "Abonelik iptal edildi.",
   "Assinatura cancelada em": "Abonelik iptal tarihi:", "o acesso será desativado em": "erişim şu tarihte kapanacak:",
   "Nenhuma cobrança futura será feita.": "Gelecekte ücret alınmayacak.",
+  "Acima da franquia do plano": "Plan dahilindeki limitin üzerinde",
+  "o excedente é cobrado por unidade adicional na fatura da licença.": "aşım, lisans faturasında ek daire başına ücretlendirilir.",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "Ayrı roller: mal sahibi, kiracı, çalışan ve tedarikçi",
   "Competência 06/2026 · aprovações do síndico ativas": "Dönem 06/2026 · yönetici onayları etkin",
   "QR Code Verum Pay com baixa automática": "Otomatik mutabakatlı Verum Pay QR kodu",

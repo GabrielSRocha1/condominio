@@ -30,6 +30,8 @@ export default {
   "Assinatura cancelada.": "Подписка отменена.",
   "Assinatura cancelada em": "Подписка отменена", "o acesso será desativado em": "доступ будет отключён",
   "Nenhuma cobrança futura será feita.": "Дальнейших списаний не будет.",
+  "Acima da franquia do plano": "Превышен лимит тарифа",
+  "o excedente é cobrado por unidade adicional na fatura da licença.": "превышение оплачивается за каждую дополнительную квартиру в счёте за лицензию.",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "Раздельные роли: собственник, арендатор, сотрудник и подрядчик",
   "Competência 06/2026 · aprovações do síndico ativas": "Период 06/2026 · согласования управляющего включены",
   "QR Code Verum Pay com baixa automática": "QR-код Verum Pay с автоматическим зачислением",

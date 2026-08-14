@@ -30,6 +30,8 @@ export default {
   "Assinatura cancelada.": "订阅已取消。",
   "Assinatura cancelada em": "订阅取消于", "o acesso será desativado em": "访问将停用于",
   "Nenhuma cobrança futura será feita.": "不再产生任何扣款。",
+  "Acima da franquia do plano": "已超出套餐包含额度",
+  "o excedente é cobrado por unidade adicional na fatura da licença.": "超出部分将按每个单元计入许可证账单。",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "角色分离：业主、租户、员工和服务商",
   "Competência 06/2026 · aprovações do síndico ativas": "账期 06/2026 · 物业经理审批已启用",
   "QR Code Verum Pay com baixa automática": "Verum Pay 二维码自动核销",

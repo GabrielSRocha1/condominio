@@ -30,6 +30,8 @@ export default {
   "Assinatura cancelada.": "구독이 해지되었습니다.",
   "Assinatura cancelada em": "구독 해지일:", "o acesso será desativado em": "접속 중지일:",
   "Nenhuma cobrança futura será feita.": "향후 청구는 없습니다.",
+  "Acima da franquia do plano": "요금제 포함 한도 초과",
+  "o excedente é cobrado por unidade adicional na fatura da licença.": "초과분은 라이선스 청구서에 세대당 부과됩니다.",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "역할 분리: 소유주, 임차인, 직원, 협력업체",
   "Competência 06/2026 · aprovações do síndico ativas": "귀속월 06/2026 · 관리소장 승인 활성",
   "QR Code Verum Pay com baixa automática": "자동 정산되는 Verum Pay QR 코드",

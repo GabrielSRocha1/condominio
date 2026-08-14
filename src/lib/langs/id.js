@@ -30,6 +30,8 @@ export default {
   "Assinatura cancelada.": "Langganan dibatalkan.",
   "Assinatura cancelada em": "Langganan dibatalkan pada", "o acesso será desativado em": "akses akan dinonaktifkan pada",
   "Nenhuma cobrança futura será feita.": "Tidak ada tagihan berikutnya.",
+  "Acima da franquia do plano": "Melebihi kuota paket",
+  "o excedente é cobrado por unidade adicional na fatura da licença.": "kelebihan ditagih per unit tambahan pada tagihan lisensi.",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "Peran terpisah: pemilik, penyewa, karyawan, dan penyedia jasa",
   "Competência 06/2026 · aprovações do síndico ativas": "Periode 06/2026 · persetujuan pengelola aktif",
   "QR Code Verum Pay com baixa automática": "QR Code Verum Pay dengan pelunasan otomatis",
