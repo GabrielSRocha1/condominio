@@ -50,10 +50,18 @@ export default async function handler(req, res) {
     }));
 
     const fim = resp?.endDate || resp?.currentPeriod?.end || atual.trialEndsAt || atual.currentPeriod?.end || null;
-    return res.status(200).json({
-      cancelada: true, imediato,
-      fimAcesso: fim ? String(fim).slice(0, 10) : null,
-    });
+    const fimAcesso = fim ? String(fim).slice(0, 10) : null;
+
+    /* persiste as datas para o aviso da tela Planos (voltam a NULL na reativação).
+       Não-fatal: se a migração supabase-cancelamento.sql ainda não rodou, o
+       cancelamento no Commet já aconteceu — só o aviso deixa de aparecer. */
+    const { error: eUp } = await supabase.from("saas_assinaturas")
+      .update({ cancelamento_agendado_em: new Date().toISOString().slice(0, 10), acesso_ate: fimAcesso })
+      .eq("condominio_id", condominioId)
+      .neq("status", "cancelada");
+    if (eUp) console.error("[commet/cancelar-assinatura] datas do aviso não gravadas:", eUp.message);
+
+    return res.status(200).json({ cancelada: true, imediato, fimAcesso });
   } catch (e) {
     console.error("[commet/cancelar-assinatura]", e);
     return res.status(500).json({ error: e.message || "Erro ao cancelar a assinatura." });

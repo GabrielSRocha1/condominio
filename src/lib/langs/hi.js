@@ -28,6 +28,8 @@ export default {
   "Cancelar a assinatura? O acesso continua até o fim do período já pago e nenhuma cobrança futura será feita.": "सदस्यता रद्द करें? भुगतान की गई अवधि के अंत तक एक्सेस जारी रहेगा और आगे कोई शुल्क नहीं लगेगा।",
   "Cancelamento agendado — o acesso continua até": "रद्दीकरण निर्धारित — एक्सेस जारी रहेगा",
   "Assinatura cancelada.": "सदस्यता रद्द कर दी गई।",
+  "Assinatura cancelada em": "सदस्यता रद्द की गई:", "o acesso será desativado em": "एक्सेस निष्क्रिय होगा:",
+  "Nenhuma cobrança futura será feita.": "आगे कोई शुल्क नहीं लगेगा।",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "अलग-अलग भूमिकाएँ: मालिक, किरायेदार, कर्मचारी और सेवा प्रदाता",
   "Competência 06/2026 · aprovações do síndico ativas": "अवधि 06/2026 · प्रबंधक की स्वीकृतियाँ सक्रिय",
   "QR Code Verum Pay com baixa automática": "स्वचालित मिलान वाला Verum Pay QR कोड",

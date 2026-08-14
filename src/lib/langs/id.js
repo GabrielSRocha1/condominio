@@ -28,6 +28,8 @@ export default {
   "Cancelar a assinatura? O acesso continua até o fim do período já pago e nenhuma cobrança futura será feita.": "Batalkan langganan? Akses berlanjut sampai akhir periode yang sudah dibayar dan tidak ada tagihan berikutnya.",
   "Cancelamento agendado — o acesso continua até": "Pembatalan dijadwalkan — akses berlanjut sampai",
   "Assinatura cancelada.": "Langganan dibatalkan.",
+  "Assinatura cancelada em": "Langganan dibatalkan pada", "o acesso será desativado em": "akses akan dinonaktifkan pada",
+  "Nenhuma cobrança futura será feita.": "Tidak ada tagihan berikutnya.",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "Peran terpisah: pemilik, penyewa, karyawan, dan penyedia jasa",
   "Competência 06/2026 · aprovações do síndico ativas": "Periode 06/2026 · persetujuan pengelola aktif",
   "QR Code Verum Pay com baixa automática": "QR Code Verum Pay dengan pelunasan otomatis",

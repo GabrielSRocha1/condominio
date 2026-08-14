@@ -43,6 +43,14 @@ export default async function handler(req, res) {
         .eq("condominio_id", condominioId)
         .neq("status", "cancelada");
       if (error) throw new Error(error.message);
+      /* sem cancelamento agendado no Commet: apaga o aviso da tela Planos
+         (best-effort — não trava a sincronização se a coluna não existir).
+         Com cancelAtPeriodEnd o aviso permanece: a assinatura segue "active"
+         até o fim do período, mas o cancelamento está marcado. */
+      if (!assinatura.cancelAtPeriodEnd)
+        await supabase.from("saas_assinaturas")
+          .update({ cancelamento_agendado_em: null, acesso_ate: null })
+          .eq("condominio_id", condominioId).neq("status", "cancelada");
     } else if (teste) {
       /* sincroniza o fim do teste — fallback para quando o webhook
          trial.started não alcança o servidor (ex.: desenvolvimento local) */

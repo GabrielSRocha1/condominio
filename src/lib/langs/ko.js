@@ -28,6 +28,8 @@ export default {
   "Cancelar a assinatura? O acesso continua até o fim do período já pago e nenhuma cobrança futura será feita.": "구독을 해지할까요? 이미 결제된 기간이 끝날 때까지 이용 가능하며 이후 청구는 없습니다.",
   "Cancelamento agendado — o acesso continua até": "해지 예약됨 — 이용 가능 기한:",
   "Assinatura cancelada.": "구독이 해지되었습니다.",
+  "Assinatura cancelada em": "구독 해지일:", "o acesso será desativado em": "접속 중지일:",
+  "Nenhuma cobrança futura será feita.": "향후 청구는 없습니다.",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "역할 분리: 소유주, 임차인, 직원, 협력업체",
   "Competência 06/2026 · aprovações do síndico ativas": "귀속월 06/2026 · 관리소장 승인 활성",
   "QR Code Verum Pay com baixa automática": "자동 정산되는 Verum Pay QR 코드",

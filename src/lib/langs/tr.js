@@ -28,6 +28,8 @@ export default {
   "Cancelar a assinatura? O acesso continua até o fim do período já pago e nenhuma cobrança futura será feita.": "Abonelik iptal edilsin mi? Erişim, ödenmiş dönemin sonuna kadar devam eder ve gelecekte ücret alınmaz.",
   "Cancelamento agendado — o acesso continua até": "İptal planlandı — erişim şu tarihe kadar devam eder:",
   "Assinatura cancelada.": "Abonelik iptal edildi.",
+  "Assinatura cancelada em": "Abonelik iptal tarihi:", "o acesso será desativado em": "erişim şu tarihte kapanacak:",
+  "Nenhuma cobrança futura será feita.": "Gelecekte ücret alınmayacak.",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "Ayrı roller: mal sahibi, kiracı, çalışan ve tedarikçi",
   "Competência 06/2026 · aprovações do síndico ativas": "Dönem 06/2026 · yönetici onayları etkin",
   "QR Code Verum Pay com baixa automática": "Otomatik mutabakatlı Verum Pay QR kodu",

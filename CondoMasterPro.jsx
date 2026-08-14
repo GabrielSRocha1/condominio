@@ -2851,6 +2851,10 @@ function Planos({ t }) {
   const atual = (planos || []).find((p) => p.nome === tenant?.plano);
   const licencaAtiva = tenant?.status === "ativo";
   const emTeste = tenant?.status === "teste" && !!tenant?.testeFim; // teste gratuito em andamento
+  /* cancelamento agendado: o acesso segue até acesso_ate; o webhook marca
+     "cancelada" quando o período termina (aí o paywall assume) */
+  const cancelamentoAgendado = !!tenant?.canceladoEm && (licencaAtiva || emTeste);
+  const dBR = (iso) => (iso ? iso.split("-").reverse().join("/") : "—");
   const [estendendo, setEstendendo] = useState(false);
   const [cancelando, setCancelando] = useState(false);
   const cancelar = async () => {
@@ -2915,7 +2919,11 @@ function Planos({ t }) {
           </div>
           {tenant && <Badge t={t} s={tenant.status} />}
         </div>
-        {emTeste ? (
+        {cancelamentoAgendado ? (
+          <div className="mt-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.danger + "55", background: t.danger + "12", color: t.danger }}>
+            <AlertCircle size={13} className="mr-1 inline" />
+            {L("Assinatura cancelada em")} <b>{dBR(tenant.canceladoEm)}</b> — {L("o acesso será desativado em")} <b>{dBR(tenant.acessoAte)}</b>. {L("Nenhuma cobrança futura será feita.")}</div>
+        ) : emTeste ? (
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
             <AlertCircle size={13} className="inline" />
             <span>{L("Teste gratuito — termina em")} <b>{Math.max(0, tenant.diasTeste)} {L("dia(s)")}</b>. {L("Depois, a cobrança é feita automaticamente no cartão cadastrado.")}</span>
@@ -2960,7 +2968,7 @@ function Planos({ t }) {
       </div>
       <div className="text-[11px]" style={{ color: t.dim }}>
         {L("Na troca de plano, a assinatura atual é atualizada automaticamente no Commet (upgrade cobra a diferença com rateio; downgrade é agendado para o fim do período já pago) — a anterior é substituída, sem cobrança dupla. Após pagar, use \"Verificar pagamento\" para sincronizar o status.")}</div>
-      {(licencaAtiva || emTeste) && (
+      {(licencaAtiva || emTeste) && !cancelamentoAgendado && (
         <div className="text-right">
           <button onClick={cancelar} disabled={cancelando} className="text-[11px] underline opacity-70 hover:opacity-100" style={{ color: t.dim, background: "none", border: "none" }}>
             {cancelando ? "Cancelando…" : L("Cancelar assinatura")}</button>

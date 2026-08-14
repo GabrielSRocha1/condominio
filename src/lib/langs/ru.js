@@ -28,6 +28,8 @@ export default {
   "Cancelar a assinatura? O acesso continua até o fim do período já pago e nenhuma cobrança futura será feita.": "Отменить подписку? Доступ сохранится до конца оплаченного периода; дальнейших списаний не будет.",
   "Cancelamento agendado — o acesso continua até": "Отмена запланирована — доступ сохранится до",
   "Assinatura cancelada.": "Подписка отменена.",
+  "Assinatura cancelada em": "Подписка отменена", "o acesso será desativado em": "доступ будет отключён",
+  "Nenhuma cobrança futura será feita.": "Дальнейших списаний не будет.",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "Раздельные роли: собственник, арендатор, сотрудник и подрядчик",
   "Competência 06/2026 · aprovações do síndico ativas": "Период 06/2026 · согласования управляющего включены",
   "QR Code Verum Pay com baixa automática": "QR-код Verum Pay с автоматическим зачислением",

@@ -92,7 +92,7 @@ const ACESSO_UI = {
 /* ─────────── carga completa ─────────── */
 export async function loadAll(condominioId) {
   const tenantsRaw = await q(
-    supabase.from("condominios").select("id, nome_fantasia, saas_assinaturas(status, renovacao, teste_fim, teste_estendido, saas_planos(nome, preco_mensal, preco_anual)), unidades(count)").order("criado_em"),
+    supabase.from("condominios").select("id, nome_fantasia, saas_assinaturas(status, renovacao, teste_fim, teste_estendido, cancelamento_agendado_em, acesso_ate, saas_planos(nome, preco_mensal, preco_anual)), unidades(count)").order("criado_em"),
     "condominios"
   );
   if (!tenantsRaw.length) return { vazio: true }; // banco em branco: o app mostra o fluxo de primeiro acesso
@@ -279,6 +279,9 @@ export async function loadAll(condominioId) {
       testeFim: a?.teste_fim || null,
       testeEstendido: !!a?.teste_estendido,
       diasTeste: a?.teste_fim ? Math.ceil((new Date(`${a.teste_fim}T23:59:59`) - Date.now()) / 86400000) : null,
+      /* cancelamento agendado: aviso na tela Planos até o fim do acesso */
+      canceladoEm: a?.cancelamento_agendado_em || null,
+      acessoAte: a?.acesso_ate || null,
     };
   });
 

@@ -101,6 +101,12 @@ export default async function handler(req, res) {
         .neq("status", "cancelada");
       if (eAss) console.error("[commet/webhook] licença não atualizada:", eAss.message);
       else console.log(`[commet/webhook] licença do condomínio ${data.customerId} → ${novo.status}`);
+      /* licença reativada: apaga o aviso de cancelamento agendado (best-effort —
+         update separado para não travar a ativação se a coluna não existir) */
+      if (novo.status === "ativa")
+        await supabase.from("saas_assinaturas")
+          .update({ cancelamento_agendado_em: null, acesso_ate: null })
+          .eq("condominio_id", data.customerId).neq("status", "cancelada");
     }
 
     return res.status(200).json({ ok: true }); // 200 rápido evita reentregas desnecessárias

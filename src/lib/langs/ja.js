@@ -28,6 +28,8 @@ export default {
   "Cancelar a assinatura? O acesso continua até o fim do período já pago e nenhuma cobrança futura será feita.": "サブスクリプションを解約しますか？支払い済み期間の終了まで利用でき、以降の請求は発生しません。",
   "Cancelamento agendado — o acesso continua até": "解約予約済み — 利用可能期限：",
   "Assinatura cancelada.": "サブスクリプションを解約しました。",
+  "Assinatura cancelada em": "解約日：", "o acesso será desativado em": "アクセス停止日：",
+  "Nenhuma cobrança futura será feita.": "今後の請求は発生しません。",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "役割を分離：所有者、入居者、従業員、業者",
   "Competência 06/2026 · aprovações do síndico ativas": "対象月 06/2026 · 管理者承認が有効",
   "QR Code Verum Pay com baixa automática": "Verum Pay QRコードで自動消込",

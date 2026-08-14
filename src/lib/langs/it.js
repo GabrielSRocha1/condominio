@@ -28,6 +28,8 @@ export default {
   "Cancelar a assinatura? O acesso continua até o fim do período já pago e nenhuma cobrança futura será feita.": "Annullare l'abbonamento? L'accesso continua fino alla fine del periodo già pagato e non ci saranno addebiti futuri.",
   "Cancelamento agendado — o acesso continua até": "Annullamento programmato — l'accesso continua fino al",
   "Assinatura cancelada.": "Abbonamento annullato.",
+  "Assinatura cancelada em": "Abbonamento annullato il", "o acesso será desativado em": "l'accesso sarà disattivato il",
+  "Nenhuma cobrança futura será feita.": "Non ci saranno addebiti futuri.",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "Ruoli separati: proprietario, inquilino, dipendente e fornitore",
   "Competência 06/2026 · aprovações do síndico ativas": "Periodo 06/2026 · approvazioni dell'amministratore attive",
   "QR Code Verum Pay com baixa automática": "QR Code Verum Pay con registrazione automatica",

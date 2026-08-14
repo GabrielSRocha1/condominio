@@ -28,6 +28,8 @@ export default {
   "Cancelar a assinatura? O acesso continua até o fim do período já pago e nenhuma cobrança futura será feita.": "取消订阅？在已付费周期结束前仍可使用，之后不再产生任何扣款。",
   "Cancelamento agendado — o acesso continua até": "已安排取消 — 可继续使用至",
   "Assinatura cancelada.": "订阅已取消。",
+  "Assinatura cancelada em": "订阅取消于", "o acesso será desativado em": "访问将停用于",
+  "Nenhuma cobrança futura será feita.": "不再产生任何扣款。",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "角色分离：业主、租户、员工和服务商",
   "Competência 06/2026 · aprovações do síndico ativas": "账期 06/2026 · 物业经理审批已启用",
   "QR Code Verum Pay com baixa automática": "Verum Pay 二维码自动核销",

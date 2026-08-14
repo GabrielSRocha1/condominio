@@ -28,6 +28,8 @@ export default {
   "Cancelar a assinatura? O acesso continua até o fim do período já pago e nenhuma cobrança futura será feita.": "إلغاء الاشتراك؟ يستمر الوصول حتى نهاية الفترة المدفوعة ولن تُخصم أي مبالغ مستقبلًا.",
   "Cancelamento agendado — o acesso continua até": "تم جدولة الإلغاء — يستمر الوصول حتى",
   "Assinatura cancelada.": "تم إلغاء الاشتراك.",
+  "Assinatura cancelada em": "تم إلغاء الاشتراك في", "o acesso será desativado em": "سيتم إيقاف الوصول في",
+  "Nenhuma cobrança futura será feita.": "لن تُخصم أي مبالغ مستقبلًا.",
   "Papéis separados: proprietário, inquilino, funcionário e prestador": "أدوار منفصلة: مالك ومستأجر وموظف ومزوّد خدمة",
   "Competência 06/2026 · aprovações do síndico ativas": "الفترة 06/2026 · موافقات المدير مفعّلة",
   "QR Code Verum Pay com baixa automática": "رمز QR من Verum Pay مع تسوية تلقائية",
