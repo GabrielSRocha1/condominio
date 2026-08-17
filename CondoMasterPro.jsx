@@ -500,8 +500,9 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
       <div className="pointer-events-none fixed inset-0" style={{ background: `radial-gradient(600px 300px at 50% 0%, ${t.gold}14, transparent)` }} />
       <div className="vfade w-full max-w-md">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl text-lg font-bold"
-            style={{ background: t.goldSoft, color: t.gold, border: `1px solid ${t.border}`, fontFamily: "'Sora',sans-serif" }}>CM</div>
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl p-1.5"
+            style={{ background: t.goldSoft, border: `1px solid ${t.border}` }}>
+            <img src="/favicon-cm.png" alt="CondoMaster" className="max-h-full max-w-full object-contain" /></div>
           <h1 className="text-xl font-bold tracking-wide" style={{ fontFamily: "'Sora',sans-serif" }}>
             CONDOMASTER <span style={{ color: t.gold }}>PRO</span></h1>
           <p className="mt-1 text-xs" style={{ color: t.dim }}>{L("Gestão condominial premium · powered by Serve Now Global")}</p>
