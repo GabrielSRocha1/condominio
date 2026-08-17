@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from "react";
 import QRCodeLib from "qrcode";
 import {
   LayoutDashboard, Building2, Home, Users, Wallet, QrCode, Gavel, Megaphone,
@@ -212,6 +212,34 @@ const SectionTitle = ({ t, children, action }) => (
     <h2 className="text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif", color: t.text }}>{trKids(children)}</h2>{action}
   </div>
 );
+
+/* Texto em linha única que escala a fonte para preencher a largura do container,
+   entre minPx e maxPx — o conteúdo é dinâmico e nunca deve passar da margem. */
+const FitText = ({ text, maxPx = 28, minPx = 8, className = "", style = {} }) => {
+  const boxRef = useRef(null);
+  const spanRef = useRef(null);
+  const [px, setPx] = useState(minPx);
+  useLayoutEffect(() => {
+    const box = boxRef.current, span = spanRef.current;
+    if (!box || !span) return;
+    const fit = () => {
+      const prev = span.style.fontSize;
+      span.style.fontSize = maxPx + "px";
+      const w = span.scrollWidth;
+      span.style.fontSize = prev;
+      if (w > 0 && box.clientWidth > 0) setPx(Math.max(minPx, Math.min(maxPx, (maxPx * box.clientWidth) / w)));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [text, maxPx, minPx]);
+  return (
+    <div ref={boxRef} className={className} style={{ width: "100%", overflow: "hidden", ...style }}>
+      <span ref={spanRef} style={{ display: "inline-block", whiteSpace: "nowrap", fontSize: px, lineHeight: 1.2 }}>{text}</span>
+    </div>
+  );
+};
 
 const Btn = ({ t, kind = "ghost", children, className = "", ...rest }) => {
   const s = {
@@ -3302,12 +3330,10 @@ export default function App() {
         <aside className={`fixed inset-y-0 left-0 z-40 w-60 border-r transition-transform lg:static lg:translate-x-0 ${sideOpen ? "translate-x-0" : "-translate-x-full"}`}
           style={{ background: t.sidebar, borderColor: t.borderSoft }}>
           <div className="flex h-full flex-col p-4">
-            <div className="mb-6 flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-bold" style={{ background: t.goldSoft, color: t.gold, border: `1px solid ${t.border}`, fontFamily: "'Sora',sans-serif" }}>CM</div>
-              <div>
-                <div className="text-sm font-bold tracking-wide" style={{ fontFamily: "'Sora',sans-serif" }}>CONDOMASTER <span style={{ color: t.gold }}>PRO</span></div>
-                <div className="text-[10px]" style={{ color: t.dim }}>{db?.ctx.condominioNome || "…"}</div>
-              </div>
+            <div className="mb-6 max-w-[190px] px-1">
+              <img src="/logo-menu.png" alt="CondoMaster" className="w-full object-contain" />
+              <FitText text={db?.ctx.condominioNome || "…"} className="mt-1.5 font-semibold"
+                style={{ color: t.dim, fontFamily: "'Sora',sans-serif" }} />
             </div>
             <nav className="flex-1 space-y-0.5 overflow-y-auto">
               {nav.map((n) => {
