@@ -86,7 +86,7 @@ export default {
   "aguarda decisão do síndico": "ব্যবস্থাপকের সিদ্ধান্তের অপেক্ষায়",
   "cobrança(s) vencida(s) somando": "টি বকেয়া বিল, মোট",
   "sem responsável designado": "কোনো দায়িত্বপ্রাপ্ত নেই",
-  "Pago": "পরিশোধিত", "Parcial": "আংশিক", "Em aberto": "খোলা", "Aguardando": "অপেক্ষমাণ", "Vencida": "বকেয়া", "Emitida": "ইস্যুকৃত",
+  "Pago": "পরিশোধিত", "Entrada": "প্রাপ্ত", "Parcial": "আংশিক", "Em aberto": "খোলা", "Aguardando": "অপেক্ষমাণ", "Vencida": "বকেয়া", "Emitida": "ইস্যুকৃত",
   "Ocupada": "বসবাসরত", "Alugada": "ভাড়া দেওয়া", "Vaga": "খালি", "Ativo": "সক্রিয়", "Em teste": "পরীক্ষামূলক", "Inadimplente": "বকেয়াদার",
   "Prazo de defesa": "আপত্তির সময়সীমা", "Multa aplicada": "জরিমানা কার্যকর", "Advertência": "সতর্কীকরণ",
   "Em andamento": "চলমান", "Concluído": "সম্পন্ন", "No condomínio": "আবাসনে আছে", "Saiu": "বেরিয়ে গেছে", "Retirado": "গৃহীত",

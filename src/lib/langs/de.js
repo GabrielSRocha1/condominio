@@ -86,7 +86,7 @@ export default {
   "aguarda decisão do síndico": "wartet auf die Entscheidung des Verwalters",
   "cobrança(s) vencida(s) somando": "überfällige Zahlung(en) in Höhe von",
   "sem responsável designado": "ohne zugewiesenen Verantwortlichen",
-  "Pago": "Bezahlt", "Parcial": "Teilweise", "Em aberto": "Offen", "Aguardando": "Wartend", "Vencida": "Überfällig", "Emitida": "Ausgestellt",
+  "Pago": "Bezahlt", "Entrada": "Eingang", "Parcial": "Teilweise", "Em aberto": "Offen", "Aguardando": "Wartend", "Vencida": "Überfällig", "Emitida": "Ausgestellt",
   "Ocupada": "Bewohnt", "Alugada": "Vermietet", "Vaga": "Frei", "Ativo": "Aktiv", "Em teste": "Testphase", "Inadimplente": "Säumig",
   "Prazo de defesa": "Einspruchsfrist", "Multa aplicada": "Bußgeld verhängt", "Advertência": "Verwarnung",
   "Em andamento": "In Bearbeitung", "Concluído": "Abgeschlossen", "No condomínio": "Vor Ort", "Saiu": "Gegangen", "Retirado": "Abgeholt",

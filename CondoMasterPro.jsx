@@ -168,7 +168,7 @@ function FileField({ t, name, accept, multiple, height = 42, hint = "Anexar arqu
 }
 
 const STATUS_META = {
-  pago:{c:"ok",l:"Pago"}, parcial:{c:"warn",l:"Parcial"}, aberto:{c:"info",l:"Em aberto"},
+  pago:{c:"ok",l:"Pago"}, entrada:{c:"ok",l:"Entrada"}, parcial:{c:"warn",l:"Parcial"}, aberto:{c:"info",l:"Em aberto"},
   aguardando:{c:"warn",l:"Aguardando"}, vencida:{c:"danger",l:"Vencida"}, emitida:{c:"info",l:"Emitida"},
   ocupada:{c:"ok",l:"Ocupada"}, alugada:{c:"info",l:"Alugada"}, vaga:{c:"warn",l:"Vaga"},
   ativo:{c:"ok",l:"Ativo"}, teste:{c:"warn",l:"Em teste"}, inadimplente:{c:"danger",l:"Inadimplente"},
@@ -758,7 +758,7 @@ function Dashboard({ t, role, go }) {
 
       {/* pendências + todas as atividades recentes, tudo clicável */}
       <Card t={t}>
-        <SectionTitle t={t} action={<button onClick={() => go("cobrancas")} className="text-xs" style={{ color: t.gold }}>{L("Ver todas →")}</button>}>
+        <SectionTitle t={t} action={<button onClick={() => { try { sessionStorage.setItem("cm_fin_tab", "aprovar"); } catch { /* sem storage */ } go("financeiro"); }} className="text-xs" style={{ color: t.gold }}>{L("Ver todas →")}</button>}>
           {role === "diretor" ? "Aprovações pendentes" : "Alertas do dia"}</SectionTitle>
         <div className="space-y-2 text-sm">
           {(() => {
@@ -1226,7 +1226,13 @@ function Pessoas({ t }) {
 function Financeiro({ t }) {
   const { db, reload } = useData();
   const S = db.stats;
-  const [tab, setTab] = useState("lanc"); const [q, setQ] = useState(""); const [novo, setNovo] = useState(false);
+  /* aba inicial pode vir de um atalho de outra tela (ex.: "Ver todas →" do
+     dashboard abre direto a Aprovação) — hint de uso único no sessionStorage */
+  const [tab, setTab] = useState(() => {
+    try { const t0 = sessionStorage.getItem("cm_fin_tab"); if (t0) { sessionStorage.removeItem("cm_fin_tab"); return t0; } } catch { /* sem storage */ }
+    return "lanc";
+  });
+  const [q, setQ] = useState(""); const [novo, setNovo] = useState(false);
   const [tipoNovo, setTipoNovo] = useState("Despesa");
   const CATS_DESPESA = ["Água","Luz","Gás","Limpeza","Portaria","Vigilância","Administração","Manutenção","Obras","Jardinagem","Seguro","Internet","Elevadores","Impostos","Honorários","Emergência","Outros"];
   const CATS_RECEITA = ["Parcela condomínio","Fundo de reserva","Fundo de obras","Taxa extra","Multas e advertências","Aluguel de espaço comum","Rendimentos financeiros","Outros"];
@@ -1251,9 +1257,9 @@ function Financeiro({ t }) {
   /* aprovação: lançamento nasce "aguardando" e só vira conta a pagar depois de aprovado */
   const aAprovar = db.lanc.filter((l) => l.status === "aguardando");
   const [decidindo, setDecidindo] = useState(null);
-  const decidirLanc = async (id, aprovar) => {
+  const decidirLanc = async (id, aprovar, tipo) => {
     setDecidindo(id);
-    try { await decidirLancamento(db.ctx, id, aprovar); await reload(); }
+    try { await decidirLancamento(db.ctx, id, aprovar, tipo); await reload(); }
     catch (err) { alert("Não foi possível salvar: " + (err?.message || err)); }
     finally { setDecidindo(null); }
   };
@@ -1323,7 +1329,7 @@ function Financeiro({ t }) {
           }} />
       </>) : tab === "aprovar" ? (<>
         <div className="text-xs" style={{ color: t.dim }}>
-          {L("Todo lançamento entra como \"Aguardando\" e precisa ser aprovado para valer no caixa — despesa aprovada vai para Contas a pagar; rejeitado é cancelado.")}</div>
+          {L("Todo lançamento entra como \"Aguardando\" e precisa ser aprovado para valer no caixa — despesa aprovada vai para Contas a pagar; receita aprovada entra direto no caixa (Entrada); rejeitado é cancelado.")}</div>
         <Tbl t={t} cols={[{k:"data",l:"Data"},{k:"tipo",l:"Tipo"},{k:"cat",l:"Categoria"},{k:"desc",l:"Descrição"},{k:"valor",l:"Valor"},{k:"nf",l:"NF"},{k:"acao",l:""}]}
           rows={aAprovar}
           empty={<EmptyState t={t} icon={CheckCircle2} title="Nada consta — nenhum lançamento aguardando aprovação"
@@ -1338,9 +1344,9 @@ function Financeiro({ t }) {
               : "—";
             if (k === "acao") return (
               <div className="flex justify-end gap-1.5">
-                <Btn t={t} kind="danger" disabled={decidindo === r.id} onClick={(e) => { e.stopPropagation(); decidirLanc(r.id, false); }}>
+                <Btn t={t} kind="danger" disabled={decidindo === r.id} onClick={(e) => { e.stopPropagation(); decidirLanc(r.id, false, r.tipo); }}>
                   <Ban size={13} /> Rejeitar</Btn>
-                <Btn t={t} kind="primary" disabled={decidindo === r.id} onClick={(e) => { e.stopPropagation(); decidirLanc(r.id, true); }}>
+                <Btn t={t} kind="primary" disabled={decidindo === r.id} onClick={(e) => { e.stopPropagation(); decidirLanc(r.id, true, r.tipo); }}>
                   <Check size={13} /> {decidindo === r.id ? "Salvando…" : "Aprovar"}</Btn>
               </div>);
             return r[k];

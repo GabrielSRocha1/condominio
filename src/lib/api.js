@@ -187,7 +187,9 @@ export async function loadAll(condominioId) {
   /* lançamentos */
   const lanc = lancRaw.map((l) => ({
     id: l.id, data: ddmm(l.data), tipo: l.tipo, cat: l.categorias_financeiras?.nome || "—",
-    desc: l.descricao, valor: num(l.valor), status: LANC_STATUS_UI[l.status] || l.status,
+    /* receita paga = "entrada" (dinheiro no caixa); demais status seguem o mapa comum */
+    desc: l.descricao, valor: num(l.valor),
+    status: l.tipo === "receita" && l.status === "pago" ? "entrada" : (LANC_STATUS_UI[l.status] || l.status),
     forma: FORMA_LABEL[l.forma_pagamento] || "—", competencia: l.competencia,
     nf: l.nota_fiscal_url || null,
   }));
@@ -925,11 +927,13 @@ export async function criarLancamento(ctx, f) {
 }
 
 /* Aprovação do lançamento (aba Aprovação do Financeiro) — igual às multas:
-   aprovado libera a conta para pagamento; rejeitado cancela o lançamento. */
-export async function decidirLancamento(ctx, id, aprovar) {
+   despesa aprovada vira conta a pagar; RECEITA aprovada já dá entrada no caixa
+   (status "pago" direto — quem lança receita registra dinheiro que já entrou);
+   rejeitado cancela o lançamento. */
+export async function decidirLancamento(ctx, id, aprovar, tipo) {
   const uid = precisaUsuario(ctx);
   await q(supabase.from("lancamentos").update({
-    status: aprovar ? "aprovado" : "rejeitado", aprovado_por: uid,
+    status: aprovar ? (tipo === "receita" ? "pago" : "aprovado") : "rejeitado", aprovado_por: uid,
   }).eq("id", id).select(), "lancamentos");
 }
 

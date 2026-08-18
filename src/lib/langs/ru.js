@@ -86,7 +86,7 @@ export default {
   "aguarda decisão do síndico": "ожидает решения управляющего",
   "cobrança(s) vencida(s) somando": "просроченных платежей на сумму",
   "sem responsável designado": "без назначенного ответственного",
-  "Pago": "Оплачено", "Parcial": "Частично", "Em aberto": "Открыт", "Aguardando": "В ожидании", "Vencida": "Просрочен", "Emitida": "Выставлен",
+  "Pago": "Оплачено", "Entrada": "Поступление", "Parcial": "Частично", "Em aberto": "Открыт", "Aguardando": "В ожидании", "Vencida": "Просрочен", "Emitida": "Выставлен",
   "Ocupada": "Заселена", "Alugada": "Сдана", "Vaga": "Свободна", "Ativo": "Активен", "Em teste": "Тест", "Inadimplente": "Должник",
   "Prazo de defesa": "Срок возражения", "Multa aplicada": "Штраф применён", "Advertência": "Предупреждение",
   "Em andamento": "В работе", "Concluído": "Завершено", "No condomínio": "На территории", "Saiu": "Ушёл", "Retirado": "Получено",

@@ -86,7 +86,7 @@ export default {
   "aguarda decisão do síndico": "yöneticinin kararını bekliyor",
   "cobrança(s) vencida(s) somando": "gecikmiş tahsilat, toplam",
   "sem responsável designado": "sorumlu atanmamış",
-  "Pago": "Ödendi", "Parcial": "Kısmi", "Em aberto": "Açık", "Aguardando": "Beklemede", "Vencida": "Gecikmiş", "Emitida": "Düzenlendi",
+  "Pago": "Ödendi", "Entrada": "Tahsil edildi", "Parcial": "Kısmi", "Em aberto": "Açık", "Aguardando": "Beklemede", "Vencida": "Gecikmiş", "Emitida": "Düzenlendi",
   "Ocupada": "Dolu", "Alugada": "Kirada", "Vaga": "Boş", "Ativo": "Aktif", "Em teste": "Denemede", "Inadimplente": "Borçlu",
   "Prazo de defesa": "İtiraz süresi", "Multa aplicada": "Ceza uygulandı", "Advertência": "Uyarı",
   "Em andamento": "Devam ediyor", "Concluído": "Tamamlandı", "No condomínio": "Site içinde", "Saiu": "Ayrıldı", "Retirado": "Teslim alındı",

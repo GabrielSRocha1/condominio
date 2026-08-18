@@ -136,7 +136,7 @@ const EN = {
   "sem responsável designado": "with no assignee",
 
   /* status */
-  "Pago": "Paid", "Parcial": "Partial", "Em aberto": "Open", "Aguardando": "Waiting", "Vencida": "Overdue", "Emitida": "Issued",
+  "Pago": "Paid", "Entrada": "Received", "Parcial": "Partial", "Em aberto": "Open", "Aguardando": "Waiting", "Vencida": "Overdue", "Emitida": "Issued",
   "Ocupada": "Occupied", "Alugada": "Rented", "Vaga": "Vacant", "Ativo": "Active", "Em teste": "Trial", "Inadimplente": "Delinquent",
   "Prazo de defesa": "Defense period", "Multa aplicada": "Fine applied", "Advertência": "Warning",
   "Em andamento": "In progress", "Concluído": "Done", "No condomínio": "On premises", "Saiu": "Left", "Retirado": "Picked up",
@@ -344,7 +344,7 @@ const ES = {
   "sem responsável designado": "sin responsable asignado",
 
   /* status */
-  "Pago": "Pagado", "Parcial": "Parcial", "Em aberto": "Abierto", "Aguardando": "En espera", "Vencida": "Vencida", "Emitida": "Emitida",
+  "Pago": "Pagado", "Entrada": "Entrada", "Parcial": "Parcial", "Em aberto": "Abierto", "Aguardando": "En espera", "Vencida": "Vencida", "Emitida": "Emitida",
   "Ocupada": "Ocupada", "Alugada": "Alquilada", "Vaga": "Libre", "Ativo": "Activo", "Em teste": "En prueba", "Inadimplente": "Moroso",
   "Prazo de defesa": "Plazo de defensa", "Multa aplicada": "Multa aplicada", "Advertência": "Advertencia",
   "Em andamento": "En curso", "Concluído": "Concluido", "No condomínio": "En el condominio", "Saiu": "Salió", "Retirado": "Retirado",

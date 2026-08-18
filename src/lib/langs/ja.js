@@ -86,7 +86,7 @@ export default {
   "aguarda decisão do síndico": "管理者の判断待ち",
   "cobrança(s) vencida(s) somando": "件の延滞請求、合計",
   "sem responsável designado": "担当者未割当",
-  "Pago": "支払済", "Parcial": "一部", "Em aberto": "未払", "Aguardando": "待機中", "Vencida": "延滞", "Emitida": "発行済",
+  "Pago": "支払済", "Entrada": "入金", "Parcial": "一部", "Em aberto": "未払", "Aguardando": "待機中", "Vencida": "延滞", "Emitida": "発行済",
   "Ocupada": "入居中", "Alugada": "賃貸中", "Vaga": "空室", "Ativo": "有効", "Em teste": "試用中", "Inadimplente": "滞納",
   "Prazo de defesa": "異議申立期間", "Multa aplicada": "違約金確定", "Advertência": "警告",
   "Em andamento": "対応中", "Concluído": "完了", "No condomínio": "館内", "Saiu": "退出", "Retirado": "受取済",

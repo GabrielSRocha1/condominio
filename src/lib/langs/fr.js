@@ -86,7 +86,7 @@ export default {
   "aguarda decisão do síndico": "attend la décision du syndic",
   "cobrança(s) vencida(s) somando": "paiement(s) en retard totalisant",
   "sem responsável designado": "sans responsable désigné",
-  "Pago": "Payé", "Parcial": "Partiel", "Em aberto": "Ouvert", "Aguardando": "En attente", "Vencida": "En retard", "Emitida": "Émise",
+  "Pago": "Payé", "Entrada": "Encaissée", "Parcial": "Partiel", "Em aberto": "Ouvert", "Aguardando": "En attente", "Vencida": "En retard", "Emitida": "Émise",
   "Ocupada": "Occupée", "Alugada": "Louée", "Vaga": "Libre", "Ativo": "Actif", "Em teste": "En essai", "Inadimplente": "En impayé",
   "Prazo de defesa": "Délai de défense", "Multa aplicada": "Amende appliquée", "Advertência": "Avertissement",
   "Em andamento": "En cours", "Concluído": "Terminé", "No condomínio": "Sur place", "Saiu": "Parti", "Retirado": "Retiré",

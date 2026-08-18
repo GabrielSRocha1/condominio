@@ -86,7 +86,7 @@ export default {
   "aguarda decisão do síndico": "in attesa della decisione dell'amministratore",
   "cobrança(s) vencida(s) somando": "pagamento/i scaduto/i per un totale di",
   "sem responsável designado": "senza responsabile assegnato",
-  "Pago": "Pagato", "Parcial": "Parziale", "Em aberto": "Aperto", "Aguardando": "In attesa", "Vencida": "Scaduta", "Emitida": "Emessa",
+  "Pago": "Pagato", "Entrada": "Entrata", "Parcial": "Parziale", "Em aberto": "Aperto", "Aguardando": "In attesa", "Vencida": "Scaduta", "Emitida": "Emessa",
   "Ocupada": "Occupata", "Alugada": "Affittata", "Vaga": "Libera", "Ativo": "Attivo", "Em teste": "In prova", "Inadimplente": "Moroso",
   "Prazo de defesa": "Termine per la difesa", "Multa aplicada": "Multa applicata", "Advertência": "Richiamo",
   "Em andamento": "In corso", "Concluído": "Completato", "No condomínio": "In sede", "Saiu": "Uscito", "Retirado": "Ritirato",

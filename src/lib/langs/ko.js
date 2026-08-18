@@ -86,7 +86,7 @@ export default {
   "aguarda decisão do síndico": "관리소장의 결정 대기 중",
   "cobrança(s) vencida(s) somando": "건의 연체 청구, 합계",
   "sem responsável designado": "담당자 미지정",
-  "Pago": "납부됨", "Parcial": "부분", "Em aberto": "미결", "Aguardando": "대기 중", "Vencida": "연체", "Emitida": "발행됨",
+  "Pago": "납부됨", "Entrada": "입금", "Parcial": "부분", "Em aberto": "미결", "Aguardando": "대기 중", "Vencida": "연체", "Emitida": "발행됨",
   "Ocupada": "거주 중", "Alugada": "임대 중", "Vaga": "공실", "Ativo": "활성", "Em teste": "체험 중", "Inadimplente": "연체 중",
   "Prazo de defesa": "소명 기간", "Multa aplicada": "과태료 확정", "Advertência": "경고",
   "Em andamento": "진행 중", "Concluído": "완료", "No condomínio": "단지 내", "Saiu": "퇴장", "Retirado": "수령됨",

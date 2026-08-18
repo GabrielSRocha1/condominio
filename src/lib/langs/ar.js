@@ -86,7 +86,7 @@ export default {
   "aguarda decisão do síndico": "بانتظار قرار مدير المبنى",
   "cobrança(s) vencida(s) somando": "دفعة/دفعات متأخرة بمجموع",
   "sem responsável designado": "بدون مسؤول محدد",
-  "Pago": "مدفوع", "Parcial": "جزئي", "Em aberto": "مفتوح", "Aguardando": "قيد الانتظار", "Vencida": "متأخرة", "Emitida": "صادرة",
+  "Pago": "مدفوع", "Entrada": "مقبوض", "Parcial": "جزئي", "Em aberto": "مفتوح", "Aguardando": "قيد الانتظار", "Vencida": "متأخرة", "Emitida": "صادرة",
   "Ocupada": "مأهولة", "Alugada": "مؤجّرة", "Vaga": "شاغرة", "Ativo": "نشط", "Em teste": "تجريبي", "Inadimplente": "متأخر السداد",
   "Prazo de defesa": "مهلة الاعتراض", "Multa aplicada": "غرامة مطبّقة", "Advertência": "إنذار",
   "Em andamento": "قيد التنفيذ", "Concluído": "مكتمل", "No condomínio": "داخل المجمّع", "Saiu": "غادر", "Retirado": "تم الاستلام",

@@ -86,7 +86,7 @@ export default {
   "aguarda decisão do síndico": "menunggu keputusan pengelola",
   "cobrança(s) vencida(s) somando": "tagihan jatuh tempo dengan total",
   "sem responsável designado": "tanpa penanggung jawab",
-  "Pago": "Lunas", "Parcial": "Sebagian", "Em aberto": "Terbuka", "Aguardando": "Menunggu", "Vencida": "Jatuh tempo", "Emitida": "Diterbitkan",
+  "Pago": "Lunas", "Entrada": "Diterima", "Parcial": "Sebagian", "Em aberto": "Terbuka", "Aguardando": "Menunggu", "Vencida": "Jatuh tempo", "Emitida": "Diterbitkan",
   "Ocupada": "Dihuni", "Alugada": "Disewakan", "Vaga": "Kosong", "Ativo": "Aktif", "Em teste": "Uji coba", "Inadimplente": "Menunggak",
   "Prazo de defesa": "Masa pembelaan", "Multa aplicada": "Denda diberlakukan", "Advertência": "Peringatan",
   "Em andamento": "Berjalan", "Concluído": "Selesai", "No condomínio": "Di kompleks", "Saiu": "Keluar", "Retirado": "Diambil",

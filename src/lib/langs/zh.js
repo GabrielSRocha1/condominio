@@ -86,7 +86,7 @@ export default {
   "aguarda decisão do síndico": "等待物业经理决定",
   "cobrança(s) vencida(s) somando": "笔逾期收费，合计",
   "sem responsável designado": "未指定负责人",
-  "Pago": "已付", "Parcial": "部分", "Em aberto": "未结", "Aguardando": "等待中", "Vencida": "已逾期", "Emitida": "已开出",
+  "Pago": "已付", "Entrada": "入账", "Parcial": "部分", "Em aberto": "未结", "Aguardando": "等待中", "Vencida": "已逾期", "Emitida": "已开出",
   "Ocupada": "已入住", "Alugada": "已出租", "Vaga": "空置", "Ativo": "活跃", "Em teste": "试用中", "Inadimplente": "欠费",
   "Prazo de defesa": "申诉期", "Multa aplicada": "罚款已生效", "Advertência": "警告",
   "Em andamento": "进行中", "Concluído": "已完成", "No condomínio": "在小区内", "Saiu": "已离开", "Retirado": "已领取",

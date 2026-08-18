@@ -86,7 +86,7 @@ export default {
   "aguarda decisão do síndico": "प्रबंधक के निर्णय की प्रतीक्षा में",
   "cobrança(s) vencida(s) somando": "बकाया भुगतान, कुल",
   "sem responsável designado": "कोई ज़िम्मेदार नियुक्त नहीं",
-  "Pago": "भुगतान हुआ", "Parcial": "आंशिक", "Em aberto": "खुला", "Aguardando": "प्रतीक्षा में", "Vencida": "बकाया", "Emitida": "जारी",
+  "Pago": "भुगतान हुआ", "Entrada": "प्राप्त", "Parcial": "आंशिक", "Em aberto": "खुला", "Aguardando": "प्रतीक्षा में", "Vencida": "बकाया", "Emitida": "जारी",
   "Ocupada": "आबाद", "Alugada": "किराए पर", "Vaga": "खाली", "Ativo": "सक्रिय", "Em teste": "परीक्षण में", "Inadimplente": "बकाएदार",
   "Prazo de defesa": "आपत्ति अवधि", "Multa aplicada": "जुर्माना लागू", "Advertência": "चेतावनी",
   "Em andamento": "प्रगति में", "Concluído": "पूर्ण", "No condomínio": "परिसर में", "Saiu": "बाहर गया", "Retirado": "प्राप्त किया",
