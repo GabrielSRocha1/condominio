@@ -3060,6 +3060,33 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
     return () => window.removeEventListener("focus", conferir);
   }, [verificar]);
 
+  /* retorno do checkout do Commet (successUrl = /?licenca=ok): confirma o
+     pagamento sozinho, com polling — o webhook pode levar alguns segundos —
+     e mostra um spinner até o dashboard carregar. Se a confirmação não chegar
+     no prazo, volta ao paywall com o botão "Já paguei — verificar". */
+  const [confirmandoRetorno, setConfirmandoRetorno] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get("licenca") === "ok"; } catch { return false; }
+  });
+  useEffect(() => {
+    if (!confirmandoRetorno) return;
+    try { window.history.replaceState(null, "", window.location.pathname); } catch { /* sem history */ }
+    let vivo = true;
+    const limite = Date.now() + 90_000;
+    (async () => {
+      while (vivo) {
+        if (await verificar()) return; // onReload já leva ao dashboard
+        if (!vivo) return;
+        if (Date.now() > limite) {
+          setConfirmandoRetorno(false);
+          setErro(L("O Commet ainda não confirmou este pagamento. Aguarde alguns instantes e use \"Já paguei — verificar\"."));
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    })();
+    return () => { vivo = false; };
+  }, [confirmandoRetorno, verificar]);
+
   const pagar = async () => {
     setGerando(true); setErro("");
     try {
@@ -3107,6 +3134,17 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
     bloqueada: "A licença deste condomínio foi bloqueada. Regularize o pagamento para reativar.",
     cancelada: "A assinatura foi cancelada. Reative-a para voltar a usar o sistema.",
   };
+
+  /* spinner do retorno do checkout: segura a tela até a licença liberar */
+  if (confirmandoRetorno) return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4" style={{ background: t.bg, color: t.text, fontFamily: "'Inter',system-ui,sans-serif" }}>
+      <div className="pointer-events-none fixed inset-0" style={{ background: `radial-gradient(600px 300px at 50% 0%, ${t.gold}14, transparent)` }} />
+      <div className="vspin h-10 w-10 rounded-full border-2" style={{ borderColor: t.borderSoft, borderTopColor: t.gold }} />
+      <div className="text-sm font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{L("Confirmando seu pagamento…")}</div>
+      <p className="max-w-xs text-center text-xs" style={{ color: t.dim }}>
+        {L("Estamos verificando a confirmação com o Commet. Isso costuma levar poucos segundos — você entrará no painel automaticamente.")}</p>
+    </div>
+  );
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4" style={{ background: t.bg, color: t.text, fontFamily: "'Inter',system-ui,sans-serif" }}>
@@ -3263,6 +3301,7 @@ export default function App() {
       *::-webkit-scrollbar{width:8px;height:8px} *::-webkit-scrollbar-thumb{background:${t.borderSoft};border-radius:8px}
       .vfade{animation:vfade .3s cubic-bezier(.4,0,.2,1)} @keyframes vfade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
       .vpulse{animation:vpulse 1.4s ease infinite} @keyframes vpulse{0%,100%{opacity:.35}50%{opacity:.7}}
+      .vspin{animation:vspin 1s linear infinite} @keyframes vspin{to{transform:rotate(360deg)}}
       .vhover{transition:transform .18s,box-shadow .18s} .vhover:hover{transform:translateY(-2px)}
       @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
       input,select,textarea{outline:none} button{cursor:pointer}
