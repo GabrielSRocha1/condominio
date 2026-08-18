@@ -1173,7 +1173,7 @@ function Pessoas({ t }) {
     catch (err) { alert(err?.message || err); }
     finally { setExcluindo(false); }
   };
-  const papeis = ["Proprietário","Inquilino","Morador","Dependente","Síndico","Tesouraria","Funcionário","Prestador","Visitante recorrente"];
+  const papeis = ["Proprietário","Inquilino","Morador","Dependente","Diretor","Síndico","Tesouraria","Funcionário","Prestador","Visitante recorrente"];
   const rows = db.pessoas.filter((p) => (papel === "todos" || p.papel === papel) && p.nome.toLowerCase().includes(q.toLowerCase()));
   return (
     <div className="vfade">
@@ -1560,7 +1560,7 @@ function Cobrancas({ t }) {
                 <select name="unidade" value={destino} onChange={(e) => setDestino(e.target.value)} style={inputStyle(t)}>
                   <option value="">{L("Todas as unidades (rateio pela fração)")}</option>
                   {db.ctx.unidades.map((u) => (
-                    <option key={u.id} value={u.id}>{u.responsavelId ? u.labelResp : `${u.label}${moradorDa(u.label) ? ` — ${moradorDa(u.label)}` : ""}`}</option>))}
+                    <option key={u.id} value={u.id}>{u.responsavelId ? u.labelResp : `${u.labelTipo}${moradorDa(u.label) ? ` · ${moradorDa(u.label)}` : ""}`}</option>))}
                 </select>
               </Field>
               <Field t={t} label="Competência"><input name="competencia" type="month" defaultValue={new Date().toISOString().slice(0, 7)} style={inputStyle(t)} /></Field>

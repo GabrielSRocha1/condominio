@@ -148,6 +148,10 @@ export async function loadAll(condominioId) {
   };
 
   const uLabel = (u) => (u ? `${u.numero}-${u.blocos?.nome || "?"}` : "—");
+  /* uLabelTipo: "Apartamento 101 — Bloco A" — exibição nos dropdowns de unidade
+     (uLabel segue como chave de casamento entre registros; não trocar lá) */
+  const TIPO_UNIDADE = { apartamento: "Apartamento", sala: "Sala comercial", loja: "Loja", cobertura: "Cobertura", box: "Box", deposito: "Depósito" };
+  const uLabelTipo = (u) => (u ? `${TIPO_UNIDADE[u.tipo] || "Unidade"} ${u.numero}${u.blocos?.nome ? ` — Bloco ${u.blocos.nome}` : ""}` : "—");
   const unidadeById = Object.fromEntries(unidadesRaw.map((u) => [u.id, u]));
 
   /* unidades */
@@ -398,10 +402,10 @@ export async function loadAll(condominioId) {
     usuarioId: usuarios[0]?.usuario_id || null,
     blocos, categorias,
     unidades: unidadesRaw.map((u) => {
-      /* labelResp: unidade + responsável financeiro — usado nos dropdowns de unidade */
+      /* labelResp: tipo + unidade + responsável financeiro — usado nos dropdowns de unidade */
       const respNome = pessoasRaw.find((p) => p.id === u.responsavel_financeiro_id)?.nome || "";
       return {
-        id: u.id, label: uLabel(u), labelResp: uLabel(u) + (respNome ? ` — ${respNome}` : ""),
+        id: u.id, label: uLabel(u), labelTipo: uLabelTipo(u), labelResp: uLabelTipo(u) + (respNome ? ` · ${respNome}` : ""),
         responsavelId: u.responsavel_financeiro_id, fracao: num(u.fracao_ideal),
         bloco: u.blocos?.nome || "", tipo: u.tipo, andar: u.andar,
       };
