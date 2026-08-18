@@ -1570,13 +1570,14 @@ function Cobrancas({ t }) {
                 </select>
               </Field>
               <Field t={t} label="Competência"><input name="competencia" type="month" defaultValue={new Date().toISOString().slice(0, 7)} style={inputStyle(t)} /></Field>
-              <Field t={t} label={`${destino ? L("Valor da cobrança") : L("Valor total a ratear")} (${moeda})`}>
+              <Field t={t} label={`${destino ? L("Valor da cobrança") : base === "mesmo" ? L("Valor por unidade") : L("Valor total a ratear")} (${moeda})`}>
                 <MoneyInput t={t} name="total" moeda={moeda} required /></Field>
               {!destino && (
                 <Field t={t} label="Base de cálculo">
                   <select name="base" value={base} onChange={(e) => setBase(e.target.value)} style={inputStyle(t)}>
                     <option value="fracao">{L("Rateio por fração ideal (proporcional à área)")}</option>
                     <option value="igual">{L("Dividir igual por unidade")}</option>
+                    <option value="mesmo">{L("Cobrar igual todas as unidades")}</option>
                   </select>
                 </Field>)}
               <Field t={t} label="Vencimento"><input name="vencimento" type="date" defaultValue={new Date().toISOString().slice(0, 10)} style={inputStyle(t)} /></Field>
@@ -1586,7 +1587,7 @@ function Cobrancas({ t }) {
               <div className="rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.gold }}>
                 {destino
                   ? `${L("Será gerada 1 cobrança para")} ${db.ctx.unidades.find((x) => x.id === destino)?.label}${moradorDa(db.ctx.unidades.find((x) => x.id === destino)?.label) ? ` (${moradorDa(db.ctx.unidades.find((x) => x.id === destino)?.label)})` : ""}. ${L("O morador verá o aviso no portal dele.")}`
-                  : `${L("Serão geradas")} ${nAlvo} ${L("cobranças (unidades com responsável financeiro)")} — ${base === "igual" ? L("valor dividido em partes iguais entre as unidades") : L("rateadas pela fração ideal de cada unidade")}.`}</div>
+                  : `${L("Serão geradas")} ${nAlvo} ${L("cobranças (unidades com responsável financeiro)")} — ${base === "mesmo" ? L("mesmo valor cobrado de cada unidade") : base === "igual" ? L("valor dividido em partes iguais entre as unidades") : L("rateadas pela fração ideal de cada unidade")}.`}</div>
             </div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNova(false)}>Cancelar</Btn>
               <Btn t={t} kind="primary" type="submit" disabled={gerando}><QrCode size={14} /> {gerando ? "Gerando…" : (destino ? L("Gerar cobrança") : `${L("Gerar")} ${nAlvo} ${L("cobranças")}`)}</Btn></div>

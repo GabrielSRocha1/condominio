@@ -1400,7 +1400,10 @@ export async function gerarCobrancas(ctx, f) {
   const alvo = ctx.unidades.filter((u) => u.responsavelId);
   if (!alvo.length) throw new Error("Nenhuma unidade com responsável financeiro definido.");
   let valores;
-  if (f.base === "igual") {
+  if (f.base === "mesmo") {
+    /* mesmo valor cheio para cada unidade — o campo de valor é POR unidade, não o total */
+    valores = alvo.map(() => total);
+  } else if (f.base === "igual") {
     const centavos = Math.round(total * 100);
     const cota = Math.floor(centavos / alvo.length);
     let resto = centavos - cota * alvo.length;
