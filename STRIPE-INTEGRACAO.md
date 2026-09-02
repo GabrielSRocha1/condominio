@@ -21,7 +21,9 @@ LICENÇA SAAS
   Diretor → Stripe Checkout (subscription, BRL, trial 30d com cartão)
           → conta da plataforma
           → webhook /api/stripe/webhook → saas_assinaturas.status
-  Código PAGOMANUAL = promotion code (cupom 100% off forever) → total R$ 0, sem cartão
+  Código de ativação (ex.: PAGOMANUAL) = PAGAMENTO MANUAL: sem checkout e sem
+  cartão — assinatura nasce ativa no valor cheio em modo send_invoice (fatura
+  por e-mail a cada ciclo; baixa manual; vencida → bloqueio automático)
 
 COBRANÇAS CONDOMINIAIS
   Morador → /api/stripe/checkout-cobranca → Checkout (payment, Pix|cartão)
@@ -73,8 +75,8 @@ no front, sem escopo PCI). Diagnóstico: `GET /api/auth/diag`.
    `sk_test_` para o `.env`.
 3. **Catálogo** — `node scripts/preparar-stripe-producao.mjs --executar`
    (cria products/prices com lookup_key `condomaster_<plano>_<ciclo>_brl`,
-   cupom 100% + promotion code `PAGOMANUAL`, e registra os 2 webhooks —
-   guarde os `whsec_` impressos).
+   o código de ativação `PAGOMANUAL`, e registra os 2 webhooks — guarde os
+   `whsec_` impressos).
 4. **Dashboard** —
    - Pagamentos → Métodos: ativar cartões e **Pix** (conta BR exige solicitação);
    - Billing → Portal do cliente: salvar a configuração padrão;
@@ -115,7 +117,33 @@ pelo mesmo caminho idempotente do webhook.
 | `checkout.session.async_payment_succeeded` | idem (preparado p/ boleto futuro) |
 | `checkout.session.async_payment_failed` | log — cobrança segue em aberto |
 
-## 6. Taxas e split
+## 6. Pagamento manual (código de ativação · send_invoice)
+
+Para clientes indicados que pagam em dinheiro:
+
+1. **Crie um código de uso único por cliente**:
+   `node scripts/criar-codigo-ativacao.mjs PAGO-JOAO26 30` (30 = dias de
+   validade se não for usado; opcional). O `PAGOMANUAL` criado pelo
+   preparador também funciona, mas é consumido no primeiro uso — prefira um
+   código por indicado.
+2. O cliente informa o código em "Tenho um código de ativação" no paywall.
+   O backend valida, **desativa o código na hora** (uso único) e cria a
+   assinatura **no valor cheio, sem cartão**, em `collection_method:
+   send_invoice` com vencimento em `STRIPE_DIAS_VENCIMENTO_FATURA` dias
+   (padrão 10). A primeira fatura é enviada por e-mail imediatamente.
+3. **Quando o dinheiro entrar**: dashboard → Faturas → fatura do cliente →
+   "Marcar como paga fora da Stripe" (fica o histórico contábil de cada
+   ciclo). A assinatura segue `active`.
+4. **Se não pagar**: a fatura vence → a Stripe marca a assinatura `past_due`
+   → o webhook grava `inadimplente` → o paywall bloqueia sozinho. Configure
+   em Configurações → Faturamento → Assinaturas e e-mails o que fazer com
+   faturas vencidas (ex.: cancelar a assinatura após N dias — o webhook
+   então grava `cancelada`).
+5. O cupom `condomaster-ativacao-100` existe só porque a API exige um cupom
+   por trás de cada promotion code — **ele nunca é aplicado como desconto**
+   (e o checkout normal não aceita códigos digitados, de propósito).
+
+## 7. Taxas e split
 
 - **1% da plataforma**: `application_fee_amount` = 1% do **valor de face** da
   cobrança, sempre — independe de quem paga a taxa Stripe.
@@ -131,13 +159,16 @@ pelo mesmo caminho idempotente do webhook.
 - Contabilidade: `lancamentos.valor` = valor de face da cobrança;
   `pagamentos.valor_pago` = total bruto pago pelo morador (com conveniência).
 
-## 7. Teste ponta a ponta (test mode)
+## 8. Teste ponta a ponta (test mode)
 
 1. Cadastro novo → paywall → "Iniciar teste gratuito" → cartão `4242 4242
    4242 4242` → licença `teste` com `teste_fim` +30d.
 2. Dashboard → test clock/avanço: fim do trial cobra e ativa (`ativa`).
 3. Cartão `4000 0000 0000 0341` (falha na cobrança) → `inadimplente` → paywall.
-4. Código `PAGOMANUAL` → checkout R$ 0 sem cartão → `ativa`.
+4. Código `PAGOMANUAL` → assinatura ativa sem checkout, fatura enviada
+   (dashboard → Faturas); o código fica inativo (uso único). Marcar a fatura
+   como paga fora da Stripe mantém `ativa`; deixá-la vencer → `past_due` →
+   `inadimplente` → paywall.
 5. Planos → troca com licença ativa → invoice de diferença → `trocaAplicada`.
 6. Cancelar assinatura → aviso com `acesso_ate`; fim do período → `cancelada`.
 7. Condomínio (moeda BRL) → *Meios de pagamento* → "Ativar recebimento
@@ -148,7 +179,7 @@ pelo mesmo caminho idempotente do webhook.
 9. Pagar após o vencimento → `paga_em_atraso`. Condomínio com moeda ≠ BRL →
    opção online não aparece e o endpoint recusa.
 
-## 8. Limitações conhecidas (v1) e próximos passos
+## 9. Limitações conhecidas (v1) e próximos passos
 
 - **Boleto**: fora do v1 (async de dias, expiração própria). O webhook já
   trata `async_payment_succeeded` — habilitar depois é adicionar o método no
@@ -165,7 +196,7 @@ pelo mesmo caminho idempotente do webhook.
   português nos outros 14 idiomas) — traduzir em `src/lib/i18n.js` e
   `src/lib/langs/*` quando fechar o wording.
 
-## 9. Segurança
+## 10. Segurança
 
 - `integracoes_pagamento` (account id recebedor) e as escritas em
   `saas_assinaturas` ficaram **sem policy client-side** (supabase-stripe.sql,

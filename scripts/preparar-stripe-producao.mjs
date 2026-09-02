@@ -3,8 +3,11 @@
      1. cria 1 product por plano do saas_planos e os preços BRL mensal/anual
         com lookup_key condomaster_<plano>_<ciclo>_brl (o backend resolve o
         preço por essa chave — nada de id hardcoded);
-     2. cria o cupom 100% off (forever) + promotion code PAGOMANUAL
-        (código de ativação para pagamento manual);
+     2. cria o cupom-contêiner + promotion code PAGOMANUAL (código de
+        ativação para pagamento manual — o backend usa o código só como
+        autorização de uso único e cria a assinatura em modo send_invoice
+        no valor cheio; o cupom nunca é aplicado como desconto. Códigos
+        individuais por cliente: scripts/criar-codigo-ativacao.mjs);
      3. registra os 2 webhook endpoints (conta própria e Connect) e imprime
         os whsec_ — GUARDE-OS no .env e na Vercel (só aparecem uma vez).
 
@@ -69,11 +72,16 @@ for (const p of planosDb) {
       recurring: { interval: intervalo },
       lookup_key: lookup, transfer_lookup_key: true, // migra a chave do preço antigo
     });
-    console.log(`      ✔ criado ${novo.id}`);
+    /* desativa o preço substituído — assinaturas existentes nele continuam
+       válidas; só não pode mais ser usado em checkouts novos */
+    if (atual) await stripe.prices.update(atual.id, { active: false });
+    console.log(`      ✔ criado ${novo.id}${atual ? ` (antigo ${atual.id} desativado)` : ""}`);
   }
 }
 
-/* ── 2. cupom 100% + promotion code PAGOMANUAL ── */
+/* ── 2. cupom-contêiner + promotion code PAGOMANUAL ──
+   (o cupom existe porque a API exige um por trás de cada promotion code;
+   o fluxo de ativação NÃO o aplica — assinatura sai no valor cheio) */
 const CUPOM_ID = "condomaster-ativacao-100";
 const CODIGO = "PAGOMANUAL";
 let cupom = await stripe.coupons.retrieve(CUPOM_ID).catch(() => null);

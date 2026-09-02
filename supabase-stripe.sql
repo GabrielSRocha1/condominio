@@ -110,6 +110,6 @@ revoke all on function public.registrar_pagamento_stripe(uuid, numeric, timestam
 --    ⚠️ DEFINA OS VALORES antes de rodar — placeholders abaixo comentados.
 --    Depois de rodar, execute scripts/preparar-stripe-producao.mjs para
 --    criar os products/prices correspondentes na Stripe.
- update saas_planos set preco_mensal = 299.90,  preco_anual = 2999.00  where nome = 'Essencial';
- update saas_planos set preco_mensal = 499.90,  preco_anual = 4999.00  where nome = 'Standard';
- update saas_planos set preco_mensal = 1499.90, preco_anual = 14999.00 where nome = 'Premium';
+ update saas_planos set preco_mensal = 299.90,  preco_anual = 2999.00,  limite_unidades = 150  where nome = 'Essencial';
+ update saas_planos set preco_mensal = 699.90,  preco_anual = 6999.00,  limite_unidades = 500  where nome = 'Standard';
+ update saas_planos set preco_mensal = 1999.90, preco_anual = 19999.00, limite_unidades = 2000 where nome = 'Premium';

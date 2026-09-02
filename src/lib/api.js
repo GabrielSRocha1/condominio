@@ -590,9 +590,11 @@ async function chamarStripe(rota, body, erroPadrao) {
 }
 
 /* Licença SaaS: abre o Stripe Checkout da assinatura recorrente (BRL).
-   ciclo: "mensal" ou "anual"; codigo: promotion code (ex.: PAGOMANUAL).
-   Devolve { checkoutUrl } — ou { trocaAplicada } quando a troca de plano é
-   aplicada direto na assinatura ativa, sem novo checkout. */
+   ciclo: "mensal" ou "anual". Devolve { checkoutUrl } — ou { trocaAplicada }
+   quando a troca de plano é aplicada direto na assinatura ativa.
+   codigo: código de ativação de PAGAMENTO MANUAL (uso único) — ativa a
+   assinatura sem checkout, em modo send_invoice (fatura por e-mail; baixa
+   manual no dashboard da Stripe) e devolve { ativado: true }. */
 export async function assinarLicenca(condominioId, ciclo = "mensal", troca = false, codigo = "") {
   return chamarStripe("assinatura", { condominioId, ciclo, troca, ...(codigo ? { codigo } : {}) }, "ao criar a assinatura");
 }

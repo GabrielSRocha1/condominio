@@ -712,9 +712,9 @@ end $$;
 
 -- Planos do SaaS (preços sempre em dólar — batem com o Painel SaaS do frontend)
 insert into saas_planos (nome, preco_mensal, preco_anual, limite_unidades, modulos) values
-  ('Essencial',  49.90,  499.00, 100,  '{"portaria":false,"whatsapp":false,"assembleia_digital":false}'),
-  ('Standard',   99.90,  999.00, 500,  '{"portaria":true,"whatsapp":false,"assembleia_digital":true}'),
-  ('Premium',   299.90, 2999.00, 2000, '{"portaria":true,"whatsapp":true,"assembleia_digital":true}');
+  ('Essencial',  299.90,  2999.00, 150,  '{"portaria":false,"whatsapp":false,"assembleia_digital":false}'),
+  ('Standard',   699.90,  6999.00, 500,  '{"portaria":true,"whatsapp":false,"assembleia_digital":true}'),
+  ('Premium',   1999.90, 19999.00, 2000, '{"portaria":true,"whatsapp":true,"assembleia_digital":true}');
 
 -- Perfis nativos do sistema (batem com os perfis do frontend)
 insert into perfis (nome, descricao, sistema) values

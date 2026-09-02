@@ -3238,10 +3238,11 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
     finally { setGerando(false); }
   };
 
-  /* código de ativação (pagamento manual): promotion code da Stripe (cupom
-     100% off, forever) — o checkout abre com total R$ 0, sem pedir cartão, e
-     a ativação chega pelo webhook, como em qualquer assinatura. A gestão
-     (pausar/reativar) é feita no dashboard da Stripe. */
+  /* código de ativação (pagamento manual): chave de uso único que ativa a
+     assinatura SEM checkout e SEM cartão, no valor cheio, em modo
+     send_invoice — a Stripe envia a fatura de cada ciclo por e-mail, a
+     administração marca como paga quando o dinheiro entra, e fatura vencida
+     bloqueia o acesso sozinha (past_due → inadimplente → paywall). */
   const [mostrarCodigo, setMostrarCodigo] = useState(false);
   const [codigo, setCodigo] = useState("");
   const [ativandoCodigo, setAtivandoCodigo] = useState(false);
@@ -3253,12 +3254,9 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
       await aplicarPlanoEscolhido();
       const resp = await assinarLicenca(condominioId, ciclo, false, codigo.trim());
       if (resp?.ativado) {
-        /* 100% de desconto sem checkout: a assinatura já nasceu ativa */
-        setAvisoCodigo(L("Código aplicado — liberando o acesso…"));
+        /* assinatura ativada em modo pagamento manual (send_invoice) */
+        setAvisoCodigo(L("Código aplicado — assinatura ativada. A fatura chega por e-mail para pagamento manual; liberando o acesso…"));
         if (!(await verificar())) setAvisoCodigo(L("Código aplicado. Se o acesso não liberar em instantes, use \"Já paguei — verificar\"."));
-      } else if (resp?.checkoutUrl) {
-        setAvisoCodigo(L("Código aplicado — conclua no checkout aberto (o total deve ser R$ 0)."));
-        window.open(resp.checkoutUrl, "_blank", "noopener");
       }
     } catch (e) { setErro(e.message); }
     finally { setAtivandoCodigo(false); }

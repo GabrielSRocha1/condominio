@@ -3,10 +3,13 @@
    Abre o Stripe Checkout da ASSINATURA recorrente da licença SaaS (BRL) e
    devolve { checkoutUrl }. Na troca com assinatura ativa, atualiza o preço da
    assinatura existente (rateio always_invoice) e devolve { trocaAplicada }.
-   codigo: promotion code da Stripe (ex.: PAGOMANUAL, cupom 100% off) — o
-   checkout abre com total R$ 0 e sem pedir cartão.
+   codigo: código de ativação de PAGAMENTO MANUAL — promotion code da Stripe
+   usado como chave de autorização de uso único (nunca como desconto): cria a
+   assinatura NO VALOR CHEIO sem cartão, em modo send_invoice (fatura por
+   e-mail a cada ciclo; a administração marca como paga quando o dinheiro
+   entra; vencida → past_due → paywall bloqueia sozinho) → { ativado: true }.
    A confirmação chega pelo webhook (customer.subscription.*). */
-import { stripeClient, supabaseAdmin, corpoJson, lerClaims, lookupKey } from "./_lib/comum.js";
+import { stripeClient, supabaseAdmin, corpoJson, lerClaims, lookupKey, envVal, sincronizarLicenca } from "./_lib/comum.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -105,13 +108,51 @@ export default async function handler(req, res) {
       /* sem assinatura viva na Stripe: segue para um checkout novo */
     }
 
-    /* código de ativação: resolve o promotion code (PAGOMANUAL → cupom 100%
-       forever). discounts é mutuamente exclusivo com allow_promotion_codes. */
-    let promo = null;
+    /* ── código de ativação = PAGAMENTO MANUAL (send_invoice) ──
+       Sem checkout: a assinatura nasce ativa no valor cheio, sem cartão, e a
+       Stripe emite a fatura de cada ciclo com prazo de vencimento. O cliente
+       paga em dinheiro; a administração marca a fatura como "paga fora da
+       Stripe" no dashboard. Fatura vencida → past_due (configurável no
+       dashboard: cancelar após N dias) → webhook marca inadimplente →
+       paywall bloqueia sem intervenção. */
     if (codigoAtivacao) {
       const lista = await stripe.promotionCodes.list({ code: codigoAtivacao, active: true, limit: 1 });
-      promo = lista.data[0];
+      const promo = lista.data[0];
       if (!promo) return res.status(400).json({ error: "Código de ativação inválido ou expirado." });
+
+      const diasVencimento = Number(envVal("STRIPE_DIAS_VENCIMENTO_FATURA")) || 10;
+      const sub = await stripe.subscriptions.create({
+        customer: customerId,
+        items: [{ price: price.id }],
+        collection_method: "send_invoice",
+        days_until_due: diasVencimento,
+        description: `Licença CondoMaster · ${cond.nome_fantasia} (pagamento manual)`,
+        metadata: { condominio_id: condominioId, codigo_ativacao: codigoAtivacao },
+      });
+
+      /* uso único: o código é invalidado AQUI (a Stripe só "resgataria" um
+         promotion code aplicado como desconto — como ele é só autorização,
+         somos nós que o desativamos), com rastro de quem o consumiu */
+      await stripe.promotionCodes.update(promo.id, {
+        active: false,
+        metadata: { usado_por_condominio: condominioId, usado_em: new Date().toISOString().slice(0, 10) },
+      }).catch((e) => console.error("[stripe/assinatura] código não desativado:", e.message));
+
+      /* primeira fatura: finaliza e envia já (senão a Stripe finaliza
+         sozinha em ~1h). Best-effort — sem e-mail no cliente o envio falha,
+         mas a fatura existe e é gerenciada pelo dashboard. */
+      try {
+        const invId = typeof sub.latest_invoice === "string" ? sub.latest_invoice : sub.latest_invoice?.id;
+        if (invId) {
+          await stripe.invoices.finalizeInvoice(invId).catch(() => {});
+          await stripe.invoices.sendInvoice(invId);
+        }
+      } catch (e) { console.log("[stripe/assinatura] fatura criada; envio por e-mail indisponível:", e.message); }
+
+      /* espelha no banco na hora — o webhook faz o mesmo, mas em dev local
+         ele não chega e o acesso libera por este caminho */
+      await sincronizarLicenca(supabase, sub, condominioId);
+      return res.status(200).json({ ativado: true, subscriptionId: sub.id, pagamentoManual: true, diasVencimento });
     }
 
     const session = await stripe.checkout.sessions.create({
@@ -124,9 +165,10 @@ export default async function handler(req, res) {
         description: `Licença CondoMaster · ${cond.nome_fantasia}`,
         metadata: { condominio_id: condominioId },
       },
-      /* com 100% de desconto o checkout não pede cartão */
-      payment_method_collection: promo ? "if_required" : "always",
-      ...(promo ? { discounts: [{ promotion_code: promo.id }] } : { allow_promotion_codes: true }),
+      /* sem allow_promotion_codes de propósito: códigos de ativação passam
+         SÓ pelo campo do app (fluxo de pagamento manual acima) — digitados
+         no checkout dariam desconto de verdade */
+      payment_method_collection: "always",
       success_url: `${origem}/?licenca=ok`,
       cancel_url: `${origem}/`,
     });
@@ -134,7 +176,6 @@ export default async function handler(req, res) {
     return res.status(200).json({
       checkoutUrl: session.url,
       sessionId: session.id,
-      codigoAplicado: !!promo,
       trial: elegivelTeste,
       trialDays: elegivelTeste ? 30 : 0,
     });
