@@ -7,7 +7,7 @@ import {
   Download, Filter, Bell, Menu, Eye, Send, Printer, RefreshCw, TrendingUp,
   TrendingDown, CircleDot, User, KeyRound, Car, Package, DoorOpen, Star,
   CalendarClock, ListChecks, MoreHorizontal, Pencil, Ban,
-  Mail, EyeOff, Trash2, UserPlus, Upload, Copy, MapPin, Banknote
+  Mail, EyeOff, Trash2, UserPlus, Upload, Copy, MapPin, Banknote, CreditCard
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -16,7 +16,8 @@ import {
 import {
   loadAll, criarCondominio, criarUnidade, criarPessoa, criarLancamento, decidirLancamento, criarPenalidade, decidirPenalidade,
   criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, baixarPdfCobranca, loginDiretor,
-  assinarLicencaCommet, verificarLicencaCommet, estenderTesteCommet, cancelarAssinaturaCommet, listarPlanos, trocarPlanoLicenca, registrarDiretor,
+  assinarLicenca, verificarLicenca, cancelarAssinatura, abrirPortalCobranca, listarPlanos, trocarPlanoLicenca, registrarDiretor,
+  iniciarOnboardingStripe, statusStripeConnect, pagarCobrancaOnline, verificarCobranca,
   criarAcesso, listarAcessos, removerAcesso, loginUsuario, setAuthToken,
   salvarLogoCondominio, removerLogoCondominio, obterCondominio, salvarCondominio, salvarAreaUnidade, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
@@ -64,8 +65,9 @@ const LOCALE_MOEDA = { BRL: "pt-BR", USD: "en-US", EUR: "de-DE", GBP: "en-GB", A
 let MOEDA = "USD";
 const setMoeda = (m) => { MOEDA = LOCALE_MOEDA[m] ? m : "USD"; };
 const BRL = (v) => v.toLocaleString(LOCALE_MOEDA[MOEDA], { style: "currency", currency: MOEDA });
-/* preços da licença SaaS: sempre em dólar (USD), independente da moeda de gestão */
-const USD = (v) => v.toLocaleString("en-US", { style: "currency", currency: "USD" });
+/* preços da licença SaaS: sempre em reais (BRL) — a conta da plataforma é
+   Stripe Brasil —, independente da moeda de gestão do condomínio */
+const BRLLic = (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 /* ══════════════ CONTAS DE ACESSO (salvas neste navegador — modo demo) ══════════════ */
@@ -620,7 +622,7 @@ function SetupCondominio({ t, role, diretor, onCriado, onSair, dark, setDark }) 
                 <select name="plano" required style={inputStyle(t)}>
                   {(planos.length ? planos : [{ nome: "Essencial" }]).map((p) => (
                     <option key={p.nome}>{p.preco_mensal
-                      ? `${p.nome} — ${USD(Number(p.preco_mensal))}/mês${p.preco_anual ? ` ou ${USD(Number(p.preco_anual))}/ano` : ""} · ${p.limite_unidades ? `até ${p.limite_unidades} unidades` : "unidades ilimitadas"}`
+                      ? `${p.nome} — ${BRLLic(Number(p.preco_mensal))}/mês${p.preco_anual ? ` ou ${BRLLic(Number(p.preco_anual))}/ano` : ""} · ${p.limite_unidades ? `até ${p.limite_unidades} unidades` : "unidades ilimitadas"}`
                       : p.nome}</option>))}
                 </select></Field></div>
               <div className="mt-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.gold }}>
@@ -808,6 +810,28 @@ function Condominio({ t, role }) {
   const [formKey, setFormKey] = useState(0);
   const [logo, setLogo] = useState(null);
   const [subindoLogo, setSubindoLogo] = useState(false);
+  /* conta de recebimento Stripe (Connect) — onboarding e status são do diretor */
+  const [stripeInfo, setStripeInfo] = useState(null); // null = consultando
+  const [abrindoStripe, setAbrindoStripe] = useState(false);
+  const consultarStripe = useCallback(() => {
+    if (role !== "diretor") return;
+    statusStripeConnect().then(setStripeInfo).catch(() => setStripeInfo({ online: false, configurado: false }));
+  }, [role]);
+  useEffect(() => { consultarStripe(); }, [consultarStripe, db.ctx]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* ao voltar da aba do onboarding hospedado, reconsulta sozinho */
+  useEffect(() => {
+    if (role !== "diretor") return;
+    window.addEventListener("focus", consultarStripe);
+    return () => window.removeEventListener("focus", consultarStripe);
+  }, [role, consultarStripe]);
+  const configurarStripe = async () => {
+    setAbrindoStripe(true);
+    try {
+      const r = await iniciarOnboardingStripe();
+      if (r?.url) window.open(r.url, "_blank", "noopener");
+    } catch (e) { alert("Não foi possível abrir o cadastro de recebimento: " + (e?.message || e)); }
+    finally { setAbrindoStripe(false); }
+  };
   const carregar = () => obterCondominio(db.ctx)
     .then((c) => { setCond(c); setLogo(c.logoUrl); setFormKey((k) => k + 1); })
     .catch((e) => alert("Não foi possível carregar o cadastro: " + (e?.message || e)));
@@ -893,7 +917,49 @@ function Condominio({ t, role }) {
           <Field t={t} label="Áreas comuns"><input name="areas" defaultValue={cond.areas} placeholder={L("Ex.: Reserva com 48h de antecedência")} style={inputStyle(t)} /></Field>
         </div>
         <div className="space-y-3" style={mostra("pagamentos")}>
-          <div className="text-xs font-semibold" style={{ color: t.gold, fontFamily: "'Sora',sans-serif" }}>{L("Cripto ativos")}</div>
+          {role === "diretor" && (<>
+            <div className="text-xs font-semibold" style={{ color: t.gold, fontFamily: "'Sora',sans-serif" }}>{L("Pagamento online")} · Stripe</div>
+            <div className="rounded-xl border px-3 py-3 text-xs" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+              {stripeInfo === null ? (
+                <span style={{ color: t.dim }}>{L("Consultando a conta de recebimento…")}</span>
+              ) : !stripeInfo.configurado ? (<>
+                <div style={{ color: t.dim }}>
+                  {L("Receba as cobranças por Pix e cartão direto na conta bancária do condomínio, com baixa automática no sistema. O cadastro é feito em ambiente seguro da Stripe (CNPJ e conta bancária do condomínio).")}</div>
+                <div className="mt-2">
+                  <Btn t={t} kind="primary" disabled={abrindoStripe} onClick={configurarStripe}>
+                    <QrCode size={13} /> {abrindoStripe ? "Abrindo…" : L("Ativar recebimento online")}</Btn>
+                </div>
+              </>) : !stripeInfo.chargesEnabled ? (<>
+                <div style={{ color: t.warn }}>
+                  <AlertCircle size={13} className="mr-1 inline" />
+                  {L("Cadastro iniciado — a Stripe ainda precisa de informações para liberar os recebimentos.")}</div>
+                {(stripeInfo.pendencias || []).length > 0 && (
+                  <div className="mt-1 break-all" style={{ color: t.dim }}>{L("Pendências")}: {stripeInfo.pendencias.join(", ")}</div>)}
+                <div className="mt-2">
+                  <Btn t={t} disabled={abrindoStripe} onClick={configurarStripe}>
+                    {abrindoStripe ? "Abrindo…" : L("Retomar cadastro")}</Btn>
+                </div>
+              </>) : (<>
+                <div style={{ color: t.ok }}>
+                  <CheckCircle2 size={13} className="mr-1 inline" />
+                  {L("Recebimento online ativo — os moradores podem pagar as cobranças por Pix e cartão pelo portal.")}
+                  {!stripeInfo.payoutsEnabled && <> {L("(repasses bancários ainda em liberação pela Stripe)")}</>}</div>
+                <div className="mt-1" style={{ color: t.dim }}>
+                  {L("A plataforma retém 1% por cobrança paga online. Gerencie recebimentos e repasses em")}{" "}
+                  <a href={stripeInfo.dashboardUrl || "https://dashboard.stripe.com"} target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>dashboard.stripe.com</a>.</div>
+              </>)}
+              {stripeInfo && cond.moeda !== "BRL" && (
+                <div className="mt-2" style={{ color: t.warn }}>
+                  <AlertCircle size={13} className="mr-1 inline" />
+                  {L("O pagamento online (Pix/cartão) exige a moeda de gestão em Real (BRL) — ajuste em Dados gerais. Os meios manuais abaixo continuam valendo.")}</div>)}
+            </div>
+            <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2.5" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+              <span className="text-sm">{L("Repassar a taxa do pagamento online ao morador")}
+                <span className="block text-[11px]" style={{ color: t.dim }}>{L("Ativado: a taxa de processamento é somada no checkout e o condomínio recebe o valor cheio. Desativado: o condomínio absorve a taxa.")}</span></span>
+              <input type="checkbox" name="stripeRepasse" defaultChecked={cond.stripeRepasse} className="h-4 w-4 shrink-0" style={{ accentColor: t.gold }} />
+            </label>
+          </>)}
+          <div className="pt-1 text-xs font-semibold" style={{ color: t.gold, fontFamily: "'Sora',sans-serif" }}>{L("Cripto ativos")}</div>
           <Field t={t} label="Chave pública da carteira Verum Wallet">
             <input name="verumWallet" defaultValue={cond.verumWallet}
               placeholder={L("Cole aqui a chave pública (endereço de recebimento) da carteira")} style={inputStyle(t)} />
@@ -1024,8 +1090,8 @@ function Unidades({ t, role }) {
   };
   const rows = db.unidades.filter((u) => (st === "todos" || u.status === st) && buscaUnidade(u));
   const cols = [{k:"num",l:"Unidade"},{k:"andar",l:"Andar"},{k:"tipo",l:"Tipo"},{k:"status",l:"Status"},{k:"resp",l:"Responsável financeiro"},{k:"fracao",l:"Fração ideal"},{k:"saldo",l:"Saldo"}];
-  /* franquia de unidades do plano: acima dela nada é bloqueado — o excedente
-     é cobrado pelo Commet na fatura da licença (feature medida) */
+  /* franquia de unidades do plano: acima dela nada é bloqueado — o aviso
+     abaixo sinaliza o excedente (cobrança automática fica para fase futura) */
   const limiteUn = db.tenants.find((x) => x.id === db.ctx.condominioId)?.limiteUnidades;
   return (
     <div className="vfade">
@@ -1529,7 +1595,7 @@ function Cobrancas({ t }) {
       <Tbl t={t} cols={[{k:"unidade",l:"Unidade"},{k:"resp",l:"Responsável"},{k:"comp",l:"Competência"},{k:"valor",l:"Valor"},{k:"venc",l:"Vencimento"},{k:"status",l:"Status"},{k:"acao",l:""}]}
         rows={rows}
         empty={<EmptyState t={t} icon={QrCode} title="Nenhuma cobrança nesta competência"
-          hint="Gere as cobranças do mês: o sistema cria um QR Code Verum Pay único por unidade e envia pelo portal, e-mail ou WhatsApp."
+          hint="Gere as cobranças do mês: cada unidade recebe a sua no portal do morador, com pagamento online (Pix/cartão) e pelos meios cadastrados do condomínio."
           action={<Btn t={t} kind="primary" onClick={() => setNova(true)}><Plus size={14} /> Gerar cobranças do mês</Btn>} />}
         renderCell={(r, k) => {
           if (k === "valor") return <b>{BRL(r.valor)}</b>;
@@ -1549,12 +1615,12 @@ function Cobrancas({ t }) {
               <div className="text-xs" style={{ color: t.dim }}>Vencimento {qr.venc} · QR único desta cobrança</div>
             </div>
             <Badge t={t} s={qr.status} />
-            {qr.tx !== "—" && <div className="rounded-lg px-3 py-1.5 text-xs" style={{ background: t.surface2, color: t.dim }}>Transação Verum Pay: <b style={{ color: t.gold }}>{qr.tx}</b> · baixa automática confirmada</div>}
+            {qr.tx !== "—" && <div className="break-all rounded-lg px-3 py-1.5 text-xs" style={{ background: t.surface2, color: t.dim }}>{L("Transação")}: <b style={{ color: t.gold }}>{qr.tx}</b>{(qr.status === "pago") && <> · {L("baixa automática confirmada")}</>}</div>}
             <div className="flex flex-wrap justify-center gap-2">
               <Btn t={t} disabled={baixandoPdf} onClick={() => baixarPdf(qr)}><Download size={14} /> {baixandoPdf ? "Gerando…" : "Baixar"}</Btn>
               <Btn t={t} onClick={() => enviarWhats(qr)}><Send size={14} /> Enviar por WhatsApp</Btn>
             </div>
-            <div className="text-[11px]" style={{ color: t.dim }}>QR ilustrativo — a emissão real será conectada ao Verum Pay na fase de integração.</div>
+            <div className="text-[11px]" style={{ color: t.dim }}>{L("QR ilustrativo — o morador paga pelo portal (Pix/cartão online ou meios cadastrados do condomínio).")}</div>
           </div>
         </Modal>)}
       {nova && (
@@ -2380,6 +2446,54 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
   const [infoPredio, setInfoPredio] = useState(false); // modal com os dados do edifício + morador
   const [copiado, setCopiado] = useState(false);
   const [copiadoPag, setCopiadoPag] = useState(null); // qual meio de pagamento foi copiado
+  /* pagamento online (Stripe Connect): disponível quando o condomínio ativou
+     o recebimento e a moeda de gestão é BRL — consultado no backend */
+  const [stripeOnline, setStripeOnline] = useState(false);
+  useEffect(() => { statusStripeConnect().then((r) => setStripeOnline(!!r?.online)).catch(() => {}); }, []);
+  const [pagandoOnline, setPagandoOnline] = useState(null); // método em processamento
+  const pagarOnline = async (cobranca, metodo) => {
+    setPagandoOnline(metodo);
+    try {
+      const r = await pagarCobrancaOnline(cobranca.id, metodo);
+      if (r?.checkoutUrl) window.open(r.checkoutUrl, "_blank", "noopener");
+    } catch (e) { alert("Não foi possível abrir o pagamento: " + (e?.message || e)); }
+    finally { setPagandoOnline(null); }
+  };
+  /* retorno do Stripe Checkout (?pagamento=ok&cobranca=ID): confirma sozinho,
+     com polling — o webhook pode levar alguns segundos. Fica na aba Pagamentos. */
+  const [confirmandoPagto, setConfirmandoPagto] = useState(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      return p.get("pagamento") === "ok" ? p.get("cobranca") : null;
+    } catch { return null; }
+  });
+  const [avisoPagto, setAvisoPagto] = useState("");
+  useEffect(() => {
+    if (!confirmandoPagto) return;
+    try { window.history.replaceState(null, "", window.location.pathname); } catch { /* sem history */ }
+    setTab("pagamentos");
+    let vivo = true;
+    const limite = Date.now() + 90_000;
+    (async () => {
+      while (vivo) {
+        if (await verificarCobranca(confirmandoPagto)) {
+          if (!vivo) return;
+          setConfirmandoPagto(null);
+          setAvisoPagto(L("Pagamento confirmado — obrigado!"));
+          await reload();
+          return;
+        }
+        if (!vivo) return;
+        if (Date.now() > limite) {
+          setConfirmandoPagto(null);
+          setAvisoPagto(L("O pagamento ainda não foi confirmado — assim que a Stripe confirmar, a cobrança é baixada automaticamente."));
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    })();
+    return () => { vivo = false; };
+  }, [confirmandoPagto]); // eslint-disable-line react-hooks/exhaustive-deps
   /* unidade do morador logado (escolhida pelo diretor em Gerenciar Acessos); fallback: demo 102-A */
   const unidade = morador?.unidade || (db.unidades.find((u) => u.num === "102") ? "102-A" : (db.unidades[0] ? `${db.unidades[0].num}-${db.unidades[0].bloco}` : "—"));
   /* morador não abre chamado — apenas visualiza os existentes da unidade */
@@ -2427,7 +2541,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
     ["Agência / roteamento", pagto.banco?.agencia], ["Observações", pagto.banco?.obs],
   ].filter(([, v]) => v);
   const aceitaDinheiro = !!pagto.dinheiro;
-  const temMeiosPagamento = !!(pagto.verumWallet || bancoLinhas.length || aceitaDinheiro);
+  const temMeiosPagamento = !!(stripeOnline || pagto.verumWallet || bancoLinhas.length || aceitaDinheiro);
   const fecharPagar = () => { setQr(null); setFormaPag(null); };
   return (
     <div style={{ background: t.bg, color: t.text, minHeight: "100vh", fontFamily: "'Inter',system-ui,sans-serif" }}>
@@ -2551,6 +2665,12 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
         {tab === "pagamentos" && (
           <div className="vfade space-y-2">
             <SectionTitle t={t}>{L("Cobranças da unidade")} {unidade}</SectionTitle>
+            {confirmandoPagto && (
+              <div className="flex items-center gap-2 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.gold + "55", background: t.goldSoft, color: t.gold }}>
+                <div className="vspin h-4 w-4 shrink-0 rounded-full border-2" style={{ borderColor: t.borderSoft, borderTopColor: t.gold }} />
+                {L("Confirmando seu pagamento com a Stripe…")}</div>)}
+            {avisoPagto && !confirmandoPagto && (
+              <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.gold + "55", background: t.goldSoft, color: t.gold }}>{avisoPagto}</div>)}
             {boletos.length === 0 && <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
               {L("Nenhuma cobrança para esta unidade ainda.")}</div>}
             {boletos.map((b) => (
@@ -2735,6 +2855,21 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
               {!temMeiosPagamento && (
                 <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
                   {L("O condomínio ainda não cadastrou meios de pagamento. Fale com a administração.")}</div>)}
+              {/* pagamento online (Stripe): abre o checkout direto — a baixa é automática */}
+              {stripeOnline && [
+                ["pix", "Pix (pagamento online)", QrCode],
+                ["card", "Cartão (pagamento online)", CreditCard],
+              ].map(([k, l, Ic]) => (
+                <button key={k} type="button" disabled={!!pagandoOnline} onClick={() => pagarOnline(qr, k)}
+                  className="flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left hover:opacity-90 disabled:opacity-60"
+                  style={{ borderColor: t.gold + "66", background: t.goldSoft }}>
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: t.surface }}>
+                    <Ic size={16} color={t.gold} /></span>
+                  <span className="flex-1 text-sm font-medium" style={{ color: t.gold }}>
+                    {pagandoOnline === k ? L("Abrindo pagamento…") : L(l)}
+                    <span className="block text-[10px] font-normal" style={{ color: t.dim }}>{L("Baixa automática da cobrança")}{pagto.stripeRepasse ? ` · ${L("taxa de processamento somada no checkout")}` : ""}</span></span>
+                  <ChevronRight size={15} color={t.gold} />
+                </button>))}
               {[
                 ["qr", "QR Verum Pay", QrCode, !!pagto.verumWallet],
                 ["verum", "Cripto ativos · Verum Wallet", Wallet, !!pagto.verumWallet],
@@ -2881,8 +3016,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
 /* ══════════════ PLANOS — GERENCIAR ASSINATURA (só o diretor vê) ══════════════
    Mostra o plano contratado e permite upgrade/downgrade e a escolha do ciclo
    de pagamento (mensal ou anual). A troca grava o novo plano no banco e abre
-   o checkout Commet do novo valor; a confirmação chega pelo webhook. */
-const EXTENSAO_TESTE_HABILITADA = false; // oferta de +30 dias de teste desativada temporariamente
+   o checkout Stripe do novo valor; a confirmação chega pelo webhook. */
 function Planos({ t }) {
   const { db, reload } = useData();
   const tenant = (db.tenants || []).find((x) => x.id === db.ctx.condominioId);
@@ -2899,13 +3033,13 @@ function Planos({ t }) {
      "cancelada" quando o período termina (aí o paywall assume) */
   const cancelamentoAgendado = !!tenant?.canceladoEm && (licencaAtiva || emTeste);
   const dBR = (iso) => (iso ? iso.split("-").reverse().join("/") : "—");
-  const [estendendo, setEstendendo] = useState(false);
   const [cancelando, setCancelando] = useState(false);
+  const [abrindoPortal, setAbrindoPortal] = useState(false);
   const cancelar = async () => {
     if (!window.confirm(L("Cancelar a assinatura? O acesso continua até o fim do período já pago e nenhuma cobrança futura será feita."))) return;
     setCancelando(true);
     try {
-      const resp = await cancelarAssinaturaCommet(db.ctx.condominioId);
+      const resp = await cancelarAssinatura(db.ctx.condominioId);
       alert(resp?.fimAcesso
         ? `${L("Cancelamento agendado — o acesso continua até")} ${resp.fimAcesso.split("-").reverse().join("/")}.`
         : L("Assinatura cancelada."));
@@ -2913,25 +3047,24 @@ function Planos({ t }) {
     } catch (err) { alert("Não foi possível cancelar: " + (err?.message || err)); }
     finally { setCancelando(false); }
   };
-  const estender = async () => {
-    if (!window.confirm(L("Estender o teste gratuito por mais 30 dias? Esta extensão só pode ser usada uma vez."))) return;
-    setEstendendo(true);
+  /* Billing Portal da Stripe: trocar o cartão da licença, ver faturas e recibos */
+  const gerenciarPagamento = async () => {
+    setAbrindoPortal(true);
     try {
-      const resp = await estenderTesteCommet(db.ctx.condominioId);
-      if (resp?.checkoutUrl) window.open(resp.checkoutUrl, "_blank", "noopener"); // cartão precisa de reconfirmação
-      await reload();
-    } catch (err) { alert("Não foi possível estender o teste: " + (err?.message || err)); }
-    finally { setEstendendo(false); }
+      const resp = await abrirPortalCobranca(db.ctx.condominioId);
+      if (resp?.url) window.open(resp.url, "_blank", "noopener");
+    } catch (err) { alert("Não foi possível abrir o portal de pagamento: " + (err?.message || err)); }
+    finally { setAbrindoPortal(false); }
   };
   const contratar = async (p) => {
     const troca = !!atual && p.nome !== atual.nome;
     /* changePlan durante o trial converte o teste e cobra na hora — espelho do 409 do backend */
     if (troca && emTeste) { alert(L("A troca de plano durante o teste gratuito é cobrada imediatamente — aguarde o fim do teste para trocar.")); return; }
-    if (troca && !window.confirm(`${L("Trocar o plano de")} ${atual.nome} ${L("para")} ${p.nome} (${USD(preco(p))}/${ciclo === "anual" ? L("ano") : L("mês")})? ${L("O checkout do novo valor será aberto em seguida.")}`)) return;
+    if (troca && !window.confirm(`${L("Trocar o plano de")} ${atual.nome} ${L("para")} ${p.nome} (${BRLLic(preco(p))}/${ciclo === "anual" ? L("ano") : L("mês")})? ${L("O checkout do novo valor será aberto em seguida.")}`)) return;
     setAgindo(p.nome);
     try {
       if (troca) await trocarPlanoLicenca(db.ctx.condominioId, p.nome);
-      const resp = await assinarLicencaCommet(db.ctx.condominioId, ciclo, troca || licencaAtiva);
+      const resp = await assinarLicenca(db.ctx.condominioId, ciclo, troca || licencaAtiva);
       if (resp?.checkoutUrl) window.open(resp.checkoutUrl, "_blank", "noopener");
       else if (resp?.trocaAplicada) alert(resp.agendadaPara
         ? `${L("Troca de plano agendada — o novo plano vale a partir de")} ${resp.agendadaPara.slice(0, 10)}.`
@@ -2942,22 +3075,28 @@ function Planos({ t }) {
   };
   const verificar = async () => {
     setVerificando(true);
-    try { await verificarLicencaCommet(db.ctx.condominioId); await reload(); }
+    try { await verificarLicenca(db.ctx.condominioId); await reload(); }
     finally { setVerificando(false); }
   };
   if (planos === null) return <div className="vfade text-xs" style={{ color: t.dim }}>{L("Carregando planos…")}</div>;
   return (
     <div className="vfade max-w-3xl space-y-4">
       <Card t={t} className="p-5">
-        <SectionTitle t={t} action={<Btn t={t} disabled={verificando} onClick={verificar}><RefreshCw size={13} /> {verificando ? "Verificando…" : L("Verificar pagamento")}</Btn>}>
+        <SectionTitle t={t} action={
+          <div className="flex gap-2">
+            {(licencaAtiva || emTeste) && (
+              <Btn t={t} disabled={abrindoPortal} onClick={gerenciarPagamento}>
+                <Wallet size={13} /> {abrindoPortal ? "Abrindo…" : L("Gerenciar pagamento")}</Btn>)}
+            <Btn t={t} disabled={verificando} onClick={verificar}><RefreshCw size={13} /> {verificando ? "Verificando…" : L("Verificar pagamento")}</Btn>
+          </div>}>
           Plano contratado</SectionTitle>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl" style={{ background: t.goldSoft }}><Star size={18} color={t.gold} /></div>
           <div className="flex-1">
             <div className="text-base font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{tenant?.plano || "—"}</div>
             <div className="text-xs" style={{ color: t.dim }}>
-              {tenant?.precoPlano ? `${USD(tenant.precoPlano)}/${L("mês")}` : "—"}
-              {tenant?.precoPlanoAnual > 0 && ` · ${USD(tenant.precoPlanoAnual)}/${L("ano")}`}
+              {tenant?.precoPlano ? `${BRLLic(tenant.precoPlano)}/${L("mês")}` : "—"}
+              {tenant?.precoPlanoAnual > 0 && ` · ${BRLLic(tenant.precoPlanoAnual)}/${L("ano")}`}
               {tenant?.venc !== "—" && ` · ${L("renova em")} ${tenant.venc}`}
             </div>
           </div>
@@ -2971,11 +3110,6 @@ function Planos({ t }) {
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
             <AlertCircle size={13} className="inline" />
             <span>{L("Teste gratuito — termina em")} <b>{Math.max(0, tenant.diasTeste)} {L("dia(s)")}</b>. {L("Depois, a cobrança é feita automaticamente no cartão cadastrado.")}</span>
-            {EXTENSAO_TESTE_HABILITADA && !tenant.testeEstendido && tenant.diasTeste <= 5 && (
-              /* a extensão só é oferecida nos últimos 5 dias do teste —
-                 antes disso o botão fica invisível */
-              <Btn t={t} className="!px-2 !py-1 text-xs" disabled={estendendo} onClick={estender}>
-                <Plus size={12} /> {estendendo ? "Estendendo…" : L("Estender teste por +30 dias")}</Btn>)}
           </div>
         ) : !licencaAtiva && (
           <div className="mt-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
@@ -2986,7 +3120,7 @@ function Planos({ t }) {
         {[["mensal", "Mensal"], ["anual", "Anual"]].map(([k, l]) => (
           <button key={k} onClick={() => setCiclo(k)} className="rounded-lg px-3 py-1.5 text-xs font-medium"
             style={{ background: ciclo === k ? t.goldSoft : "transparent", color: ciclo === k ? t.gold : t.dim, border: `1px solid ${ciclo === k ? t.border : t.borderSoft}` }}>{L(l)}</button>))}
-        <span className="text-[11px]" style={{ color: t.dim }}>{L("Cobrança em dólar (USD)")} · Commet</span>
+        <span className="text-[11px]" style={{ color: t.dim }}>{L("Cobrança em reais (BRL)")} · Stripe</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         {planos.map((p) => {
@@ -3000,7 +3134,7 @@ function Planos({ t }) {
                   {ehAtual && <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: t.goldSoft, color: t.gold }}>{L("Plano atual")}</span>}
                 </div>
                 <div className="text-xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>
-                  {USD(preco(p))}<span className="text-xs font-normal" style={{ color: t.dim }}>/{ciclo === "anual" ? L("ano") : L("mês")}</span></div>
+                  {BRLLic(preco(p))}<span className="text-xs font-normal" style={{ color: t.dim }}>/{ciclo === "anual" ? L("ano") : L("mês")}</span></div>
                 <div className="text-xs" style={{ color: t.dim }}>
                   {p.limite_unidades ? `${L("Até")} ${p.limite_unidades} ${L("unidades")}` : L("Unidades ilimitadas")}</div>
                 {ehAtual && (licencaAtiva || emTeste)
@@ -3013,7 +3147,7 @@ function Planos({ t }) {
         })}
       </div>
       <div className="text-[11px]" style={{ color: t.dim }}>
-        {L("Na troca de plano, a assinatura atual é atualizada automaticamente no Commet (upgrade cobra a diferença com rateio; downgrade é agendado para o fim do período já pago) — a anterior é substituída, sem cobrança dupla. Após pagar, use \"Verificar pagamento\" para sincronizar o status.")}</div>
+        {L("Na troca de plano, a assinatura atual é atualizada automaticamente na Stripe (a diferença é cobrada ou creditada com rateio) — sem cobrança dupla. Após pagar, use \"Verificar pagamento\" para sincronizar o status.")}</div>
       {(licencaAtiva || emTeste) && !cancelamentoAgendado && (
         <div className="text-right">
           <button onClick={cancelar} disabled={cancelando} className="text-[11px] underline opacity-70 hover:opacity-100" style={{ color: t.dim, background: "none", border: "none" }}>
@@ -3024,8 +3158,8 @@ function Planos({ t }) {
 }
 
 /* Bloqueia o acesso ao sistema enquanto a assinatura do condomínio não
-   estiver ativa. O pagamento abre o checkout Commet; a ativação chega
-   pelo webhook (subscription.activated) e o botão "Verificar" recarrega. */
+   estiver ativa. O pagamento abre o Stripe Checkout; a ativação chega
+   pelo webhook (customer.subscription.*) e o botão "Verificar" recarrega. */
 function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload }) {
   /* a página de planos/pagamento é exclusiva do diretor; os demais perfis só
      veem o aviso de assinatura pendente, sem valores nem botão de pagar */
@@ -3033,7 +3167,7 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
   const [gerando, setGerando] = useState(false);
   const [verificando, setVerificando] = useState(false);
   const [erro, setErro] = useState("");
-  /* ciclo de cobrança da licença — sempre em dólar (USD) */
+  /* ciclo de cobrança da licença — sempre em reais (BRL) */
   const [ciclo, setCiclo] = useState("mensal");
   /* escolha de plano no próprio paywall: o diretor pode assinar/reativar em
      outro plano — a troca grava no banco (trocarPlanoLicenca) antes do
@@ -3050,11 +3184,11 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
     if (planoSel && tenant?.plano && planoSel !== tenant.plano) await trocarPlanoLicenca(condominioId, planoSel);
   };
 
-  /* pergunta ao Commet (via backend) se o pagamento foi confirmado e, se sim,
+  /* pergunta à Stripe (via backend) se o pagamento foi confirmado e, se sim,
      recarrega — libera o acesso mesmo antes de o webhook chegar */
   const verificar = useCallback(async () => {
     setVerificando(true);
-    const ativa = await verificarLicencaCommet(condominioId);
+    const ativa = await verificarLicenca(condominioId);
     if (ativa) await onReload();
     setVerificando(false);
     return ativa;
@@ -3067,7 +3201,7 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
     return () => window.removeEventListener("focus", conferir);
   }, [verificar]);
 
-  /* retorno do checkout do Commet (successUrl = /?licenca=ok): confirma o
+  /* retorno do Stripe Checkout (success_url = /?licenca=ok): confirma o
      pagamento sozinho, com polling — o webhook pode levar alguns segundos —
      e mostra um spinner até o dashboard carregar. Se a confirmação não chegar
      no prazo, volta ao paywall com o botão "Já paguei — verificar". */
@@ -3085,7 +3219,7 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
         if (!vivo) return;
         if (Date.now() > limite) {
           setConfirmandoRetorno(false);
-          setErro(L("O Commet ainda não confirmou este pagamento. Aguarde alguns instantes e use \"Já paguei — verificar\"."));
+          setErro(L("A Stripe ainda não confirmou este pagamento. Aguarde alguns instantes e use \"Já paguei — verificar\"."));
           return;
         }
         await new Promise((r) => setTimeout(r, 3000));
@@ -3098,16 +3232,16 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
     setGerando(true); setErro("");
     try {
       await aplicarPlanoEscolhido();
-      const resp = await assinarLicencaCommet(condominioId, ciclo);
+      const resp = await assinarLicenca(condominioId, ciclo);
       if (resp?.checkoutUrl) window.open(resp.checkoutUrl, "_blank", "noopener");
     } catch (e) { setErro(e.message); }
     finally { setGerando(false); }
   };
 
-  /* código de ativação (pagamento manual): promo code de uma Offer do Commet
-     com 100% de desconto — o checkout abre com total $0 e a ativação chega
-     pelo webhook, como em qualquer assinatura. A gestão (pausar/reativar) é
-     feita no dashboard do Commet. */
+  /* código de ativação (pagamento manual): promotion code da Stripe (cupom
+     100% off, forever) — o checkout abre com total R$ 0, sem pedir cartão, e
+     a ativação chega pelo webhook, como em qualquer assinatura. A gestão
+     (pausar/reativar) é feita no dashboard da Stripe. */
   const [mostrarCodigo, setMostrarCodigo] = useState(false);
   const [codigo, setCodigo] = useState("");
   const [ativandoCodigo, setAtivandoCodigo] = useState(false);
@@ -3117,20 +3251,20 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
     setAtivandoCodigo(true); setErro(""); setAvisoCodigo("");
     try {
       await aplicarPlanoEscolhido();
-      const resp = await assinarLicencaCommet(condominioId, ciclo, false, codigo.trim());
+      const resp = await assinarLicenca(condominioId, ciclo, false, codigo.trim());
       if (resp?.ativado) {
         /* 100% de desconto sem checkout: a assinatura já nasceu ativa */
         setAvisoCodigo(L("Código aplicado — liberando o acesso…"));
         if (!(await verificar())) setAvisoCodigo(L("Código aplicado. Se o acesso não liberar em instantes, use \"Já paguei — verificar\"."));
       } else if (resp?.checkoutUrl) {
-        setAvisoCodigo(L("Código aplicado — conclua no checkout aberto (o total deve ser $0)."));
+        setAvisoCodigo(L("Código aplicado — conclua no checkout aberto (o total deve ser R$ 0)."));
         window.open(resp.checkoutUrl, "_blank", "noopener");
       }
     } catch (e) { setErro(e.message); }
     finally { setAtivandoCodigo(false); }
   };
 
-  /* teste ainda não iniciado no Commet (sem teste_fim): o checkout salva o
+  /* teste ainda não iniciado na Stripe (sem teste_fim): o checkout salva o
      cartão SEM cobrar e libera 30 dias grátis; teste_fim no passado = expirou */
   const trialNovo = licenca === "teste" && !tenant?.testeFim;
   const MSG = {
@@ -3149,7 +3283,7 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
       <div className="vspin h-10 w-10 rounded-full border-2" style={{ borderColor: t.borderSoft, borderTopColor: t.gold }} />
       <div className="text-sm font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{L("Confirmando seu pagamento…")}</div>
       <p className="max-w-xs text-center text-xs" style={{ color: t.dim }}>
-        {L("Estamos verificando a confirmação com o Commet. Isso costuma levar poucos segundos — você entrará no painel automaticamente.")}</p>
+        {L("Estamos verificando a confirmação com a Stripe. Isso costuma levar poucos segundos — você entrará no painel automaticamente.")}</p>
     </div>
   );
 
@@ -3188,11 +3322,11 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
               {precoMes ? (
                 <div className="mt-2 flex items-center justify-between">
                   <span style={{ color: t.dim }}>{ciclo === "anual" && temAnual ? L("Anuidade") : L("Mensalidade")}</span>
-                  <b>{ciclo === "anual" && temAnual ? `${USD(precoAno)}/ano` : `${USD(precoMes)}/mês`}</b></div>) : null}
+                  <b>{ciclo === "anual" && temAnual ? `${BRLLic(precoAno)}/ano` : `${BRLLic(precoMes)}/mês`}</b></div>) : null}
               {planoInfo && (
                 <div className="mt-1 text-right text-[11px]" style={{ color: t.dim }}>
-                  {planoInfo.limite_unidades ? `${L("Até")} ${planoInfo.limite_unidades} ${L("unidades")} · ` : `${L("Unidades ilimitadas")} · `}{L("Cobrança em dólar (USD)")}</div>)}
-              {!planoInfo && <div className="mt-1 text-right text-[11px]" style={{ color: t.dim }}>{L("Cobrança em dólar (USD)")}</div>}
+                  {planoInfo.limite_unidades ? `${L("Até")} ${planoInfo.limite_unidades} ${L("unidades")} · ` : `${L("Unidades ilimitadas")} · `}{L("Cobrança em reais (BRL)")}</div>)}
+              {!planoInfo && <div className="mt-1 text-right text-[11px]" style={{ color: t.dim }}>{L("Cobrança em reais (BRL)")}</div>}
             </div>)}
           {erro && <div className="mt-3 rounded-xl border p-2.5 text-xs" style={{ borderColor: t.danger, color: t.danger }}>{erro}</div>}
           <div className="mt-5 space-y-2">
@@ -3200,7 +3334,7 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
               <Btn t={t} kind="primary" className="w-full" disabled={gerando} onClick={pagar}>
                 <QrCode size={15} /> {gerando ? L("Gerando checkout…") : trialNovo ? L("Iniciar teste gratuito de 30 dias") : L("Pagar assinatura")}</Btn>)}
             <Btn t={t} className="w-full" disabled={verificando}
-              onClick={async () => { setErro(""); if (!(await verificar())) setErro(ehDiretor ? L("O Commet ainda não confirmou este pagamento. Aguarde alguns instantes e verifique de novo.") : L("O acesso ainda não foi liberado. Tente novamente mais tarde.")); }}>
+              onClick={async () => { setErro(""); if (!(await verificar())) setErro(ehDiretor ? L("A Stripe ainda não confirmou este pagamento. Aguarde alguns instantes e verifique de novo.") : L("O acesso ainda não foi liberado. Tente novamente mais tarde.")); }}>
               <RefreshCw size={15} className={verificando ? "vpulse" : ""} /> {ehDiretor ? L("Já paguei — verificar") : L("Tentar novamente")}</Btn>
             <Btn t={t} className="w-full" onClick={onLogout}><LogOut size={15} /> {L("Sair")}</Btn>
           </div>
@@ -3252,6 +3386,16 @@ export default function App() {
     } catch { return padrao; }
   });
   useEffect(() => { try { sessionStorage.setItem(K_TELA, screen); } catch { /* sem storage */ } }, [screen]);
+  /* retorno do onboarding Stripe (?stripe=retorno|refresh): limpa a URL e leva
+     o diretor à aba de meios de pagamento, onde o status é reconsultado */
+  useEffect(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      if (!p.get("stripe")) return;
+      window.history.replaceState(null, "", window.location.pathname);
+      if (lerSessao()?.role === "diretor") setScreen("condominio");
+    } catch { /* sem URL API */ }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [sideOpen, setSideOpen] = useState(false);
   const [phase, retry] = useLoad(screen);
 
@@ -3343,7 +3487,7 @@ export default function App() {
     </DataCtx.Provider>);
 
   /* ── PAYWALL: entra com licença ativa OU teste gratuito válido (iniciado
-     no Commet — teste_fim preenchido — e ainda dentro do prazo) ── */
+     na Stripe — teste_fim preenchido — e ainda dentro do prazo) ── */
   const tenantPrincipal = db && !db.vazio ? db.tenants.find((x) => x.id === db.ctx.condominioId) : null;
   const testeValido = tenantPrincipal?.status === "teste" && tenantPrincipal.testeFim && tenantPrincipal.diasTeste >= 0;
   if (db && tenantPrincipal && tenantPrincipal.status !== "ativo" && !testeValido) return (

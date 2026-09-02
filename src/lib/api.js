@@ -66,7 +66,7 @@ const UNIDADE_TIPO_ENUM = { Apartamento: "apartamento", "Sala comercial": "sala"
 const UNIDADE_STATUS_ENUM = { Ocupada: "ocupada", Vaga: "vaga", Alugada: "alugada", Vendida: "vendida", Reservada: "reservada", Inativa: "inativa" };
 
 const LANC_STATUS_UI = { pago: "pago", aguardando_aprovacao: "aguardando", aprovado: "aberto", rejeitado: "cancelado", cancelado: "cancelado" };
-const FORMA_LABEL = { verum_pay: "QR Verum Pay", transferencia: "Transferência", debito_automatico: "Débito automático", dinheiro: "Dinheiro" };
+const FORMA_LABEL = { verum_pay: "QR Verum Pay", transferencia: "Transferência", debito_automatico: "Débito automático", dinheiro: "Dinheiro", stripe: "Pagamento online (Stripe)" };
 const FORMA_ENUM = Object.fromEntries(Object.entries(FORMA_LABEL).map(([k, v]) => [v, k]));
 
 const COBR_STATUS_UI = { paga: "pago", paga_em_atraso: "pago", rascunho: "emitida", emitida: "emitida", vencida: "vencida", cancelada: "cancelada", pagamento_divergente: "vencida" };
@@ -142,6 +142,7 @@ export async function loadAll(condominioId) {
       return {
         verumWallet: pg.verum_wallet || pg.cripto || "", // pg.cripto: formato antigo (texto livre)
         dinheiro: pg.dinheiro !== false, // padrão: aceita dinheiro
+        stripeRepasse: pg.stripe_repasse === true, // taxa do pagamento online por conta do morador
         banco: { ...(pg.banco || {}), obs: pg.banco?.obs || pg.transferencia || "" },
       };
     })(),
@@ -281,15 +282,15 @@ export async function loadAll(condominioId) {
       precoPlano: num(a?.saas_planos?.preco_mensal),
       precoPlanoAnual: num(a?.saas_planos?.preco_anual),
       venc: a?.renovacao ? ddmm(a.renovacao) : "—",
-      /* teste gratuito: NULL em testeFim = teste ainda não iniciado no Commet */
+      /* teste gratuito: NULL em testeFim = teste ainda não iniciado na Stripe */
       testeFim: a?.teste_fim || null,
       testeEstendido: !!a?.teste_estendido,
       diasTeste: a?.teste_fim ? Math.ceil((new Date(`${a.teste_fim}T23:59:59`) - Date.now()) / 86400000) : null,
       /* cancelamento agendado: aviso na tela Planos até o fim do acesso */
       canceladoEm: a?.cancelamento_agendado_em || null,
       acessoAte: a?.acesso_ate || null,
-      /* franquia de unidades do plano (NULL = ilimitado) — excedente é
-         cobrado pelo Commet via feature medida, sem bloqueio no app */
+      /* franquia de unidades do plano (NULL = ilimitado) — só aviso visual,
+         sem bloqueio no app nem cobrança de excedente */
       limiteUnidades: a?.saas_planos?.limite_unidades ?? null,
     };
   });
@@ -561,20 +562,22 @@ export async function loginDiretor(email, senha) {
   }
 }
 
-/* O Commet é usado SOMENTE para a licença SaaS (plano do condomínio).
-   As cobranças condominiais são pagas pelos meios cadastrados no condomínio
-   (carteira Verum Wallet / transferência bancária) — sem gateway. */
+/* A Stripe cobre os DOIS fluxos de dinheiro:
+   · licença SaaS (Billing) — assinatura mensal/anual em BRL na conta da
+     plataforma;
+   · cobranças condominiais (Connect) — Pix/cartão direto na conta conectada
+     do condomínio, com 1% de application fee para a plataforma.
+   Os meios manuais (Verum Wallet / transferência / dinheiro) continuam
+   valendo — são a única via para condomínios fora do Brasil. */
 
-/* Licença SaaS: pede ao backend (/api/commet/assinatura) o checkout da
-   assinatura recorrente da licença do CondoMaster para um condomínio.
-   ciclo: "mensal" ou "anual" — a cobrança é sempre em dólar (USD).
-   codigo: código de ativação (promo code de uma Offer do Commet) — opcional. */
-export async function assinarLicencaCommet(condominioId, ciclo = "mensal", troca = false, codigo = "") {
+/* chamada padrão ao backend /api/stripe/* — sempre com o Bearer da sessão */
+async function chamarStripe(rota, body, erroPadrao) {
   let r;
   try {
-    r = await fetch("/api/commet/assinatura", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ condominioId, ciclo, troca, ...(codigo ? { codigo } : {}) }),
+    r = await fetch(`/api/stripe/${rota}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}) },
+      body: JSON.stringify(body || {}),
     });
   } catch {
     throw new Error("Não foi possível falar com o backend de pagamentos.");
@@ -582,98 +585,76 @@ export async function assinarLicencaCommet(condominioId, ciclo = "mensal", troca
   let corpo = null; try { corpo = await r.json(); } catch { /* sem JSON */ }
   if (!r.ok) throw new Error(corpo?.error || (r.status === 404
     ? "Backend de pagamentos ainda não publicado — as funções /api sobem no deploy (Vercel/Netlify), não no npm run dev."
-    : `Erro ${r.status} ao criar a assinatura.`));
-  /* { checkoutUrl } na contratação; na troca de plano pode vir sem checkout
-     (trocaAplicada / agendadaPara) quando o Commet aplica direto na assinatura */
+    : `Erro ${r.status} ${erroPadrao || "ao falar com o backend de pagamentos"}.`));
   return corpo;
+}
+
+/* Licença SaaS: abre o Stripe Checkout da assinatura recorrente (BRL).
+   ciclo: "mensal" ou "anual"; codigo: promotion code (ex.: PAGOMANUAL).
+   Devolve { checkoutUrl } — ou { trocaAplicada } quando a troca de plano é
+   aplicada direto na assinatura ativa, sem novo checkout. */
+export async function assinarLicenca(condominioId, ciclo = "mensal", troca = false, codigo = "") {
+  return chamarStripe("assinatura", { condominioId, ciclo, troca, ...(codigo ? { codigo } : {}) }, "ao criar a assinatura");
 }
 
 /* Upgrade/downgrade: troca o plano da assinatura no banco (via backend).
-   Depois da troca, o pagamento é feito pelo checkout de assinarLicencaCommet. */
+   Depois da troca, o pagamento é feito pelo checkout de assinarLicenca. */
 export async function trocarPlanoLicenca(condominioId, plano) {
-  let r;
-  try {
-    r = await fetch("/api/commet/plano", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ condominioId, plano }),
-    });
-  } catch {
-    throw new Error("Não foi possível falar com o backend de pagamentos.");
-  }
-  let corpo = null; try { corpo = await r.json(); } catch { /* sem JSON */ }
-  if (!r.ok) throw new Error(corpo?.error || (r.status === 404
-    ? "Backend de pagamentos ainda não publicado — as funções /api sobem no deploy (Vercel/Netlify), não no npm run dev."
-    : `Erro ${r.status} ao trocar o plano.`));
-  return corpo;
+  return chamarStripe("plano", { condominioId, plano }, "ao trocar o plano");
 }
 
-/* Confere no Commet (via backend) se a licença foi paga e sincroniza o
+/* Confere na Stripe (via backend) se a licença foi paga e sincroniza o
    status no banco. Retorna true quando a assinatura está ativa OU o teste
    gratuito está em andamento (trialing — cartão salvo, nada cobrado). */
-export async function verificarLicencaCommet(condominioId) {
+export async function verificarLicenca(condominioId) {
   try {
-    const r = await fetch("/api/commet/licenca", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ condominioId }),
-    });
-    const corpo = await r.json().catch(() => null);
-    return Boolean(r.ok && (corpo?.ativa || corpo?.teste));
+    const corpo = await chamarStripe("licenca", { condominioId });
+    return Boolean(corpo?.ativa || corpo?.teste);
   } catch { return false; }
 }
 
 /* Cancela a assinatura da licença (agendado: acesso até o fim do período
    já pago, sem cobranças futuras). Devolve { cancelada, fimAcesso }. */
-export async function cancelarAssinaturaCommet(condominioId) {
-  let r;
-  try {
-    r = await fetch("/api/commet/cancelar-assinatura", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ condominioId }),
-    });
-  } catch {
-    throw new Error("Não foi possível falar com o backend de pagamentos.");
-  }
-  const corpo = await r.json().catch(() => null);
-  if (!r.ok) throw new Error(corpo?.error || (r.status === 404
-    ? "Backend de pagamentos ainda não publicado — as funções /api sobem no deploy (Vercel/Netlify), não no npm run dev."
-    : `Erro ${r.status} ao cancelar a assinatura.`));
-  return corpo;
+export async function cancelarAssinatura(condominioId) {
+  return chamarStripe("cancelar-assinatura", { condominioId }, "ao cancelar a assinatura");
 }
 
-/* Extensão única do teste gratuito: +30 dias (via backend, que cancela e
-   recria a assinatura trial no Commet com o cartão já salvo). */
-export async function estenderTesteCommet(condominioId) {
-  let r;
+/* Billing Portal da Stripe: trocar o cartão da licença, ver faturas. */
+export async function abrirPortalCobranca(condominioId) {
+  return chamarStripe("portal", { condominioId }, "ao abrir o portal de pagamento");
+}
+
+/* ── Stripe Connect: conta de recebimento das cobranças do condomínio ── */
+
+/* Onboarding hospedado pela Stripe (diretor) — devolve { url } */
+export async function iniciarOnboardingStripe() {
+  return chamarStripe("connect/onboarding", {}, "ao iniciar o cadastro de recebimento");
+}
+
+/* Situação da conta: { online } para todos; diretor recebe também
+   { configurado, chargesEnabled, payoutsEnabled, pendencias, dashboardUrl } */
+export async function statusStripeConnect() {
+  try { return await chamarStripe("connect/status", {}); }
+  catch { return { online: false }; }
+}
+
+/* Checkout de uma cobrança condominial (portal do morador).
+   metodo: "pix" | "card". Devolve { checkoutUrl, total, taxa }. */
+export async function pagarCobrancaOnline(cobrancaId, metodo) {
+  return chamarStripe("checkout-cobranca", { cobrancaId, metodo }, "ao abrir o pagamento");
+}
+
+/* Polling do retorno ?pagamento=ok — dá a baixa se a Stripe confirmar. */
+export async function verificarCobranca(cobrancaId) {
   try {
-    r = await fetch("/api/commet/estender-teste", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ condominioId }),
-    });
-  } catch {
-    throw new Error("Não foi possível falar com o backend de pagamentos.");
-  }
-  const corpo = await r.json().catch(() => null);
-  if (!r.ok) throw new Error(corpo?.error || (r.status === 404
-    ? "Backend de pagamentos ainda não publicado — as funções /api sobem no deploy (Vercel/Netlify), não no npm run dev."
-    : `Erro ${r.status} ao estender o teste.`));
-  return corpo;
+    const corpo = await chamarStripe("cobranca-status", { cobrancaId });
+    return Boolean(corpo?.paga);
+  } catch { return false; }
 }
 
 const precisaUsuario = (ctx) => {
   if (!ctx.usuarioId) throw new Error("Nenhum usuário cadastrado no banco (rode o seed).");
   return ctx.usuarioId;
-};
-
-/* Espelha no Commet o total de unidades ativas (feature medida "UND" —
-   franquia do plano + excedente por unidade). Fire-and-forget: falha ou
-   backend ausente (npm run dev) não interrompem o cadastro. */
-const sincronizarUsoUnidades = (condominioId) => {
-  try {
-    fetch("/api/commet/uso-unidades", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ condominioId }),
-    }).catch(() => { /* sem backend local */ });
-  } catch { /* ambiente sem fetch */ }
 };
 
 /* Cria uma unidade ou um intervalo delas (f.numero até f.numeroAte, ex.: 1 a 100).
@@ -748,7 +729,6 @@ export async function criarUnidade(ctx, f) {
   };
   await q(supabase.from("unidades").insert(novos.map(({ numero, andar }) => ({ ...base, numero, andar }))).select(), "unidades");
   await recalcularFracoes(ctx);
-  sincronizarUsoUnidades(ctx.condominioId); // franquia/excedente da licença
   return novos.length;
 }
 
@@ -806,7 +786,6 @@ export async function excluirUnidade(ctx, id) {
   await q(supabase.from("unidades").update({ deletado_em: new Date().toISOString(), responsavel_financeiro_id: null })
     .eq("id", id).select(), "unidades");
   await recalcularFracoes(ctx);
-  sincronizarUsoUnidades(ctx.condominioId); // franquia/excedente da licença
 }
 
 /* Altera a área privativa de uma unidade e refaz as frações do prédio todo */
@@ -1167,6 +1146,7 @@ export async function obterCondominio(ctx) {
     moeda: r.moeda || "USD",
     verumWallet: pg.verum_wallet || pg.cripto || "",
     dinheiro: pg.dinheiro !== false, // padrão: aceita dinheiro
+    stripeRepasse: pg.stripe_repasse === true, // taxa do pagamento online repassada ao morador
     bancoTitular: bc.titular || "", bancoNome: bc.banco || "", bancoPais: bc.pais || "",
     bancoIban: bc.iban || "", bancoSwift: bc.swift || "", bancoConta: bc.conta || "",
     bancoAgencia: bc.agencia || "", bancoObs: bc.obs || pg.transferencia || "",
@@ -1192,6 +1172,11 @@ export async function salvarCondominio(ctx, f) {
       pagamentos: {
         verum_wallet: f.verumWallet || "",
         dinheiro: f.dinheiro === "on", // checkbox: ausente = desativado
+        /* pagamento online (Stripe): quem arca com a taxa de processamento —
+           true = morador (linha "taxa de conveniência" no checkout);
+           false = condomínio absorve. O estado da conta Stripe NÃO vive
+           aqui (fica em integracoes_pagamento, só o backend enxerga). */
+        stripe_repasse: f.stripeRepasse === "on",
         banco: { titular: f.bancoTitular || "", banco: f.bancoNome || "", pais: f.bancoPais || "",
           iban: f.bancoIban || "", swift: f.bancoSwift || "", conta: f.bancoConta || "",
           agencia: f.bancoAgencia || "", obs: f.bancoObs || "" },

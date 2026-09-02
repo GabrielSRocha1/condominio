@@ -57,13 +57,14 @@ create type acesso_tipo            as enum ('entrada','saida','entrega','ocorren
 -- ═══════════════════════ GRUPO SaaS ═══════════════════════
 
 -- 1 · saas_planos — Planos comerciais do SaaS
--- CONTRATO DE MOEDA: preços SEMPRE em dólar (USD) — é o valor cobrado via
--- Commet; a moeda escolhida no cadastro do condomínio é só de exibição.
+-- CONTRATO DE MOEDA: preços SEMPRE em reais (BRL) — é o valor cobrado via
+-- Stripe (conta da plataforma no Brasil); a moeda escolhida no cadastro do
+-- condomínio é só de exibição/gestão interna.
 create table saas_planos (
   id               uuid primary key default gen_random_uuid(),
   nome             varchar(60) not null,
-  preco_mensal     numeric(14,2) not null,               -- em dólar (USD)
-  preco_anual      numeric(14,2),                        -- em dólar (USD)
+  preco_mensal     numeric(14,2) not null,               -- em reais (BRL)
+  preco_anual      numeric(14,2),                        -- em reais (BRL)
   limite_unidades  integer,                              -- NULL = ilimitado
   modulos          jsonb not null default '{}'::jsonb,   -- feature flags
   ativo            boolean not null default true,
@@ -104,7 +105,7 @@ create table saas_assinaturas (
   status                 assinatura_status not null default 'teste',
   inicio                 date not null,
   renovacao              date,
-  teste_fim              date,                 -- fim do teste gratuito; NULL = teste não iniciado no Commet
+  teste_fim              date,                 -- fim do teste gratuito; NULL = teste não iniciado na Stripe
   teste_estendido        boolean not null default false, -- extensão única de +30 dias já usada
   cancelamento_agendado_em date,               -- dia em que o cliente pediu o cancelamento
   acesso_ate             date,                 -- dia em que o acesso será desativado (fim do período pago)

@@ -1,21 +1,19 @@
-/* POST /api/commet/plano  { condominioId, plano }
-   Upgrade/downgrade da licença SaaS: troca o plano da assinatura do condomínio
-   no banco (saas_assinaturas.plano_id). A cobrança do novo plano é feita em
-   seguida pelo checkout de /api/commet/assinatura (chamado pelo painel). */
-import { createClient } from "@supabase/supabase-js";
-
-/* variáveis ainda com o placeholder do .env contam como não preenchidas */
-const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
-const supabase = createClient(
-  envVal("SUPABASE_URL") || process.env.VITE_SUPABASE_URL,
-  envVal("SUPABASE_SERVICE_ROLE_KEY") || process.env.VITE_SUPABASE_ANON_KEY
-);
+/* POST /api/stripe/plano  { condominioId, plano }
+   (Authorization: Bearer — diretor do condomínio)
+   Upgrade/downgrade da licença SaaS: troca o plano da assinatura no banco
+   (saas_assinaturas.plano_id). A cobrança do novo valor é feita em seguida
+   por /api/stripe/assinatura (novo checkout ou troca na assinatura ativa). */
+import { supabaseAdmin, corpoJson, lerClaims } from "./_lib/comum.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
+  const supabase = supabaseAdmin();
   try {
-    const { condominioId, plano } = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+    const { condominioId, plano } = corpoJson(req);
     if (!condominioId || !plano) return res.status(400).json({ error: "Informe condominioId e plano." });
+    const claims = lerClaims(req);
+    if (!claims || claims.condominio_id !== condominioId || claims.perfil !== "diretor")
+      return res.status(401).json({ error: "Sessão inválida — entre de novo como diretor." });
 
     const { data: novo, error: eP } = await supabase
       .from("saas_planos").select("id, nome").eq("nome", plano).eq("ativo", true).maybeSingle();
@@ -35,7 +33,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ ok: true, plano: novo.nome });
   } catch (e) {
-    console.error("[commet/plano]", e);
+    console.error("[stripe/plano]", e);
     return res.status(500).json({ error: e.message || "Erro ao trocar o plano." });
   }
 }
