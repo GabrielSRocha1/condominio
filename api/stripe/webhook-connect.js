@@ -57,10 +57,11 @@ export default async function handler(req, res) {
       if (session.mode !== "payment" || session.payment_status !== "paid" || !cobrancaId)
         return res.status(200).json({ ok: true, ignorado: "sem_cobranca_paga" });
 
-      /* charge id para o rastro (best-effort — o payment intent é a chave) */
+      /* charge id para o rastro (best-effort — o payment intent é a chave).
+         stripeAccount vai no 3º argumento (opções de request). */
       let chargeId = null;
       if (session.payment_intent && event.account) {
-        const pi = await stripe.paymentIntents.retrieve(session.payment_intent, { stripeAccount: event.account }).catch(() => null);
+        const pi = await stripe.paymentIntents.retrieve(session.payment_intent, {}, { stripeAccount: event.account }).catch(() => null);
         chargeId = typeof pi?.latest_charge === "string" ? pi.latest_charge : pi?.latest_charge?.id || null;
       }
 

@@ -4,12 +4,15 @@
    recebe as cobranças condominiais pagas online (direct charge; a plataforma
    retém 1% de application fee) — e devolve { url } do onboarding hospedado.
 
-   Configuração da conta (controller properties):
-   · fees.payer 'account' — direct charge exige as taxas Stripe na conta
-     conectada (é o condomínio quem processa; recibo no nome dele);
-   · losses.payments 'stripe' + requirement_collection 'stripe' + dashboard
-     'full' — a Stripe faz o KYC e assume disputas; o condomínio gerencia
-     recebimentos em dashboard.stripe.com (equivalente a uma conta Standard).
+   Accounts v2 (/v2/core/accounts — obrigatório para plataformas novas), no
+   perfil "SaaS / direct charges" recomendado pela Stripe:
+   · configuration.merchant + card_payments — o condomínio é o merchant of
+     record (recibo no nome dele);
+   · defaults.responsibilities fees_collector/losses_collector "stripe" — a
+     taxa Stripe é debitada da conta do condomínio e a Stripe assume o risco
+     de saldo negativo (a plataforma não carrega perdas);
+   · dashboard "full" — o condomínio gerencia recebimentos em
+     dashboard.stripe.com.
    O account id fica em integracoes_pagamento (SEM policy de leitura/escrita
    client-side — só os endpoints /api enxergam; um diretor mal-intencionado
    não consegue trocar a conta recebedora via supabase-js). */
@@ -30,29 +33,24 @@ export default async function handler(req, res) {
     const integ = await integracaoStripe(supabase, condominioId);
     let accountId = integ?.credenciais?.account_id || null;
     if (accountId) {
-      const conta = await stripe.accounts.retrieve(accountId).catch(() => null);
+      const conta = await stripe.v2.core.accounts.retrieve(accountId).catch(() => null);
       if (!conta) accountId = null; // conta apagada na Stripe — recria
     }
 
     if (!accountId) {
       const { data: cond } = await supabase.from("condominios")
         .select("nome_fantasia, cnpj").eq("id", condominioId).maybeSingle();
-      const conta = await stripe.accounts.create({
-        country: "BR",
-        email: claims.email || undefined,
-        controller: {
-          fees: { payer: "account" },
-          losses: { payments: "stripe" },
-          stripe_dashboard: { type: "full" },
-          requirement_collection: "stripe",
+      const conta = await stripe.v2.core.accounts.create({
+        display_name: cond?.nome_fantasia || undefined,
+        contact_email: claims.email || undefined,
+        identity: { country: "BR" },
+        dashboard: "full",
+        defaults: {
+          currency: "brl",
+          responsibilities: { fees_collector: "stripe", losses_collector: "stripe" },
         },
-        capabilities: {
-          card_payments: { requested: true },
-          transfers: { requested: true },
-        },
-        business_profile: {
-          name: cond?.nome_fantasia || undefined,
-          product_description: "Taxas condominiais (CondoMaster Pro)",
+        configuration: {
+          merchant: { capabilities: { card_payments: { requested: true } } },
         },
         metadata: { condominio_id: condominioId, cnpj: cond?.cnpj || "" },
       });
@@ -67,11 +65,16 @@ export default async function handler(req, res) {
     }
 
     const origem = req.headers.origin || `https://${req.headers.host}`;
-    const link = await stripe.accountLinks.create({
+    const link = await stripe.v2.core.accountLinks.create({
       account: accountId,
-      type: "account_onboarding",
-      return_url: `${origem}/?stripe=retorno`,
-      refresh_url: `${origem}/?stripe=refresh`,
+      use_case: {
+        type: "account_onboarding",
+        account_onboarding: {
+          configurations: ["merchant"],
+          refresh_url: `${origem}/?stripe=refresh`,
+          return_url: `${origem}/?stripe=retorno`,
+        },
+      },
     });
     return res.status(200).json({ url: link.url });
   } catch (e) {

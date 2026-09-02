@@ -34,13 +34,15 @@ export default async function handler(req, res) {
     const accountId = integ?.credenciais?.account_id;
     if (!accountId) return res.status(200).json({ paga: false });
 
+    /* opções de request (stripeAccount) vão no 3º argumento — no 2º o SDK
+       as enviaria como query param e a API recusa */
     const session = await stripe.checkout.sessions
-      .retrieve(cobranca.provider_charge_id, { stripeAccount: accountId }).catch(() => null);
+      .retrieve(cobranca.provider_charge_id, {}, { stripeAccount: accountId }).catch(() => null);
     if (session?.payment_status !== "paid") return res.status(200).json({ paga: false });
 
     let chargeId = null;
     if (session.payment_intent) {
-      const pi = await stripe.paymentIntents.retrieve(session.payment_intent, { stripeAccount: accountId }).catch(() => null);
+      const pi = await stripe.paymentIntents.retrieve(session.payment_intent, {}, { stripeAccount: accountId }).catch(() => null);
       chargeId = typeof pi?.latest_charge === "string" ? pi.latest_charge : pi?.latest_charge?.id || null;
     }
     const { data: resultado, error: eRpc } = await supabase.rpc("registrar_pagamento_stripe", {
