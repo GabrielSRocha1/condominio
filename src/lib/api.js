@@ -134,6 +134,7 @@ export async function loadAll(condominioId) {
     nome: condRow.nome_fantasia || "—", cnpj: condRow.cnpj || "",
     endereco: condRow.endereco?.texto || "",
     logoUrl: condRow.identidade_visual?.logo_url || null,
+    logoMenuUrl: condRow.identidade_visual?.logo_menu_url || null, // retangular — cabeçalho do menu
     cor: condRow.identidade_visual?.cor_primaria || null,
     sindico: condRow.regras_internas?.gestao?.sindico || "",
     moeda: condRow.regras_internas?.moeda || "USD",
@@ -1152,7 +1153,9 @@ export async function obterCondominio(ctx) {
     bancoTitular: bc.titular || "", bancoNome: bc.banco || "", bancoPais: bc.pais || "",
     bancoIban: bc.iban || "", bancoSwift: bc.swift || "", bancoConta: bc.conta || "",
     bancoAgencia: bc.agencia || "", bancoObs: bc.obs || pg.transferencia || "",
-    logoUrl: c.identidade_visual?.logo_url || null, cor: c.identidade_visual?.cor_primaria || "#D4AF37",
+    logoUrl: c.identidade_visual?.logo_url || null,
+    logoMenuUrl: c.identidade_visual?.logo_menu_url || null,
+    cor: c.identidade_visual?.cor_primaria || "#D4AF37",
     atualizadoEm: c.atualizado_em,
   };
 }
@@ -1204,23 +1207,32 @@ async function apagarDoStorage(url) {
   try { await supabase.storage.from("documentos").remove([caminho]); } catch { /* arquivo órfão fica no bucket */ }
 }
 
-export async function salvarLogoCondominio(ctx, arquivo) {
+/* Dois logos vivem em identidade_visual:
+   · logo_url — quadrado (portal do morador, documentos timbrados);
+   · logo_menu_url — retangular (cabeçalho do menu lateral, no lugar da
+     marca CondoMaster quando cadastrado). */
+async function salvarLogoIdentidade(ctx, arquivo, chave) {
   const [logo] = await uploadArquivos(ctx, arquivo, "identidade");
   if (!logo) throw new Error("Escolha um arquivo de imagem.");
   const atual = await obterIdentidade(ctx);
-  await q(supabase.from("condominios").update({ identidade_visual: { ...atual, logo_url: logo.url } })
+  await q(supabase.from("condominios").update({ identidade_visual: { ...atual, [chave]: logo.url } })
     .eq("id", ctx.condominioId).select(), "condominios");
-  if (atual.logo_url && atual.logo_url !== logo.url) await apagarDoStorage(atual.logo_url);
+  if (atual[chave] && atual[chave] !== logo.url) await apagarDoStorage(atual[chave]);
   return logo.url;
 }
 
-export async function removerLogoCondominio(ctx) {
+async function removerLogoIdentidade(ctx, chave) {
   const atual = await obterIdentidade(ctx);
-  const { logo_url, ...resto } = atual;
+  const { [chave]: url, ...resto } = atual;
   await q(supabase.from("condominios").update({ identidade_visual: resto })
     .eq("id", ctx.condominioId).select(), "condominios");
-  if (logo_url) await apagarDoStorage(logo_url);
+  if (url) await apagarDoStorage(url);
 }
+
+export const salvarLogoCondominio = (ctx, arquivo) => salvarLogoIdentidade(ctx, arquivo, "logo_url");
+export const removerLogoCondominio = (ctx) => removerLogoIdentidade(ctx, "logo_url");
+export const salvarLogoMenuCondominio = (ctx, arquivo) => salvarLogoIdentidade(ctx, arquivo, "logo_menu_url");
+export const removerLogoMenuCondominio = (ctx) => removerLogoIdentidade(ctx, "logo_menu_url");
 
 /* Gestão do chamado (tela Manutenção): designar responsável depois de criado,
    mudar status (aberto → andamento → concluído), prazo, prioridade e custo. */

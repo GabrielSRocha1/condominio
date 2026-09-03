@@ -19,7 +19,8 @@ import {
   assinarLicenca, verificarLicenca, cancelarAssinatura, abrirPortalCobranca, listarPlanos, trocarPlanoLicenca, registrarDiretor,
   iniciarOnboardingStripe, statusStripeConnect, pagarCobrancaOnline, verificarCobranca,
   criarAcesso, listarAcessos, removerAcesso, loginUsuario, setAuthToken,
-  salvarLogoCondominio, removerLogoCondominio, obterCondominio, salvarCondominio, salvarAreaUnidade, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
+  salvarLogoCondominio, removerLogoCondominio, salvarLogoMenuCondominio, removerLogoMenuCondominio,
+  obterCondominio, salvarCondominio, salvarAreaUnidade, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
 } from "./src/lib/api.js";
@@ -833,7 +834,7 @@ function Condominio({ t, role }) {
     finally { setAbrindoStripe(false); }
   };
   const carregar = () => obterCondominio(db.ctx)
-    .then((c) => { setCond(c); setLogo(c.logoUrl); setFormKey((k) => k + 1); })
+    .then((c) => { setCond(c); setLogo(c.logoUrl); setLogoMenu(c.logoMenuUrl); setFormKey((k) => k + 1); })
     .catch((e) => alert("Não foi possível carregar o cadastro: " + (e?.message || e)));
   useEffect(() => { carregar(); }, [db.ctx]); // eslint-disable-line react-hooks/exhaustive-deps
   const [salvar, saving] = useSubmit(async (f) => {
@@ -855,6 +856,24 @@ function Condominio({ t, role }) {
     try { await removerLogoCondominio(db.ctx); setLogo(null); }
     catch (err) { alert("Não foi possível excluir o logo: " + (err?.message || err)); }
     finally { setSubindoLogo(false); }
+  };
+  /* logo retangular do menu lateral — o reload() atualiza o cabeçalho na hora */
+  const [logoMenu, setLogoMenu] = useState(null);
+  const [subindoLogoMenu, setSubindoLogoMenu] = useState(false);
+  const enviarLogoMenu = async (e) => {
+    const arq = e.target.files?.[0];
+    if (!arq) return;
+    setSubindoLogoMenu(true);
+    try { setLogoMenu(await salvarLogoMenuCondominio(db.ctx, arq)); await reload(); }
+    catch (err) { alert("Não foi possível enviar o logo do menu: " + (err?.message || err)); }
+    finally { setSubindoLogoMenu(false); }
+  };
+  const removerLogoMenu = async () => {
+    if (!window.confirm(L("Excluir o logo do menu? O cabeçalho volta a mostrar a marca CondoMaster."))) return;
+    setSubindoLogoMenu(true);
+    try { await removerLogoMenuCondominio(db.ctx); setLogoMenu(null); await reload(); }
+    catch (err) { alert("Não foi possível excluir o logo do menu: " + (err?.message || err)); }
+    finally { setSubindoLogoMenu(false); }
   };
   const tenant = (db.tenants || []).find((x) => x.id === db.ctx.condominioId);
   /* as abas ficam sempre montadas (só escondidas) para o salvar enviar o formulário inteiro */
@@ -1009,9 +1028,28 @@ function Condominio({ t, role }) {
                 )}
               </div>
             </Field>
+            <Field t={t} label="Logo do menu (retangular)">
+              <label className={`flex h-20 items-center justify-center gap-1.5 rounded-xl border border-dashed px-2 text-xs ${somenteLeitura ? "" : "cursor-pointer"}`}
+                style={{ borderColor: logoMenu ? t.gold : t.borderSoft, color: logoMenu ? t.gold : t.dim }}>
+                <input type="file" accept="image/*" className="hidden" disabled={somenteLeitura} onChange={enviarLogoMenu} />
+                {subindoLogoMenu ? "Enviando…" : logoMenu
+                  ? <><img src={logoMenu} alt="Logo do menu" className="max-h-12 max-w-[70%] rounded object-contain" />{!somenteLeitura && <span>{L("Trocar logo")}</span>}</>
+                  : somenteLeitura ? <span>{L("Sem logo cadastrado")}</span>
+                  : <><Upload size={13} /> {L("Clique para enviar (salva na hora)")}</>}
+              </label>
+              <div className="mt-1 flex items-center justify-between gap-2 text-[11px]" style={{ color: t.dim }}>
+                <span>{L("Recomendado: imagem retangular de 600×200 px (PNG com fundo transparente), até 1 MB. Substitui a marca CondoMaster no topo do menu.")}</span>
+                {logoMenu && !somenteLeitura && (
+                  <button type="button" onClick={removerLogoMenu} disabled={subindoLogoMenu}
+                    className="flex shrink-0 items-center gap-1 font-medium" style={{ color: t.danger }}>
+                    <Trash2 size={12} /> {L("Excluir logo")}
+                  </button>
+                )}
+              </div>
+            </Field>
             <Field t={t} label="Cor primária do portal"><input name="cor" type="color" defaultValue={cond.cor} style={{ ...inputStyle(t), height: 42, padding: 4 }} /></Field>
           </div>
-          <div className="text-xs" style={{ color: t.dim }}>A identidade acima é aplicada aos documentos timbrados e ao portal do morador.</div>
+          <div className="text-xs" style={{ color: t.dim }}>{L("A identidade acima é aplicada aos documentos timbrados, ao portal do morador e ao cabeçalho do menu.")}</div>
         </div>
         {!somenteLeitura && (
         <div className="flex justify-end gap-2 pt-2">
@@ -3520,7 +3558,11 @@ export default function App() {
           style={{ background: t.sidebar, borderColor: t.borderSoft }}>
           <div className="flex h-full flex-col p-4">
             <div className="mb-6 max-w-[190px] px-1">
-              <img src="/logo-menu.png" alt="CondoMaster" className="w-full object-contain" />
+              {/* logo retangular do condomínio (Identidade visual) substitui a
+                  marca CondoMaster; o nome do condomínio segue logo abaixo */}
+              {db?.cond?.logoMenuUrl
+                ? <img src={db.cond.logoMenuUrl} alt={db?.ctx.condominioNome || "Logo do condomínio"} className="max-h-14 w-auto max-w-full object-contain" />
+                : <img src="/logo-menu.png" alt="CondoMaster" className="w-[150px] object-contain" />}
               <FitText text={db?.ctx.condominioNome || "…"} className="mt-1.5 font-semibold"
                 style={{ color: t.dim, fontFamily: "'Sora',sans-serif" }} />
             </div>
