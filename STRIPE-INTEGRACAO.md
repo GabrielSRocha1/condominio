@@ -143,7 +143,66 @@ Para clientes indicados que pagam em dinheiro:
    por trás de cada promotion code — **ele nunca é aplicado como desconto**
    (e o checkout normal não aceita códigos digitados, de propósito).
 
-## 7. Taxas e split
+## 7. Automações (Stripe Workflows)
+
+O [Stripe Workflows](https://docs.stripe.com/workflows) (Dashboard → Workflows,
+builder visual) automatiza a camada **operacional** que o app deixa manual de
+propósito. Gatilhos em qualquer evento — da conta própria **ou das contas
+conectadas** —, condições/ramos, ações da API e e-mail interno à equipe, com
+sandbox, versionamento, idempotência e retries nativos. Grátis até 10.000
+passos/mês (US$ 0,018/passo depois).
+
+**Por que é seguro sem código:** mudanças de estado feitas por workflows
+(ex.: cancelar assinatura) chegam ao app pelos webhooks já existentes
+(`customer.subscription.*` → sincronização da licença) — o sistema permanece
+consistente por construção.
+
+### Regras de ouro
+
+- A ação de e-mail dos workflows é **interna** (membros da conta Stripe) —
+  e-mail ao cliente continua sendo do Billing (recibos/lembretes) ou do app.
+- **Não existe passo de espera** ("após N dias") — prazos ficam nas
+  automações de Billing (Smart Retries; lembretes e ação sobre faturas
+  vencidas em Configurações → Faturamento), que complementam os workflows.
+- **NUNCA usar "pausar cobrança" (pause_collection)**: a assinatura continua
+  `active` e o paywall NÃO bloqueia. Para revogar acesso, cancele — o
+  webhook marca `cancelada`.
+- Sandbox e live são ambientes separados: crie/teste no sandbox e replique
+  no live. Limite: 50 workflows por conta.
+
+### Receitas recomendadas
+
+**Conta própria (licença SaaS):**
+
+| # | Receita | Gatilho + condição | Ações |
+|---|---|---|---|
+| 1 | Licença inadimplente | `invoice.payment_failed` | E-mail à equipe (cliente, valor, tentativa) + Update customer: metadata `situacao=inadimplente` |
+| 2 | Fatura manual vencida (PAGOMANUAL) | `customer.subscription.updated` com campo alterado `status = past_due` E `collection_method = send_invoice` (`invoice.overdue` não existe como gatilho) | E-mail à equipe: "cliente de pagamento manual não pagou — cobrar ou cancelar" |
+| 3 | Novo assinante | `checkout.session.completed` com `mode = subscription` | E-mail à equipe + Update customer: metadata `origem=checkout` |
+| 4 | Churn | `customer.subscription.deleted` | E-mail à equipe (quem, plano, desde quando) |
+| 7 | Fraude (Radar) | `radar.early_fraud_warning.created` | Retrieve charge → se valor ≤ R$ 80,00 (≈ taxa de disputa; a condição NÃO converte moeda — usar BRL): refund automático; senão: e-mail à equipe ([template oficial](https://docs.stripe.com/workflows/use-cases) `fraud_warning_refund`). **Atenção ao recriar no live:** o template preenche "Instructions email" no Create a refund com `Charge | Receipt email` — a API recusa esse parâmetro em cartão e o run falha; limpar o campo antes de publicar. |
+
+**Contas conectadas (cobranças condominiais)** — no gatilho, selecionar a
+fonte "contas conectadas":
+
+| # | Receita | Gatilho + condição | Ações |
+|---|---|---|---|
+| 5 | KYC do condomínio pendente | `account.updated` com `charges_enabled = false` | E-mail à equipe: "condomínio X com recebimento suspenso — regularizar cadastro" |
+| 6 | Disputa em cobrança condominial | `charge.dispute.created` | Retrieve charge (valor/contexto) → e-mail urgente à equipe |
+
+As receitas 1, 2, 5 e 6 são as de maior valor imediato. Cada execução fica
+auditável em Dashboard → Workflows → runs (caminho percorrido + erros).
+
+**Status:** as 7 receitas estão criadas, **ativas no sandbox (test mode)** e
+**testadas com run "Concluída"** em cada uma (set/2026) — incluindo a
+metadata `situacao=inadimplente` aplicada pelo nº 1 e o refund automático
+executado pelo nº 7 (cartão de teste `4000 0000 0000 5423` gera o early
+fraud warning). Observação do teste: cancelar uma assinatura `incomplete`
+(vira `incomplete_expired`) NÃO acionou o nº 4 — o gatilho de churn dispara
+no cancelamento de assinaturas ativas. Ao ir para produção, recriar as
+mesmas no modo live — workflows não migram entre ambientes.
+
+## 8. Taxas e split
 
 - **1% da plataforma**: `application_fee_amount` = 1% do **valor de face** da
   cobrança, sempre — independe de quem paga a taxa Stripe.
@@ -159,7 +218,7 @@ Para clientes indicados que pagam em dinheiro:
 - Contabilidade: `lancamentos.valor` = valor de face da cobrança;
   `pagamentos.valor_pago` = total bruto pago pelo morador (com conveniência).
 
-## 8. Teste ponta a ponta (test mode)
+## 9. Teste ponta a ponta (test mode)
 
 1. Cadastro novo → paywall → "Iniciar teste gratuito" → cartão `4242 4242
    4242 4242` → licença `teste` com `teste_fim` +30d.
@@ -179,7 +238,7 @@ Para clientes indicados que pagam em dinheiro:
 9. Pagar após o vencimento → `paga_em_atraso`. Condomínio com moeda ≠ BRL →
    opção online não aparece e o endpoint recusa.
 
-## 9. Limitações conhecidas (v1) e próximos passos
+## 10. Limitações conhecidas (v1) e próximos passos
 
 - **Boleto**: fora do v1 (async de dias, expiração própria). O webhook já
   trata `async_payment_succeeded` — habilitar depois é adicionar o método no
@@ -195,8 +254,12 @@ Para clientes indicados que pagam em dinheiro:
 - **i18n**: os textos novos ainda estão só em PT (o fallback exibe a chave em
   português nos outros 14 idiomas) — traduzir em `src/lib/i18n.js` e
   `src/lib/langs/*` quando fechar o wording.
+- **Workflows → backend**: fase futura — custom action (função remota) dos
+  Workflows chamando um endpoint interno (`/api/stripe/automacao`, autenticado
+  por segredo compartilhado) para gravar no Supabase, ex.: aviso interno
+  automático quando a licença ficar inadimplente ou o KYC pender.
 
-## 10. Segurança
+## 11. Segurança
 
 - `integracoes_pagamento` (account id recebedor) e as escritas em
   `saas_assinaturas` ficaram **sem policy client-side** (supabase-stripe.sql,
