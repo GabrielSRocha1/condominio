@@ -76,7 +76,7 @@ const LANC_STATUS_UI = { pago: "pago", aguardando_aprovacao: "aguardando", aprov
 const FORMA_LABEL = { verum_pay: "QR Verum Pay", transferencia: "Transferência", debito_automatico: "Débito automático", dinheiro: "Dinheiro", stripe: "Pagamento online (Stripe)" };
 const FORMA_ENUM = Object.fromEntries(Object.entries(FORMA_LABEL).map(([k, v]) => [v, k]));
 
-const COBR_STATUS_UI = { paga: "pago", paga_em_atraso: "pago", rascunho: "emitida", emitida: "emitida", vencida: "vencida", cancelada: "cancelada", pagamento_divergente: "vencida" };
+const COBR_STATUS_UI = { paga: "pago", paga_em_atraso: "pago", rascunho: "emitida", emitida: "emitida", vencida: "vencida", cancelada: "cancelada", pagamento_informado: "informado", pagamento_divergente: "divergente" };
 
 const COMUNIC_TIPO_LABEL = { comunicado: "Comunicado", convocacao: "Convocação", circular: "Circular", aviso_manutencao: "Aviso", emergencia: "Emergência" };
 const COMUNIC_TIPO_ENUM = { "Comunicado geral": "comunicado", "Convocação de assembleia": "convocacao", Circular: "circular", "Aviso de manutenção": "aviso_manutencao", "Informe de emergência": "emergencia" };
@@ -134,6 +134,13 @@ export async function loadAll(condominioId) {
     q(supabase.from("pagamentos").select("valor_pago, pago_em, cobrancas(unidades(numero, blocos(nome)))").eq("condominio_id", cid).order("pago_em", { ascending: false }).limit(3), "pagamentos"),
     q(supabase.from("condominios").select("nome_fantasia, cnpj, endereco, identidade_visual, regras_internas").eq("id", cid), "condominios"),
   ]);
+
+  /* pagamentos informados pelo morador aguardando confirmação (tabela do
+     supabase-pagamentos-manuais.sql — se a migração não rodou, segue vazio) */
+  const informesRaw = await supabase.from("pagamentos_informados")
+    .select("id, cobranca_id, forma, valor_informado, pago_em_informado, tx_hash, chain, motivo_rejeicao, documentos(arquivo_url)")
+    .eq("condominio_id", cid).eq("situacao", "pendente")
+    .then(({ data }) => data || []).catch(() => []);
 
   /* dados do próprio condomínio (cabeçalho do portal, documento timbrado) */
   const condRow = condRows?.[0] || {};
@@ -204,13 +211,23 @@ export async function loadAll(condominioId) {
   }));
 
   /* cobranças */
-  const cobr = cobrRaw.map((c) => ({
-    id: c.id, comp: compBR(c.competencia), unidade: uLabel(c.unidades),
-    resp: primeiroNome(c.pessoas?.nome), respId: c.responsavel_id || null, valor: num(c.valor_original),
-    venc: ddmm(c.vencimento), vencFull: ddmmyyyy(c.vencimento),
-    status: COBR_STATUS_UI[c.status] || c.status, tx: c.provider_charge_id || "—",
-    unidadeId: c.unidade_id, competencia: c.competencia,
-  }));
+  const informePorCobranca = Object.fromEntries(informesRaw.map((i) => [i.cobranca_id, i]));
+  const cobr = cobrRaw.map((c) => {
+    const inf = informePorCobranca[c.id];
+    return {
+      id: c.id, comp: compBR(c.competencia), unidade: uLabel(c.unidades),
+      resp: primeiroNome(c.pessoas?.nome), respId: c.responsavel_id || null, valor: num(c.valor_original),
+      venc: ddmm(c.vencimento), vencFull: ddmmyyyy(c.vencimento),
+      status: COBR_STATUS_UI[c.status] || c.status, tx: c.provider_charge_id || "—",
+      unidadeId: c.unidade_id, competencia: c.competencia,
+      /* informe pendente do morador (transferência/cripto) — o gestor confirma */
+      informe: inf ? {
+        id: inf.id, forma: inf.forma, valor: num(inf.valor_informado),
+        pagoEm: inf.pago_em_informado || null, tx: inf.tx_hash || null, chain: inf.chain || null,
+        comprovanteUrl: inf.documentos?.arquivo_url || null, aviso: inf.motivo_rejeicao || null,
+      } : null,
+    };
+  });
 
   /* multas — ciclo: pendente (síndico) → aprovada (aguardando envio) →
      entregue → encerrada (advertência) | paga/vencida (multa, pela cobrança) */
@@ -581,11 +598,11 @@ export async function loginDiretor(email, senha) {
    Os meios manuais (Verum Wallet / transferência / dinheiro) continuam
    valendo — e são a única via nos países sem Stripe (ex.: PY/AR/BO/CO). */
 
-/* chamada padrão ao backend /api/stripe/* — sempre com o Bearer da sessão */
-async function chamarStripe(rota, body, erroPadrao) {
+/* chamada padrão ao backend /api/* — sempre com o Bearer da sessão */
+async function chamarApi(caminho, body, erroPadrao) {
   let r;
   try {
-    r = await fetch(`/api/stripe/${rota}`, {
+    r = await fetch(`/api/${caminho}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}) },
       body: JSON.stringify(body || {}),
@@ -599,6 +616,7 @@ async function chamarStripe(rota, body, erroPadrao) {
     : `Erro ${r.status} ${erroPadrao || "ao falar com o backend de pagamentos"}.`));
   return corpo;
 }
+const chamarStripe = (rota, body, erroPadrao) => chamarApi(`stripe/${rota}`, body, erroPadrao);
 
 /* Licença SaaS: abre o Stripe Checkout da assinatura recorrente (BRL).
    ciclo: "mensal" ou "anual". Devolve { checkoutUrl } — ou { trocaAplicada }
@@ -667,6 +685,62 @@ export async function verificarCobranca(cobrancaId) {
     const corpo = await chamarStripe("cobranca-status", { cobrancaId });
     return Boolean(corpo?.paga);
   } catch { return false; }
+}
+
+/* ── conciliação de pagamentos MANUAIS das cobranças ──
+   (supabase-pagamentos-manuais.sql + /api/cobrancas/informar-pagamento) */
+
+/* Morador informa um pagamento manual:
+   · transferência: { cobrancaId, forma:'transferencia', valorInformado,
+     pagoEm, arquivo (File do comprovante) } → cobrança fica "informada"
+     (ou "divergente") até o gestor confirmar;
+   · cripto: { cobrancaId, forma:'verum_pay', txHash } → verificação
+     on-chain; destino+valor conferidos = baixa automática ({ pago: true }). */
+export async function informarPagamentoCobranca({ cobrancaId, forma, valorInformado, pagoEm, arquivo, txHash }) {
+  let extras = {};
+  if (arquivo && arquivo.size) {
+    const base64 = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = () => rej(new Error("Não foi possível ler o arquivo."));
+      r.readAsDataURL(arquivo);
+    });
+    extras = { arquivoBase64: base64, nomeArquivo: arquivo.name, mime: arquivo.type };
+  }
+  return chamarApi("cobrancas/informar-pagamento",
+    { cobrancaId, forma, valorInformado, pagoEm, txHash, ...extras },
+    "ao registrar o pagamento informado");
+}
+
+const ERROS_RPC = {
+  nao_autorizado: "Apenas diretor, síndico ou tesouraria podem confirmar pagamentos.",
+  justificativa_obrigatoria: "Informe a justificativa da baixa.",
+  cobranca_inexistente: "Cobrança não encontrada.",
+};
+
+/* Gestor confirma um informe OU registra recebimento direto (ex.: dinheiro).
+   Roda a RPC transacional registrar_pagamento_manual (idempotente): grava em
+   pagamentos, muda o status da cobrança e lança a receita "Entrada" no caixa. */
+export async function confirmarPagamentoManual(cobrancaId, { forma, valor, pagoEm, justificativa, tx = null, informeId = null }) {
+  const { data, error } = await supabase.rpc("registrar_pagamento_manual", {
+    p_cobranca_id: cobrancaId, p_forma: forma, p_valor: valor,
+    p_pago_em: pagoEm || new Date().toISOString(),
+    p_justificativa: justificativa, p_tx: tx, p_informado_id: informeId,
+  });
+  if (error) throw new Error(/does not exist|schema cache/i.test(error.message)
+    ? "Rode o supabase-pagamentos-manuais.sql no SQL Editor do Supabase para habilitar a baixa manual."
+    : error.message);
+  if (data?.ok === false) throw new Error(ERROS_RPC[data.erro] || `Baixa recusada: ${data.erro}`);
+  return data;
+}
+
+export async function rejeitarPagamentoInformado(informeId, motivo) {
+  const { data, error } = await supabase.rpc("rejeitar_pagamento_informado", {
+    p_informado_id: informeId, p_motivo: motivo || "",
+  });
+  if (error) throw new Error(error.message);
+  if (data?.ok === false) throw new Error(ERROS_RPC[data.erro] || `Rejeição recusada: ${data.erro}`);
+  return data;
 }
 
 const precisaUsuario = (ctx) => {
@@ -798,7 +872,7 @@ export async function salvarResponsavelUnidade(ctx, unidadeId, pessoaId) {
    que passam a ser rateadas sem a unidade excluída. */
 export async function excluirUnidade(ctx, id) {
   const abertas = await q(supabase.from("cobrancas").select("id").eq("unidade_id", id)
-    .in("status", ["rascunho", "emitida", "vencida", "pagamento_divergente"]).limit(1), "cobrancas");
+    .in("status", ["rascunho", "emitida", "vencida", "pagamento_divergente", "pagamento_informado"]).limit(1), "cobrancas");
   if (abertas.length) throw new Error("Não é possível excluir: esta unidade tem cobranças em aberto. Quite ou cancele as cobranças antes.");
   await q(supabase.from("unidades").update({ deletado_em: new Date().toISOString(), responsavel_financeiro_id: null })
     .eq("id", id).select(), "unidades");

@@ -18,6 +18,7 @@ import {
   criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, baixarPdfCobranca, loginDiretor,
   assinarLicenca, verificarLicenca, cancelarAssinatura, abrirPortalCobranca, listarPlanos, trocarPlanoLicenca, registrarDiretor,
   iniciarOnboardingStripe, statusStripeConnect, pagarCobrancaOnline, verificarCobranca,
+  informarPagamentoCobranca, confirmarPagamentoManual, rejeitarPagamentoInformado,
   criarAcesso, listarAcessos, removerAcesso, loginUsuario, setAuthToken,
   salvarLogoCondominio, removerLogoCondominio, salvarLogoMenuCondominio, removerLogoMenuCondominio,
   obterCondominio, salvarCondominio, salvarAreaUnidade, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
@@ -198,6 +199,7 @@ function FileField({ t, name, accept, multiple, height = 42, hint = "Anexar arqu
 const STATUS_META = {
   pago:{c:"ok",l:"Pago"}, entrada:{c:"ok",l:"Entrada"}, parcial:{c:"warn",l:"Parcial"}, aberto:{c:"info",l:"Em aberto"},
   aguardando:{c:"warn",l:"Aguardando"}, vencida:{c:"danger",l:"Vencida"}, emitida:{c:"info",l:"Emitida"},
+  informado:{c:"info",l:"Pag. informado"}, divergente:{c:"warn",l:"Divergente"},
   ocupada:{c:"ok",l:"Ocupada"}, alugada:{c:"info",l:"Alugada"}, vaga:{c:"warn",l:"Vaga"},
   ativo:{c:"ok",l:"Ativo"}, teste:{c:"warn",l:"Em teste"}, inadimplente:{c:"danger",l:"Inadimplente"},
   aguardando_defesa:{c:"warn",l:"Prazo de defesa"}, aprovada:{c:"danger",l:"Multa aplicada"}, advertencia:{c:"info",l:"Advertência"},
@@ -1404,6 +1406,18 @@ function Financeiro({ t }) {
   const aPagar = db.lanc.filter((l) => l.tipo === "despesa" && l.status === "aberto");
   const pagas = db.lanc.filter((l) => l.tipo === "despesa" && l.status === "pago");
   const aReceber = db.cobr.filter((c) => c.status === "emitida" || c.status === "vencida");
+  /* baixa rápida em dinheiro direto da aba Contas a receber (tesouraria) */
+  const [recebendo, setRecebendo] = useState(null);
+  const receberDinheiro = async (c) => {
+    const just = window.prompt(L("Registrar recebimento em DINHEIRO desta cobrança. Justificativa (auditoria):"), L("Recebimento em dinheiro na administração"));
+    if (just === null) return;
+    setRecebendo(c.id);
+    try {
+      await confirmarPagamentoManual(c.id, { forma: "dinheiro", valor: c.valor, pagoEm: new Date().toISOString(), justificativa: just });
+      await reload();
+    } catch (err) { alert("Não foi possível dar baixa: " + (err?.message || err)); }
+    finally { setRecebendo(null); }
+  };
   const compAtual = new Date().toISOString().slice(0, 7);
   const despComp = db.lanc.filter((l) => l.tipo === "despesa" && l.competencia === compAtual && l.status !== "cancelado")
     .reduce((s, l) => s + l.valor, 0);
@@ -1541,13 +1555,18 @@ function Financeiro({ t }) {
       </>) : tab === "receber" ? (<>
         <div className="text-xs" style={{ color: t.dim }}>
           {L("Cobranças emitidas e ainda não pagas pelas unidades.")} {L("Total em aberto:")} <b style={{ color: t.text }}>{BRL(aReceber.reduce((s, c) => s + c.valor, 0))}</b></div>
-        <Tbl t={t} cols={[{k:"comp",l:"Competência"},{k:"unidade",l:"Unidade"},{k:"resp",l:"Responsável"},{k:"valor",l:"Valor"},{k:"vencFull",l:"Vencimento"},{k:"status",l:"Status"}]}
+        <Tbl t={t} cols={[{k:"comp",l:"Competência"},{k:"unidade",l:"Unidade"},{k:"resp",l:"Responsável"},{k:"valor",l:"Valor"},{k:"vencFull",l:"Vencimento"},{k:"status",l:"Status"},{k:"acao",l:""}]}
           rows={aReceber}
           empty={<EmptyState t={t} icon={CheckCircle2} title="Nada consta — nenhuma cobrança em aberto"
             hint="Todas as cobranças emitidas foram pagas. Gere novas cobranças na tela Cobranças QR." />}
           renderCell={(r, k) => {
             if (k === "valor") return <b>{BRL(r.valor)}</b>;
             if (k === "status") return <Badge t={t} s={r.status} />;
+            if (k === "acao") return (
+              <Btn t={t} kind="soft" disabled={recebendo === r.id} className="!px-2 !py-1 text-xs"
+                title={L("Registrar recebimento em dinheiro (baixa + Entrada no caixa)")}
+                onClick={(e) => { e.stopPropagation(); receberDinheiro(r); }}>
+                <Banknote size={13} /> {recebendo === r.id ? "Baixando…" : L("Receber")}</Btn>);
             return r[k];
           }} />
       </>) : tab === "rateio" ? (<>
@@ -1650,6 +1669,25 @@ function Cobrancas({ t }) {
     catch (err) { alert("Não foi possível gerar o PDF: " + (err?.message || err)); }
     finally { setBaixandoPdf(false); }
   };
+  /* conciliação manual: confirmar informe do morador OU registrar dinheiro */
+  const [conf, setConf] = useState(null); // { c, modo: "informe" | "dinheiro" }
+  const EXPLORER_TX = { ethereum: "https://etherscan.io/tx/", bnb: "https://bscscan.com/tx/", polygon: "https://polygonscan.com/tx/", solana: "https://solscan.io/tx/" };
+  const [confirmarBaixa, confirmando] = useSubmit(async (f) => {
+    const inf = conf.modo === "informe" ? conf.c.informe : null;
+    await confirmarPagamentoManual(conf.c.id, {
+      forma: conf.modo === "dinheiro" ? "dinheiro" : (inf?.forma || "transferencia"),
+      valor: Number(String(f.valor || "").replace(",", ".")) || conf.c.valor,
+      pagoEm: f.data ? new Date(`${f.data}T12:00:00`).toISOString() : new Date().toISOString(),
+      justificativa: f.just, tx: inf?.tx || null, informeId: inf?.id || null,
+    });
+    await reload(); setConf(null);
+  });
+  const rejeitarInforme = async () => {
+    const motivo = window.prompt(L("Motivo da rejeição (a cobrança volta a ficar em aberto e o morador pode informar de novo):"), "");
+    if (motivo === null) return;
+    try { await rejeitarPagamentoInformado(conf.c.informe.id, motivo); await reload(); setConf(null); }
+    catch (err) { alert("Não foi possível rejeitar: " + (err?.message || err)); }
+  };
   const pctPagas = S.cobrEmitidas ? Math.round((S.cobrPagas / S.cobrEmitidas) * 100) : 0;
   const nAlvo = db.ctx.unidades.filter((u) => u.responsavelId).length;
   return (
@@ -1662,7 +1700,7 @@ function Cobrancas({ t }) {
       </div>
       <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por unidade ou responsável…"
         action={<Btn t={t} kind="primary" onClick={() => setNova(true)}><Plus size={15} /> Gerar cobranças</Btn>}>
-        <Sel t={t} value={st} onChange={setSt} opts={[["todos","Todos"],["pago","Pagas"],["emitida","Emitidas"],["vencida","Vencidas"]]} />
+        <Sel t={t} value={st} onChange={setSt} opts={[["todos","Todos"],["pago","Pagas"],["informado","Informadas"],["divergente","Divergentes"],["emitida","Emitidas"],["vencida","Vencidas"]]} />
       </Toolbar>
       <Tbl t={t} cols={[{k:"unidade",l:"Unidade"},{k:"resp",l:"Responsável"},{k:"comp",l:"Competência"},{k:"valor",l:"Valor"},{k:"venc",l:"Vencimento"},{k:"status",l:"Status"},{k:"acao",l:""}]}
         rows={rows}
@@ -1673,6 +1711,12 @@ function Cobrancas({ t }) {
           if (k === "valor") return <b>{BRL(r.valor)}</b>;
           if (k === "status") return <Badge t={t} s={r.status} />;
           if (k === "acao") return (<div className="flex justify-end gap-1">
+            {(r.status === "informado" || r.status === "divergente") && (
+              <Btn t={t} kind="primary" className="!px-2 !py-1 text-xs" title={L("Conferir o pagamento informado pelo morador")}
+                onClick={() => setConf({ c: r, modo: "informe" })}><Check size={13} /> Confirmar</Btn>)}
+            {(r.status === "emitida" || r.status === "vencida") && (
+              <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" title={L("Registrar recebimento em dinheiro")}
+                onClick={() => setConf({ c: r, modo: "dinheiro" })}><Banknote size={13} /> Receber</Btn>)}
             <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" onClick={() => setQr(r)}><QrCode size={13} /> QR</Btn>
             {r.status !== "pago" && <Btn t={t} className="!px-2 !py-1 text-xs" title={L("Reenvia a cobrança por WhatsApp")} onClick={() => enviarWhats(r)}><Send size={13} /> Reenviar</Btn>}</div>);
           return r[k];
@@ -1694,6 +1738,54 @@ function Cobrancas({ t }) {
             </div>
             <div className="text-[11px]" style={{ color: t.dim }}>{L("QR ilustrativo — o morador paga pelo portal (Pix/cartão online ou meios cadastrados do condomínio).")}</div>
           </div>
+        </Modal>)}
+      {conf && (
+        <Modal t={t} onClose={() => setConf(null)}>
+          <ModalHeader t={t} title={conf.modo === "dinheiro" ? L("Registrar recebimento em dinheiro") : L("Confirmar pagamento informado")} onClose={() => setConf(null)} />
+          <form onSubmit={confirmarBaixa}>
+            <div className="space-y-3">
+              <div className="rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+                <div><b>{conf.c.unidade}</b> · {conf.c.comp} · {L("valor da cobrança")}: <b style={{ color: t.gold }}>{BRL(conf.c.valor)}</b> · {L("vencimento")} {conf.c.vencFull}</div>
+                {conf.modo === "informe" && conf.c.informe && (
+                  <div className="mt-1.5 space-y-1" style={{ color: t.dim }}>
+                    <div>{L("Informado pelo morador")}: <b style={{ color: t.text }}>{conf.c.informe.forma === "verum_pay" ? L("Cripto") : L("Transferência bancária")}</b>
+                      {" · "}{L("valor")} <b style={{ color: Math.abs(conf.c.informe.valor - conf.c.valor) < 0.005 ? t.ok : t.warn }}>{BRL(conf.c.informe.valor)}</b>
+                      {conf.c.informe.pagoEm ? <> · {L("em")} {conf.c.informe.pagoEm.split("-").reverse().join("/")}</> : null}</div>
+                    {conf.c.informe.comprovanteUrl && (
+                      <a href={conf.c.informe.comprovanteUrl} target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>
+                        {L("Abrir comprovante anexado")}</a>)}
+                    {conf.c.informe.tx && (
+                      <div className="break-all">
+                        {L("Transação")}: <a href={`${EXPLORER_TX[conf.c.informe.chain] || ""}${conf.c.informe.tx}`} target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>{conf.c.informe.tx}</a>
+                        {conf.c.informe.chain ? ` (${conf.c.informe.chain})` : ""}</div>)}
+                    {conf.c.informe.aviso && (
+                      <div style={{ color: t.warn }}><AlertCircle size={12} className="mr-1 inline" />{conf.c.informe.aviso}</div>)}
+                  </div>)}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field t={t} label="Valor recebido">
+                  <MoneyInput t={t} name="valor" moeda={moeda} required
+                    defaultCents={Math.round((conf.modo === "informe" && conf.c.informe && conf.c.informe.forma !== "verum_pay" ? conf.c.informe.valor : conf.c.valor) * 100)} /></Field>
+                <Field t={t} label="Data do recebimento">
+                  <input name="data" type="date" required defaultValue={conf.c.informe?.pagoEm || new Date().toISOString().slice(0, 10)} style={inputStyle(t)} /></Field>
+              </div>
+              <Field t={t} label="Justificativa (fica na auditoria do pagamento)">
+                <input name="just" required style={inputStyle(t)}
+                  defaultValue={conf.modo === "dinheiro" ? L("Recebimento em dinheiro na administração")
+                    : conf.c.informe?.forma === "verum_pay" ? L("Transação cripto conferida pelo gestor")
+                    : L("Comprovante de transferência conferido")} /></Field>
+              <div className="text-[11px]" style={{ color: t.dim }}>
+                {L("Ao confirmar: a cobrança é baixada, o pagamento entra na auditoria e a receita cai no caixa como Entrada — tudo em uma única transação.")}</div>
+              <div className="flex items-center justify-between gap-2 pt-1">
+                {conf.modo === "informe" && conf.c.informe
+                  ? <Btn t={t} onClick={rejeitarInforme}><X size={14} /> {L("Rejeitar")}</Btn> : <span />}
+                <div className="flex gap-2">
+                  <Btn t={t} onClick={() => setConf(null)}>{L("Cancelar")}</Btn>
+                  <Btn t={t} kind="primary" disabled={confirmando}><Check size={14} /> {confirmando ? L("Confirmando…") : L("Confirmar baixa")}</Btn>
+                </div>
+              </div>
+            </div>
+          </form>
         </Modal>)}
       {nova && (
         <Modal t={t} onClose={() => setNova(false)}>
@@ -2511,7 +2603,10 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
   const [tab, setTab] = useState(() => { try { return sessionStorage.getItem("cm_tela_portal") || "inicio"; } catch { return "inicio"; } });
   useEffect(() => { try { sessionStorage.setItem("cm_tela_portal", tab); } catch { /* sem storage */ } }, [tab]);
   const [qr, setQr] = useState(null); const [chamado, setChamado] = useState(false);
-  const [formaPag, setFormaPag] = useState(null); // null = escolhendo | "qr" | "verum" | "banco"
+  const [formaPag, setFormaPag] = useState(null); // null = escolhendo | "qr" | "verum" | "banco" | "dinheiro"
+  /* informe de pagamento manual (comprovante de transferência / hash cripto) */
+  const [envioInforme, setEnvioInforme] = useState(null); // null | {enviando} | {msg} | {erro}
+  const [hashCripto, setHashCripto] = useState("");
   const [aviso, setAviso] = useState(null); // comunicado aberto para leitura completa
   const [multa, setMulta] = useState(null); // multa aberta para ver os detalhes
   const [notifOpen, setNotifOpen] = useState(false);
@@ -2615,6 +2710,36 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
     setCopiadoPag(chave); setTimeout(() => setCopiadoPag(null), 1800);
   };
   const pagto = db.cond?.pagamentos || {};
+  /* morador informa pagamento manual: transferência (comprovante) e cripto (hash) */
+  const enviarComprovante = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const arquivo = fd.get("comprovante");
+    if (!arquivo || !arquivo.size) return setEnvioInforme({ erro: L("Anexe o comprovante da transferência.") });
+    setEnvioInforme({ enviando: true });
+    try {
+      const r = await informarPagamentoCobranca({
+        cobrancaId: qr.id, forma: "transferencia",
+        valorInformado: Number(String(fd.get("valor") || "").replace(",", ".")) || qr.valor,
+        pagoEm: fd.get("data") || undefined, arquivo,
+      });
+      setEnvioInforme({ msg: r.divergente
+        ? L("Comprovante enviado. O valor informado difere da cobrança — a administração vai revisar antes da baixa.")
+        : L("Comprovante enviado — aguardando a confirmação da administração.") });
+      await reload();
+    } catch (err) { setEnvioInforme({ erro: String(err?.message || err) }); }
+  };
+  const verificarCripto = async () => {
+    if (!hashCripto.trim()) return setEnvioInforme({ erro: L("Cole o hash da transação.") });
+    setEnvioInforme({ enviando: true });
+    try {
+      const r = await informarPagamentoCobranca({ cobrancaId: qr.id, forma: "verum_pay", txHash: hashCripto.trim() });
+      setEnvioInforme({ msg: r.pago
+        ? L("Pagamento confirmado na blockchain — a cobrança foi baixada automaticamente!")
+        : L("Transação encontrada na rede — aguardando a confirmação da administração.") });
+      await reload();
+    } catch (err) { setEnvioInforme({ erro: String(err?.message || err) }); }
+  };
   const bancoLinhas = [
     ["Titular", pagto.banco?.titular], ["Banco", pagto.banco?.banco], ["País", pagto.banco?.pais],
     ["IBAN", pagto.banco?.iban], ["SWIFT / BIC", pagto.banco?.swift], ["Conta", pagto.banco?.conta],
@@ -2622,7 +2747,12 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
   ].filter(([, v]) => v);
   const aceitaDinheiro = !!pagto.dinheiro;
   const temMeiosPagamento = !!(stripeOnline || pagto.verumWallet || bancoLinhas.length || aceitaDinheiro);
-  const fecharPagar = () => { setQr(null); setFormaPag(null); };
+  const fecharPagar = () => { setQr(null); setFormaPag(null); setEnvioInforme(null); setHashCripto(""); };
+  const emConfirmacao = qr && ["informado", "divergente"].includes(qr.status);
+  const feedbackInforme = envioInforme && (envioInforme.msg || envioInforme.erro) ? (
+    <div className="rounded-xl border px-3 py-2 text-xs"
+      style={{ borderColor: (envioInforme.erro ? t.danger : t.ok) + "66", color: envioInforme.erro ? t.danger : t.ok }}>
+      {envioInforme.erro || envioInforme.msg}</div>) : null;
   return (
     <div style={{ background: t.bg, color: t.text, minHeight: "100vh", fontFamily: "'Inter',system-ui,sans-serif" }}>
       <header className="sticky top-0 z-30 border-b px-4 py-3 backdrop-blur-md" style={{ background: t.glass, borderColor: t.borderSoft }}>
@@ -2925,6 +3055,9 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
       {qr && (
         <Modal t={t} onClose={fecharPagar}>
           <ModalHeader t={t} title={formaPag === null ? L("Forma de pagamento") : `${L("Pagar")} ${qr.desc} — ${qr.comp}`} onClose={fecharPagar} />
+          {emConfirmacao && (
+            <div className="mb-2 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.borderSoft, background: t.surface2, color: t.dim }}>
+              <Clock size={12} className="mr-1 inline" /> {L("Pagamento informado — aguardando a confirmação da administração. Nenhuma nova ação é necessária.")}</div>)}
           {formaPag === null && (
             <div className="space-y-2">
               <div className="text-center">
@@ -2958,7 +3091,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                 ["banco", "Transferência bancária", Building2, bancoLinhas.length > 0],
                 ["dinheiro", "Pagamento em dinheiro", Banknote, aceitaDinheiro],
               ].filter(([, , , tem]) => tem).map(([k, l, Ic]) => (
-                <button key={k} type="button" onClick={() => setFormaPag(k)}
+                <button key={k} type="button" onClick={() => { setFormaPag(k); setEnvioInforme(null); }}
                   className="flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left hover:opacity-90"
                   style={{ borderColor: t.borderSoft, background: t.surface2 }}>
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: t.goldSoft }}>
@@ -2979,6 +3112,16 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                   <Btn t={t} kind="soft" onClick={() => copiarPagamento("qr:chave", pagto.verumWallet)}>
                     {copiadoPag === "qr:chave" ? <Check size={14} /> : <Copy size={14} />} {L("Copiar chave")}</Btn>)}
               </div>
+              {!emConfirmacao && (
+                <div className="w-full space-y-2 pt-2 text-left">
+                  <div className="text-[11px] font-semibold" style={{ color: t.gold }}>
+                    {L("Já pagou? Cole o hash da transação — o sistema confere direto na blockchain:")}</div>
+                  <input value={hashCripto} onChange={(e) => setHashCripto(e.target.value)}
+                    placeholder="0x… / hash Solana" className="font-mono" style={inputStyle(t)} />
+                  {feedbackInforme}
+                  <Btn t={t} kind="primary" disabled={envioInforme?.enviando} onClick={verificarCripto} className="w-full justify-center">
+                    <Check size={14} /> {envioInforme?.enviando ? L("Verificando na rede…") : L("Já paguei — verificar")}</Btn>
+                </div>)}
             </div>)}
           {formaPag === "dinheiro" && (
             <div className="space-y-2">
@@ -3020,12 +3163,44 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                   {L("Ainda não tem a carteira?")}{" "}
                   <a href="https://verumcrypto.com" target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>{L("Baixe a Verum Wallet e crie a sua")}</a>.
                 </div>)}
-              <div className="rounded-xl border px-3 py-2 text-[11px]" style={{ borderColor: t.borderSoft, color: t.dim }}>
-                {L("Após pagar, envie o comprovante à administração para baixa da cobrança.")}</div>
-              <div className="flex justify-between pt-1">
-                <Btn t={t} onClick={() => setFormaPag(null)}><ChevronLeft size={14} /> {L("Voltar")}</Btn>
-                <Btn t={t} kind="primary" onClick={fecharPagar}><Check size={14} /> {L("Concluir")}</Btn>
-              </div>
+              {emConfirmacao || envioInforme?.msg ? (<>
+                {feedbackInforme}
+                <div className="flex justify-between pt-1">
+                  <Btn t={t} onClick={() => setFormaPag(null)}><ChevronLeft size={14} /> {L("Voltar")}</Btn>
+                  <Btn t={t} kind="primary" onClick={fecharPagar}><Check size={14} /> {L("Concluir")}</Btn>
+                </div>
+              </>) : formaPag === "banco" ? (
+                <form onSubmit={enviarComprovante} className="space-y-2 pt-1">
+                  <div className="text-[11px] font-semibold" style={{ color: t.gold }}>
+                    {L("Já pagou? Envie o comprovante — a administração confirma e a cobrança é baixada:")}</div>
+                  <FileField t={t} name="comprovante" accept="application/pdf,image/*" hint={L("Anexar comprovante (PDF/JPG/PNG, até 4 MB)")} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field t={t} label="Valor pago">
+                      <MoneyInput t={t} name="valor" moeda={db.cond?.moeda || "USD"} required defaultCents={Math.round(qr.valor * 100)} /></Field>
+                    <Field t={t} label="Data do pagamento">
+                      <input name="data" type="date" defaultValue={new Date().toISOString().slice(0, 10)} style={inputStyle(t)} /></Field>
+                  </div>
+                  {feedbackInforme}
+                  <div className="flex justify-between pt-1">
+                    <Btn t={t} onClick={() => setFormaPag(null)}><ChevronLeft size={14} /> {L("Voltar")}</Btn>
+                    <Btn t={t} kind="primary" disabled={envioInforme?.enviando}>
+                      <Upload size={14} /> {envioInforme?.enviando ? L("Enviando…") : L("Enviar comprovante")}</Btn>
+                  </div>
+                </form>
+              ) : (
+                <div className="space-y-2 pt-1">
+                  <div className="text-[11px] font-semibold" style={{ color: t.gold }}>
+                    {L("Já pagou? Cole o hash da transação — o sistema confere direto na blockchain:")}</div>
+                  <input value={hashCripto} onChange={(e) => setHashCripto(e.target.value)}
+                    placeholder="0x… / hash Solana" className="font-mono" style={inputStyle(t)} />
+                  {feedbackInforme}
+                  <div className="flex justify-between pt-1">
+                    <Btn t={t} onClick={() => setFormaPag(null)}><ChevronLeft size={14} /> {L("Voltar")}</Btn>
+                    <Btn t={t} kind="primary" disabled={envioInforme?.enviando} onClick={verificarCripto}>
+                      <Check size={14} /> {envioInforme?.enviando ? L("Verificando na rede…") : L("Já paguei — verificar")}</Btn>
+                  </div>
+                </div>
+              )}
             </div>)}
         </Modal>)}
       {multa && (
@@ -3519,6 +3694,10 @@ export default function App() {
     if (paraEnviar.length) n.push({ txt: `${paraEnviar.length} ${L("penalidade(s) aprovada(s) aguardando envio ao responsável")}`, c: "warn", s: "multas" });
     const vencidas = (db.cobr || []).filter((c) => c.status === "vencida");
     if (vencidas.length) n.push({ txt: `${vencidas.length} ${L("cobrança(s) vencida(s) somando")} ${BRL(vencidas.reduce((s, c) => s + c.valor, 0))}`, c: "warn", s: "cobrancas" });
+    const informados = (db.cobr || []).filter((c) => c.status === "informado");
+    if (informados.length) n.push({ txt: `${informados.length} ${L("pagamento(s) informado(s) pelo morador aguardando confirmação")}`, c: "info", s: "cobrancas" });
+    const divergentes = (db.cobr || []).filter((c) => c.status === "divergente");
+    if (divergentes.length) n.push({ txt: `${divergentes.length} ${L("pagamento(s) informado(s) com divergência para revisar")}`, c: "danger", s: "cobrancas" });
     const aprovar = (db.lanc || []).filter((l) => l.status === "aguardando");
     if (aprovar.length) n.push({ txt: `${aprovar.length} ${L("lançamento(s) aguardando aprovação")}`, c: "info", s: "financeiro" });
     const semResp = (db.chamados || []).filter((c) => c.status === "aberto" && c.resp === "—");

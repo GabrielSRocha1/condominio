@@ -229,6 +229,35 @@ login(email, senha)
 
 **Pontos críticos**: idempotência por `providerEventId` (webhooks reenviam), nunca confiar no valor vindo do front (sempre recalcular encargos no servidor), e a reconciliação diária como contrato de confiança — o webhook é otimização, não fonte única da verdade.
 
+### 7b. Conciliação de pagamentos MANUAIS (implementada — supabase-pagamentos-manuais.sql)
+
+Máquina de status da cobrança:
+`emitida|vencida → pagamento_informado (valor confere) | pagamento_divergente
+(valor difere OU comprovante duplicado) → paga|paga_em_atraso (confirmação)
+ou de volta a emitida|vencida (rejeição)`.
+
+- **Transferência**: morador anexa o comprovante no portal →
+  `POST /api/cobrancas/informar-pagamento` (service role) sobe o arquivo ao
+  bucket `documentos` (tipo `comprovante`, SHA-256, retenção 5 anos), valida
+  valor + duplicidade de hash, grava `pagamentos_informados` e muda o status;
+  o gestor confirma na tela Cobranças (botão Confirmar) → RPC
+  `registrar_pagamento_manual` (security definer, idempotente por
+  `provider_event_id = 'manual-<cobranca_id>'`): `pagamentos`
+  (origem `baixa_manual`, `baixado_por` = claim `sub`, justificativa
+  obrigatória) + status + lançamento receita `pago` ("Entrada" no caixa).
+- **Cripto**: morador cola o HASH; `api/_lib/cripto.js` verifica on-chain em
+  RPCs públicos (Ethereum/BNB/Polygon via eth_getTransaction*, Solana via
+  getTransaction): confirmada + destino = carteira cadastrada
+  (`regras_internas.pagamentos.verum_wallet`) + valor conferido (stablecoin
+  USDT/USDC e moeda de gestão USD, tolerância 1%) → **baixa automática**
+  (origem `reconciliacao`, `provider_event_id` = hash); valor não conferível
+  → pendência para o gestor (link do explorer no popup).
+- **Dinheiro**: botão "Receber" do gestor (telas Cobranças e Financeiro →
+  Contas a receber) → mesma RPC com forma `dinheiro`.
+- **Avisos**: sino do gestor (diretor/síndico/tesouraria) deriva de
+  `db.cobr` — "N pagamento(s) informado(s)" / "N divergente(s)".
+- Rejeição: RPC `rejeitar_pagamento_informado` (motivo; cobrança reabre).
+
 ## 8. Fluxo de geração de PDF e comprovantes
 
 ```
