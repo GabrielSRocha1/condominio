@@ -105,23 +105,114 @@ export async function condominioDaSub(supabase, sub) {
   return data?.condominio_id || null;
 }
 
+/* ── países onde a Stripe abre conta conectada MERCHANT para uma plataforma
+   brasileira (direct charges). PY/AR/BO/CO ficam de fora por limite da
+   própria Stripe (lá só existe "cross-border payouts", indisponível para
+   plataformas fora de US/UK/EEA/CA/CH). Habilite os países desejados também
+   em Dashboard → Connect → Configurações (onboarding por país). */
+export const PAISES_CONNECT = {
+  BR: { nome: "Brasil", moeda: "BRL" },
+  US: { nome: "Estados Unidos", moeda: "USD" },
+  CA: { nome: "Canadá", moeda: "CAD" },
+  MX: { nome: "México", moeda: "MXN" },
+  PT: { nome: "Portugal", moeda: "EUR" },
+  ES: { nome: "Espanha", moeda: "EUR" },
+  FR: { nome: "França", moeda: "EUR" },
+  DE: { nome: "Alemanha", moeda: "EUR" },
+  IT: { nome: "Itália", moeda: "EUR" },
+  NL: { nome: "Holanda", moeda: "EUR" },
+  BE: { nome: "Bélgica", moeda: "EUR" },
+  AT: { nome: "Áustria", moeda: "EUR" },
+  IE: { nome: "Irlanda", moeda: "EUR" },
+  LU: { nome: "Luxemburgo", moeda: "EUR" },
+  FI: { nome: "Finlândia", moeda: "EUR" },
+  GR: { nome: "Grécia", moeda: "EUR" },
+  CY: { nome: "Chipre", moeda: "EUR" },
+  MT: { nome: "Malta", moeda: "EUR" },
+  SK: { nome: "Eslováquia", moeda: "EUR" },
+  SI: { nome: "Eslovênia", moeda: "EUR" },
+  EE: { nome: "Estônia", moeda: "EUR" },
+  LV: { nome: "Letônia", moeda: "EUR" },
+  LT: { nome: "Lituânia", moeda: "EUR" },
+  HR: { nome: "Croácia", moeda: "EUR" },
+  GB: { nome: "Reino Unido", moeda: "GBP" },
+  CH: { nome: "Suíça", moeda: "CHF" },
+  DK: { nome: "Dinamarca", moeda: "DKK" },
+  SE: { nome: "Suécia", moeda: "SEK" },
+  NO: { nome: "Noruega", moeda: "NOK" },
+  PL: { nome: "Polônia", moeda: "PLN" },
+  CZ: { nome: "Tchéquia", moeda: "CZK" },
+  HU: { nome: "Hungria", moeda: "HUF" },
+  RO: { nome: "Romênia", moeda: "RON" },
+  BG: { nome: "Bulgária", moeda: "BGN" },
+  AU: { nome: "Austrália", moeda: "AUD" },
+  NZ: { nome: "Nova Zelândia", moeda: "NZD" },
+  JP: { nome: "Japão", moeda: "JPY" },
+  SG: { nome: "Singapura", moeda: "SGD" },
+  HK: { nome: "Hong Kong", moeda: "HKD" },
+  MY: { nome: "Malásia", moeda: "MYR" },
+  TH: { nome: "Tailândia", moeda: "THB" },
+  AE: { nome: "Emirados Árabes", moeda: "AED" },
+};
+
+/* menor unidade por moeda (lista zero-decimal oficial da Stripe) — o resto
+   do app trabalha em decimais; a fronteira com a API converte aqui */
+const ZERO_DECIMAIS = new Set(["BIF","CLP","DJF","GNF","JPY","KMF","KRW","MGA","PYG","RWF","UGX","VND","VUV","XAF","XOF","XPF"]);
+export const paraMenorUnidade = (valor, moeda) =>
+  Math.round(Number(valor) * (ZERO_DECIMAIS.has(String(moeda || "").toUpperCase()) ? 1 : 100));
+export const deMenorUnidade = (inteiro, moeda) =>
+  Number(inteiro || 0) / (ZERO_DECIMAIS.has(String(moeda || "").toUpperCase()) ? 1 : 100);
+
 /* ── split e taxas das cobranças condominiais ──
-   A plataforma retém 1% do valor de face (application fee, sempre).
+   A plataforma retém 1% do valor de face com TETO de 1 unidade da moeda da
+   cobrança (application fee = min(1% × valor, 1): R$ 50 → R$ 0,50;
+   R$ 100+ → R$ 1,00; mesma regra em US$/€/¥).
    Com o repasse ativo, a "taxa de conveniência" somada ao checkout cobre a
-   taxa Stripe do método + o 1% — o condomínio recebe o valor cheio.
-   Percentuais de referência do Stripe Brasil; confirme os da sua conta no
-   dashboard (Configurações → Tarifas) e ajuste aqui se divergirem. */
-export const APP_FEE_PCT = 0.01;
+   taxa Stripe + a taxa da plataforma — o condomínio recebe o valor cheio.
+   BRL: percentuais por método (Pix/cartão) da tabela Stripe Brasil.
+   Demais moedas: aproximação pela taxa de CARTÃO da região (teto — com
+   métodos dinâmicos o método só se conhece no checkout). Confira as tarifas
+   da conta no dashboard (Configurações → Planos e tarifas) se divergirem. */
+export const APP_FEE_PCT = 0.01;  // 1% do valor de face…
+export const APP_FEE_FIXO = 1;    // …limitado a 1 unidade da moeda da cobrança
+export const appFee = (valor) => Math.min(Number(valor) * APP_FEE_PCT, APP_FEE_FIXO);
 export const TAXAS_METODO = {
   pix:  { pct: 0.0119, fixo: 0 },
   card: { pct: 0.0399, fixo: 0.39 },
 };
+export const TAXA_CARTAO_POR_MOEDA = {
+  USD: { pct: 0.029, fixo: 0.30 },
+  CAD: { pct: 0.029, fixo: 0.30 },
+  MXN: { pct: 0.036, fixo: 3.00 },
+  EUR: { pct: 0.015, fixo: 0.25 },
+  GBP: { pct: 0.015, fixo: 0.20 },
+  CHF: { pct: 0.029, fixo: 0.30 },
+  DKK: { pct: 0.015, fixo: 1.80 },
+  SEK: { pct: 0.015, fixo: 1.80 },
+  NOK: { pct: 0.024, fixo: 2.00 },
+  PLN: { pct: 0.015, fixo: 1.00 },
+  CZK: { pct: 0.015, fixo: 6.50 },
+  HUF: { pct: 0.015, fixo: 85 },
+  RON: { pct: 0.015, fixo: 1.00 },
+  BGN: { pct: 0.015, fixo: 0.50 },
+  AUD: { pct: 0.0175, fixo: 0.30 },
+  NZD: { pct: 0.027, fixo: 0.30 },
+  JPY: { pct: 0.036, fixo: 0 },
+  SGD: { pct: 0.034, fixo: 0.50 },
+  HKD: { pct: 0.034, fixo: 2.35 },
+  MYR: { pct: 0.03, fixo: 1.00 },
+  THB: { pct: 0.0365, fixo: 10 },
+  AED: { pct: 0.029, fixo: 1.00 },
+};
 
-/* total (em centavos) a cobrar do morador para o condomínio receber o valor
-   líquido exato:  total = (valor·(1 + 1%) + fixo) / (1 − pct) */
-export const totalComRepasse = (valor, metodo) => {
-  const t = TAXAS_METODO[metodo] || TAXAS_METODO.card;
-  return Math.round(((valor * (1 + APP_FEE_PCT) + t.fixo) / (1 - t.pct)) * 100);
+/* total (na MENOR UNIDADE da moeda) a cobrar do morador para o condomínio
+   receber o valor líquido exato: total = (valor + appFee(valor) + fixo) / (1 − pct) */
+export const totalComRepasse = (valor, metodo, moeda = "BRL") => {
+  const m = String(moeda).toUpperCase();
+  const t = m === "BRL"
+    ? (TAXAS_METODO[metodo] || TAXAS_METODO.card)
+    : (TAXA_CARTAO_POR_MOEDA[m] || { pct: 0.029, fixo: 0.30 });
+  return paraMenorUnidade((valor + appFee(valor) + t.fixo) / (1 - t.pct), m);
 };
 
 /* linha "conta conectada" do condomínio (provedor stripe) — null se não há */

@@ -4,7 +4,7 @@
    pela MESMA RPC idempotente do webhook (registrar_pagamento_stripe) — é o
    caminho do polling do retorno ?pagamento=ok e o fallback quando o webhook
    não alcança o ambiente (npm run dev). Devolve { paga }. */
-import { stripeClient, supabaseAdmin, corpoJson, lerClaims, integracaoStripe } from "./_lib/comum.js";
+import { stripeClient, supabaseAdmin, corpoJson, lerClaims, integracaoStripe, deMenorUnidade } from "./_lib/comum.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -47,7 +47,7 @@ export default async function handler(req, res) {
     }
     const { data: resultado, error: eRpc } = await supabase.rpc("registrar_pagamento_stripe", {
       p_cobranca_id: cobranca.id,
-      p_valor_pago: (session.amount_total || 0) / 100,
+      p_valor_pago: deMenorUnidade(session.amount_total, session.currency),
       p_pago_em: new Date().toISOString(),
       p_payment_intent: String(session.payment_intent || session.id),
       p_charge: chargeId,

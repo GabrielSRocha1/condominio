@@ -8,7 +8,7 @@
      registrar_pagamento_stripe: INSERT pagamentos (idempotente por payment
      intent) + cobranca → paga/paga_em_atraso + receita "Entrada" no caixa.
    Teste local: stripe listen --forward-connect-to localhost:5173/api/stripe/webhook-connect */
-import { stripeClient, supabaseAdmin, envVal, lerCorpoBruto } from "./_lib/comum.js";
+import { stripeClient, supabaseAdmin, envVal, lerCorpoBruto, deMenorUnidade } from "./_lib/comum.js";
 
 export const config = { api: { bodyParser: false } }; // a assinatura exige o corpo bruto
 
@@ -67,7 +67,7 @@ export default async function handler(req, res) {
 
       const { data: resultado, error } = await supabase.rpc("registrar_pagamento_stripe", {
         p_cobranca_id: cobrancaId,
-        p_valor_pago: (session.amount_total || 0) / 100,
+        p_valor_pago: deMenorUnidade(session.amount_total, session.currency),
         p_pago_em: new Date().toISOString(),
         p_payment_intent: String(session.payment_intent || session.id),
         p_charge: chargeId,

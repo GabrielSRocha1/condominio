@@ -57,9 +57,12 @@ create type acesso_tipo            as enum ('entrada','saida','entrega','ocorren
 -- ═══════════════════════ GRUPO SaaS ═══════════════════════
 
 -- 1 · saas_planos — Planos comerciais do SaaS
--- CONTRATO DE MOEDA: preços SEMPRE em reais (BRL) — é o valor cobrado via
--- Stripe (conta da plataforma no Brasil); a moeda escolhida no cadastro do
--- condomínio é só de exibição/gestão interna.
+-- CONTRATO DE MOEDA: preços da LICENÇA sempre em reais (BRL) — é o valor
+-- cobrado via Stripe (conta da plataforma no Brasil; cliente estrangeiro
+-- paga na moeda local via Adaptive Pricing). Já as COBRANÇAS condominiais
+-- são lançadas e cobradas na moeda de gestão do condomínio
+-- (regras_internas.moeda); o pagamento online via Connect exige que essa
+-- moeda seja igual à da conta conectada do condomínio.
 create table saas_planos (
   id               uuid primary key default gen_random_uuid(),
   nome             varchar(60) not null,
@@ -365,6 +368,9 @@ create table pagamentos (
 );
 
 -- 19 · integracoes_pagamento — Config do provedor por condomínio
+-- provedor 'stripe': credenciais = { account_id, country, moeda,
+-- charges_enabled, payouts_enabled, requirements_due[] } — country/moeda são
+-- da conta conectada (imutáveis na Stripe após a criação).
 create table integracoes_pagamento (
   id               uuid primary key default gen_random_uuid(),
   condominio_id    uuid not null references condominios(id),

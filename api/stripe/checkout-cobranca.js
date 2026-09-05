@@ -1,15 +1,18 @@
-/* POST /api/stripe/checkout-cobranca  { cobrancaId, metodo: "pix" | "card" }
+/* POST /api/stripe/checkout-cobranca  { cobrancaId, metodo: "pix"|"card"|"auto" }
    (Authorization: Bearer — qualquer perfil do condomínio da cobrança)
    Abre o Stripe Checkout de UMA cobrança condominial como DIRECT CHARGE na
    conta conectada do condomínio (merchant of record = condomínio; recibo no
-   nome dele) com application_fee_amount = 1% do valor de face para a
-   plataforma. Só funciona com a conta conectada ativa E moeda de gestão BRL
-   (Pix/cartão da Stripe Brasil são em reais) — nos demais casos os meios
-   manuais (Verum Wallet / transferência / dinheiro) continuam valendo.
-   Com o repasse ativo (regras_internas.pagamentos.stripe_repasse), a taxa do
-   método vira a linha "Taxa de conveniência" e o condomínio recebe o valor
-   cheio. Devolve { checkoutUrl }. */
-import { stripeClient, supabaseAdmin, corpoJson, lerClaims, integracaoStripe, totalComRepasse, APP_FEE_PCT } from "./_lib/comum.js";
+   nome dele) com application_fee_amount = 1% do valor de face com teto de
+   1 unidade da moeda (min(1%, R$ 1/US$ 1…)) para a plataforma. Exige conta conectada ativa E moeda de gestão IGUAL à moeda da
+   conta Stripe (a cobrança é cobrada na mesma moeda; sem conversão) — nos
+   demais casos os meios manuais continuam valendo.
+   Conta BRL: metodo explícito (pix|card) com taxas específicas. Demais
+   moedas: métodos dinâmicos da Stripe (cartão, wallets, débitos locais) e,
+   com o repasse ativo, gross-up pela taxa de CARTÃO da região (teto).
+   Com o repasse ativo (regras_internas.pagamentos.stripe_repasse), a taxa
+   vira a linha "Taxa de conveniência" e o condomínio recebe o valor cheio.
+   Devolve { checkoutUrl, total, taxa }. */
+import { stripeClient, supabaseAdmin, corpoJson, lerClaims, integracaoStripe, totalComRepasse, appFee, paraMenorUnidade, deMenorUnidade } from "./_lib/comum.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -39,18 +42,23 @@ export default async function handler(req, res) {
     const { data: cond } = await supabase.from("condominios")
       .select("nome_fantasia, regras_internas").eq("id", condominioId).maybeSingle();
     const moeda = cond?.regras_internas?.moeda || "USD";
-    if (moeda !== "BRL")
-      return res.status(409).json({ error: "O pagamento online exige moeda de gestão em reais (BRL) — use os meios de pagamento informados pelo condomínio." });
 
     const integ = await integracaoStripe(supabase, condominioId);
     const accountId = integ?.credenciais?.account_id;
     if (!accountId || !integ?.credenciais?.charges_enabled)
       return res.status(409).json({ error: "O condomínio ainda não ativou o recebimento online — use os meios de pagamento informados." });
 
+    const contaMoeda = String(integ.credenciais.moeda || "BRL").toUpperCase();
+    if (moeda !== contaMoeda)
+      return res.status(409).json({ error: `O pagamento online exige a moeda de gestão igual à da conta de recebimento (${contaMoeda}) — use os meios de pagamento informados pelo condomínio.` });
+    const ehBRL = contaMoeda === "BRL";
+    if (!ehBRL && metodo === "pix")
+      return res.status(409).json({ error: "Pix está disponível apenas para contas do Brasil." });
+
     const valor = Number(cobranca.valor_original);
-    const baseCentavos = Math.round(valor * 100);
+    const baseCentavos = paraMenorUnidade(valor, contaMoeda);
     const repasse = cond?.regras_internas?.pagamentos?.stripe_repasse === true;
-    const taxaCentavos = repasse ? Math.max(0, totalComRepasse(valor, metodo) - baseCentavos) : 0;
+    const taxaCentavos = repasse ? Math.max(0, totalComRepasse(valor, metodo, contaMoeda) - baseCentavos) : 0;
 
     const unidade = cobranca.unidades
       ? `${cobranca.unidades.numero}${cobranca.unidades.blocos?.nome ? `-${cobranca.unidades.blocos.nome}` : ""}` : "";
@@ -58,7 +66,7 @@ export default async function handler(req, res) {
 
     const line_items = [{
       price_data: {
-        currency: "brl",
+        currency: contaMoeda.toLowerCase(),
         product_data: { name: `Taxa condominial ${compBR}${unidade ? ` · Unidade ${unidade}` : ""}` },
         unit_amount: baseCentavos,
       },
@@ -66,7 +74,7 @@ export default async function handler(req, res) {
     }];
     if (taxaCentavos > 0) line_items.push({
       price_data: {
-        currency: "brl",
+        currency: contaMoeda.toLowerCase(),
         product_data: { name: "Taxa de conveniência (pagamento online)" },
         unit_amount: taxaCentavos,
       },
@@ -76,15 +84,17 @@ export default async function handler(req, res) {
     const origem = req.headers.origin || `https://${req.headers.host}`;
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      payment_method_types: [metodo],
+      /* BRL mantém o método explícito (botões Pix/Cartão com taxas próprias);
+         nas demais moedas a Stripe decide os métodos do país (dinâmicos) */
+      ...(ehBRL ? { payment_method_types: [metodo] } : {}),
       line_items,
       payment_intent_data: {
-        /* o 1% da plataforma incide sempre sobre o valor de face */
-        application_fee_amount: Math.round(baseCentavos * APP_FEE_PCT),
+        /* taxa da plataforma: 1% do valor de face, teto de 1 unidade da moeda */
+        application_fee_amount: paraMenorUnidade(appFee(valor), contaMoeda),
         description: `Cobrança condominial ${compBR} · ${cond?.nome_fantasia || ""}`.trim(),
       },
       metadata: { cobranca_id: cobranca.id, condominio_id: condominioId },
-      ...(metodo === "pix" ? { payment_method_options: { pix: { expires_after_seconds: 3600 } } } : {}),
+      ...(ehBRL && metodo === "pix" ? { payment_method_options: { pix: { expires_after_seconds: 3600 } } } : {}),
       success_url: `${origem}/?pagamento=ok&cobranca=${cobranca.id}`,
       cancel_url: `${origem}/`,
     }, { stripeAccount: accountId });
@@ -93,7 +103,11 @@ export default async function handler(req, res) {
        pelo charge id definitivo quando o pagamento confirmar */
     await supabase.from("cobrancas").update({ provider_charge_id: session.id }).eq("id", cobranca.id);
 
-    return res.status(200).json({ checkoutUrl: session.url, total: (baseCentavos + taxaCentavos) / 100, taxa: taxaCentavos / 100 });
+    return res.status(200).json({
+      checkoutUrl: session.url,
+      total: deMenorUnidade(baseCentavos + taxaCentavos, contaMoeda),
+      taxa: deMenorUnidade(taxaCentavos, contaMoeda),
+    });
   } catch (e) {
     console.error("[stripe/checkout-cobranca]", e);
     return res.status(500).json({ error: e.message || "Erro ao abrir o pagamento da cobrança." });

@@ -35,10 +35,17 @@ const maskDoc = (d) => {
 };
 export const parseBRL = (s) => Number(String(s || "0").replace(/[R$\s.]/g, "").replace(",", ".")) || 0;
 
-/* Formata um valor na moeda de gestão do condomínio — padrão: dólar (USD) */
-const LOCALE_MOEDA = { BRL: "pt-BR", USD: "en-US", EUR: "de-DE", GBP: "en-GB", ARS: "es-AR", PYG: "es-PY" };
-export const fmtMoeda = (v, moeda) => Number(v || 0).toLocaleString(
-  LOCALE_MOEDA[moeda] || "en-US", { style: "currency", currency: LOCALE_MOEDA[moeda] ? moeda : "USD" });
+/* Formata um valor na moeda de gestão do condomínio — aceita qualquer moeda
+   ISO (o mapa de locales só escolhe a formatação preferida; moedas fora dele
+   saem no locale en-US, sem cair para USD) */
+const LOCALE_MOEDA = { BRL: "pt-BR", USD: "en-US", EUR: "de-DE", GBP: "en-GB", ARS: "es-AR", PYG: "es-PY", MXN: "es-MX", JPY: "ja-JP", CHF: "de-CH" };
+export const fmtMoeda = (v, moeda) => {
+  try {
+    return Number(v || 0).toLocaleString(LOCALE_MOEDA[moeda] || "en-US", { style: "currency", currency: moeda || "USD" });
+  } catch {
+    return Number(v || 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
+  }
+};
 const hex64 = () => Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("");
 const sha256 = async (s) => {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
@@ -565,11 +572,14 @@ export async function loginDiretor(email, senha) {
 
 /* A Stripe cobre os DOIS fluxos de dinheiro:
    · licença SaaS (Billing) — assinatura mensal/anual em BRL na conta da
-     plataforma;
-   · cobranças condominiais (Connect) — Pix/cartão direto na conta conectada
-     do condomínio, com 1% de application fee para a plataforma.
+     plataforma (moradores/síndicos estrangeiros pagam na moeda local via
+     Adaptive Pricing);
+   · cobranças condominiais (Connect) — direct charge na conta conectada do
+     condomínio (país à escolha entre os suportados pela Stripe; BR tem
+     Pix/cartão, demais países usam os métodos locais), com application fee
+     de 1% do valor limitado a 1 unidade da moeda para a plataforma.
    Os meios manuais (Verum Wallet / transferência / dinheiro) continuam
-   valendo — são a única via para condomínios fora do Brasil. */
+   valendo — e são a única via nos países sem Stripe (ex.: PY/AR/BO/CO). */
 
 /* chamada padrão ao backend /api/stripe/* — sempre com o Bearer da sessão */
 async function chamarStripe(rota, body, erroPadrao) {
@@ -629,20 +639,24 @@ export async function abrirPortalCobranca(condominioId) {
 
 /* ── Stripe Connect: conta de recebimento das cobranças do condomínio ── */
 
-/* Onboarding hospedado pela Stripe (diretor) — devolve { url } */
-export async function iniciarOnboardingStripe() {
-  return chamarStripe("connect/onboarding", {}, "ao iniciar o cadastro de recebimento");
+/* Onboarding hospedado pela Stripe (diretor) — devolve { url }.
+   pais: código ISO do seletor (default BR); ignorado se a conta já existe
+   (o país da conta Stripe é imutável). */
+export async function iniciarOnboardingStripe(pais = "BR") {
+  return chamarStripe("connect/onboarding", { pais }, "ao iniciar o cadastro de recebimento");
 }
 
-/* Situação da conta: { online } para todos; diretor recebe também
-   { configurado, chargesEnabled, payoutsEnabled, pendencias, dashboardUrl } */
+/* Situação da conta: { online, moeda, contaMoeda, pais } para todos; diretor
+   recebe também { configurado, chargesEnabled, payoutsEnabled, pendencias,
+   dashboardUrl } */
 export async function statusStripeConnect() {
   try { return await chamarStripe("connect/status", {}); }
   catch { return { online: false }; }
 }
 
 /* Checkout de uma cobrança condominial (portal do morador).
-   metodo: "pix" | "card". Devolve { checkoutUrl, total, taxa }. */
+   metodo: "pix" | "card" (contas BRL) | "auto" (demais moedas — a Stripe
+   mostra os métodos do país). Devolve { checkoutUrl, total, taxa }. */
 export async function pagarCobrancaOnline(cobrancaId, metodo) {
   return chamarStripe("checkout-cobranca", { cobrancaId, metodo }, "ao abrir o pagamento");
 }

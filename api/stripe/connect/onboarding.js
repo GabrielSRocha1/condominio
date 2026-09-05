@@ -1,8 +1,11 @@
-/* POST /api/stripe/connect/onboarding
+/* POST /api/stripe/connect/onboarding  { pais? }  (default "BR")
    (Authorization: Bearer — diretor do condomínio; condominioId vem do token)
    Cria (ou reaproveita) a conta conectada Stripe do CONDOMÍNIO — é ela que
    recebe as cobranças condominiais pagas online (direct charge; a plataforma
-   retém 1% de application fee) — e devolve { url } do onboarding hospedado.
+   retém 1% com teto de 1 unidade da moeda como application fee) — e devolve
+   { url } do onboarding hospedado.
+   O país vem do seletor do frontend (whitelist PAISES_CONNECT) e é IMUTÁVEL
+   depois que a conta existe — reaproveitamentos ignoram o parâmetro.
 
    Accounts v2 (/v2/core/accounts — obrigatório para plataformas novas), no
    perfil "SaaS / direct charges" recomendado pela Stripe:
@@ -16,7 +19,7 @@
    O account id fica em integracoes_pagamento (SEM policy de leitura/escrita
    client-side — só os endpoints /api enxergam; um diretor mal-intencionado
    não consegue trocar a conta recebedora via supabase-js). */
-import { stripeClient, supabaseAdmin, lerClaims, integracaoStripe } from "../_lib/comum.js";
+import { stripeClient, supabaseAdmin, corpoJson, lerClaims, integracaoStripe, PAISES_CONNECT } from "../_lib/comum.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -38,24 +41,28 @@ export default async function handler(req, res) {
     }
 
     if (!accountId) {
+      const pais = String(corpoJson(req).pais || "BR").toUpperCase();
+      const infoPais = PAISES_CONNECT[pais];
+      if (!infoPais)
+        return res.status(400).json({ error: "País não suportado pela Stripe para contas de recebimento — use os meios de pagamento manuais." });
       const { data: cond } = await supabase.from("condominios")
         .select("nome_fantasia, cnpj").eq("id", condominioId).maybeSingle();
       const conta = await stripe.v2.core.accounts.create({
         display_name: cond?.nome_fantasia || undefined,
         contact_email: claims.email || undefined,
-        identity: { country: "BR" },
+        identity: { country: pais },
         dashboard: "full",
         defaults: {
-          currency: "brl",
+          currency: infoPais.moeda.toLowerCase(),
           responsibilities: { fees_collector: "stripe", losses_collector: "stripe" },
         },
         configuration: {
           merchant: { capabilities: { card_payments: { requested: true } } },
         },
-        metadata: { condominio_id: condominioId, cnpj: cond?.cnpj || "" },
+        metadata: { condominio_id: condominioId, id_fiscal: cond?.cnpj || "" },
       });
       accountId = conta.id;
-      const credenciais = { account_id: accountId, charges_enabled: false, payouts_enabled: false, requirements_due: [] };
+      const credenciais = { account_id: accountId, country: pais, moeda: infoPais.moeda, charges_enabled: false, payouts_enabled: false, requirements_due: [] };
       const { error: eUp } = integ
         ? await supabase.from("integracoes_pagamento")
             .update({ credenciais, ativa: false }).eq("id", integ.id)

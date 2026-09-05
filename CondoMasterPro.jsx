@@ -61,15 +61,40 @@ const THEMES = {
 };
 
 /* Moeda de gestão do condomínio — padrão: dólar (USD). O App chama setMoeda
-   quando o cadastro do condomínio traz outra moeda salva nas configurações. */
-const LOCALE_MOEDA = { BRL: "pt-BR", USD: "en-US", EUR: "de-DE", GBP: "en-GB", ARS: "es-AR", PYG: "es-PY" };
+   quando o cadastro do condomínio traz outra moeda salva nas configurações.
+   Qualquer moeda ISO vale; o mapa de locales só escolhe a formatação
+   preferida (fora dele, formata no locale en-US com a própria moeda). */
+const LOCALE_MOEDA = { BRL: "pt-BR", USD: "en-US", EUR: "de-DE", GBP: "en-GB", ARS: "es-AR", PYG: "es-PY", MXN: "es-MX", JPY: "ja-JP", CHF: "de-CH" };
 let MOEDA = "USD";
-const setMoeda = (m) => { MOEDA = LOCALE_MOEDA[m] ? m : "USD"; };
-const BRL = (v) => v.toLocaleString(LOCALE_MOEDA[MOEDA], { style: "currency", currency: MOEDA });
+const setMoeda = (m) => {
+  try { (0).toLocaleString("en-US", { style: "currency", currency: m }); MOEDA = m; }
+  catch { MOEDA = "USD"; }
+};
+const BRL = (v) => v.toLocaleString(LOCALE_MOEDA[MOEDA] || "en-US", { style: "currency", currency: MOEDA });
 /* preços da licença SaaS: sempre em reais (BRL) — a conta da plataforma é
    Stripe Brasil —, independente da moeda de gestão do condomínio */
 const BRLLic = (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const uid = () => Math.random().toString(36).slice(2, 9);
+
+/* Países onde a Stripe abre conta de recebimento para o condomínio (espelho
+   de PAISES_CONNECT no backend — só aparecem no seletor os que a Stripe
+   oferece; PY/AR/BO/CO seguem nos meios manuais por limite da Stripe). */
+const PAISES_STRIPE = [
+  ["BR", "Brasil", "BRL"], ["US", "Estados Unidos", "USD"], ["CA", "Canadá", "CAD"],
+  ["MX", "México", "MXN"], ["PT", "Portugal", "EUR"], ["ES", "Espanha", "EUR"],
+  ["FR", "França", "EUR"], ["DE", "Alemanha", "EUR"], ["IT", "Itália", "EUR"],
+  ["NL", "Holanda", "EUR"], ["BE", "Bélgica", "EUR"], ["AT", "Áustria", "EUR"],
+  ["IE", "Irlanda", "EUR"], ["LU", "Luxemburgo", "EUR"], ["FI", "Finlândia", "EUR"],
+  ["GR", "Grécia", "EUR"], ["CY", "Chipre", "EUR"], ["MT", "Malta", "EUR"],
+  ["SK", "Eslováquia", "EUR"], ["SI", "Eslovênia", "EUR"], ["EE", "Estônia", "EUR"],
+  ["LV", "Letônia", "EUR"], ["LT", "Lituânia", "EUR"], ["HR", "Croácia", "EUR"],
+  ["GB", "Reino Unido", "GBP"], ["CH", "Suíça", "CHF"], ["DK", "Dinamarca", "DKK"],
+  ["SE", "Suécia", "SEK"], ["NO", "Noruega", "NOK"], ["PL", "Polônia", "PLN"],
+  ["CZ", "Tchéquia", "CZK"], ["HU", "Hungria", "HUF"], ["RO", "Romênia", "RON"],
+  ["BG", "Bulgária", "BGN"], ["AU", "Austrália", "AUD"], ["NZ", "Nova Zelândia", "NZD"],
+  ["JP", "Japão", "JPY"], ["SG", "Singapura", "SGD"], ["HK", "Hong Kong", "HKD"],
+  ["MY", "Malásia", "MYR"], ["TH", "Tailândia", "THB"], ["AE", "Emirados Árabes", "AED"],
+];
 
 /* ══════════════ CONTAS DE ACESSO (salvas neste navegador — modo demo) ══════════════ */
 /* Todos os dados de contas e acessos vivem na tabela usuarios do Supabase.
@@ -814,6 +839,7 @@ function Condominio({ t, role }) {
   /* conta de recebimento Stripe (Connect) — onboarding e status são do diretor */
   const [stripeInfo, setStripeInfo] = useState(null); // null = consultando
   const [abrindoStripe, setAbrindoStripe] = useState(false);
+  const [paisConta, setPaisConta] = useState("BR"); // seletor do onboarding (imutável após criar)
   const consultarStripe = useCallback(() => {
     if (role !== "diretor") return;
     statusStripeConnect().then(setStripeInfo).catch(() => setStripeInfo({ online: false, configurado: false }));
@@ -828,7 +854,7 @@ function Condominio({ t, role }) {
   const configurarStripe = async () => {
     setAbrindoStripe(true);
     try {
-      const r = await iniciarOnboardingStripe();
+      const r = await iniciarOnboardingStripe(paisConta);
       if (r?.url) window.open(r.url, "_blank", "noopener");
     } catch (e) { alert("Não foi possível abrir o cadastro de recebimento: " + (e?.message || e)); }
     finally { setAbrindoStripe(false); }
@@ -897,7 +923,7 @@ function Condominio({ t, role }) {
           <div className="grid gap-3 sm:grid-cols-2">
             <Field t={t} label="Nome fantasia"><input name="nome" required defaultValue={cond.nome} style={inputStyle(t)} /></Field>
             <Field t={t} label="Razão social"><input name="razao" defaultValue={cond.razao} style={inputStyle(t)} /></Field>
-            <Field t={t} label="CNPJ"><input name="cnpj" required defaultValue={cond.cnpj} style={inputStyle(t)} /></Field>
+            <Field t={t} label="CNPJ / ID fiscal"><input name="cnpj" required defaultValue={cond.cnpj} placeholder={L("Registro fiscal conforme o país do condomínio")} style={inputStyle(t)} /></Field>
             <Field t={t} label="Inscrição municipal"><input name="inscricao" defaultValue={cond.inscricao} placeholder="Quando houver" style={inputStyle(t)} /></Field>
             <Field t={t} label="Tipo"><select name="tipo" defaultValue={cond.tipo} style={inputStyle(t)}><option>Residencial</option><option>Comercial</option><option>Misto</option></select></Field>
             <Field t={t} label="Porte"><select name="porte" defaultValue={cond.porte} style={inputStyle(t)}><option>Alto padrão</option><option>Médio padrão</option><option>Baixo padrão</option></select></Field>
@@ -905,7 +931,7 @@ function Condominio({ t, role }) {
             <Field t={t} label="Unidades / vagas"><input name="resumo" defaultValue={cond.resumo} placeholder={L("Ex.: 96 unidades · 148 vagas")} style={inputStyle(t)} /></Field>
             <Field t={t} label="Moeda de gestão">
               <select name="moeda" defaultValue={cond.moeda} style={inputStyle(t)}>
-                {[["USD","Dólar (US$)"],["BRL","Real ($)"],["EUR","Euro (€)"],["GBP","Libra (£)"],["ARS","Peso argentino ($)"],["PYG","Guarani (₲)"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                {[["USD","Dólar (US$)"],["BRL","Real ($)"],["EUR","Euro (€)"],["GBP","Libra (£)"],["MXN","Peso mexicano ($)"],["CAD","Dólar canadense ($)"],["CHF","Franco suíço (Fr)"],["JPY","Iene (¥)"],["AUD","Dólar australiano ($)"],["SGD","Dólar de Singapura ($)"],["ARS","Peso argentino ($)"],["PYG","Guarani (₲)"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
               </select></Field>
           </div>
           <Field t={t} label="Endereço completo"><input name="endereco" defaultValue={cond.endereco} style={inputStyle(t)} /></Field>
@@ -943,11 +969,17 @@ function Condominio({ t, role }) {
                 <span style={{ color: t.dim }}>{L("Consultando a conta de recebimento…")}</span>
               ) : !stripeInfo.configurado ? (<>
                 <div style={{ color: t.dim }}>
-                  {L("Receba as cobranças por Pix e cartão direto na conta bancária do condomínio, com baixa automática no sistema. O cadastro é feito em ambiente seguro da Stripe (CNPJ e conta bancária do condomínio).")}</div>
-                <div className="mt-2">
+                  {L("Receba as cobranças online direto na conta bancária do condomínio, com baixa automática no sistema (no Brasil por Pix e cartão; nos demais países, cartão e métodos locais). O cadastro é feito em ambiente seguro da Stripe (ID fiscal e conta bancária do condomínio).")}</div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <select value={paisConta} onChange={(e) => setPaisConta(e.target.value)}
+                    style={{ ...inputStyle(t), width: "auto", height: 34, padding: "0 10px" }}>
+                    {PAISES_STRIPE.map(([c, nome]) => <option key={c} value={c}>{nome}</option>)}
+                  </select>
                   <Btn t={t} kind="primary" disabled={abrindoStripe} onClick={configurarStripe}>
                     <QrCode size={13} /> {abrindoStripe ? "Abrindo…" : L("Ativar recebimento online")}</Btn>
                 </div>
+                <div className="mt-1 text-[11px]" style={{ color: t.dim }}>
+                  {L("O país define a moeda de recebimento")} ({(PAISES_STRIPE.find(([c]) => c === paisConta) || [])[2] || "?"}) {L("e não pode ser alterado depois. A moeda de gestão (Dados gerais) precisa ser a mesma. Países fora da lista não são atendidos pela Stripe — use os meios manuais abaixo.")}</div>
               </>) : !stripeInfo.chargesEnabled ? (<>
                 <div style={{ color: t.warn }}>
                   <AlertCircle size={13} className="mr-1 inline" />
@@ -961,16 +993,18 @@ function Condominio({ t, role }) {
               </>) : (<>
                 <div style={{ color: t.ok }}>
                   <CheckCircle2 size={13} className="mr-1 inline" />
-                  {L("Recebimento online ativo — os moradores podem pagar as cobranças por Pix e cartão pelo portal.")}
+                  {stripeInfo.contaMoeda === "BRL"
+                    ? L("Recebimento online ativo — os moradores podem pagar as cobranças por Pix e cartão pelo portal.")
+                    : `${L("Recebimento online ativo — os moradores podem pagar as cobranças pelo portal (cartão e métodos locais, em")} ${stripeInfo.contaMoeda}).`}
                   {!stripeInfo.payoutsEnabled && <> {L("(repasses bancários ainda em liberação pela Stripe)")}</>}</div>
                 <div className="mt-1" style={{ color: t.dim }}>
-                  {L("A plataforma retém 1% por cobrança paga online. Gerencie recebimentos e repasses em")}{" "}
+                  {`${L("A plataforma retém 1% da cobrança, limitado a")} 1 ${stripeInfo.contaMoeda || "BRL"}${L(", por pagamento online.")} ${L("Gerencie recebimentos e repasses em")}`}{" "}
                   <a href={stripeInfo.dashboardUrl || "https://dashboard.stripe.com"} target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>dashboard.stripe.com</a>.</div>
               </>)}
-              {stripeInfo && cond.moeda !== "BRL" && (
+              {stripeInfo?.configurado && stripeInfo.contaMoeda && cond.moeda !== stripeInfo.contaMoeda && (
                 <div className="mt-2" style={{ color: t.warn }}>
                   <AlertCircle size={13} className="mr-1 inline" />
-                  {L("O pagamento online (Pix/cartão) exige a moeda de gestão em Real (BRL) — ajuste em Dados gerais. Os meios manuais abaixo continuam valendo.")}</div>)}
+                  {L("O pagamento online exige a moeda de gestão igual à da conta de recebimento")} ({stripeInfo.contaMoeda}) — {L("ajuste em Dados gerais. Os meios manuais abaixo continuam valendo.")}</div>)}
             </div>
             <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2.5" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
               <span className="text-sm">{L("Repassar a taxa do pagamento online ao morador")}
@@ -2485,9 +2519,17 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
   const [copiado, setCopiado] = useState(false);
   const [copiadoPag, setCopiadoPag] = useState(null); // qual meio de pagamento foi copiado
   /* pagamento online (Stripe Connect): disponível quando o condomínio ativou
-     o recebimento e a moeda de gestão é BRL — consultado no backend */
+     o recebimento e a moeda de gestão é a da conta — consultado no backend.
+     contas BRL têm botões Pix/Cartão; demais moedas, botão único "Pagar
+     online" (métodos dinâmicos do país no checkout da Stripe) */
   const [stripeOnline, setStripeOnline] = useState(false);
-  useEffect(() => { statusStripeConnect().then((r) => setStripeOnline(!!r?.online)).catch(() => {}); }, []);
+  const [stripeMoeda, setStripeMoeda] = useState("BRL");
+  useEffect(() => {
+    statusStripeConnect().then((r) => {
+      setStripeOnline(!!r?.online);
+      if (r?.contaMoeda) setStripeMoeda(r.contaMoeda);
+    }).catch(() => {});
+  }, []);
   const [pagandoOnline, setPagandoOnline] = useState(null); // método em processamento
   const pagarOnline = async (cobranca, metodo) => {
     setPagandoOnline(metodo);
@@ -2894,10 +2936,12 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                 <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
                   {L("O condomínio ainda não cadastrou meios de pagamento. Fale com a administração.")}</div>)}
               {/* pagamento online (Stripe): abre o checkout direto — a baixa é automática */}
-              {stripeOnline && [
+              {stripeOnline && (stripeMoeda === "BRL" ? [
                 ["pix", "Pix (pagamento online)", QrCode],
                 ["card", "Cartão (pagamento online)", CreditCard],
-              ].map(([k, l, Ic]) => (
+              ] : [
+                ["auto", "Pagar online (cartão e métodos locais)", CreditCard],
+              ]).map(([k, l, Ic]) => (
                 <button key={k} type="button" disabled={!!pagandoOnline} onClick={() => pagarOnline(qr, k)}
                   className="flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left hover:opacity-90 disabled:opacity-60"
                   style={{ borderColor: t.gold + "66", background: t.goldSoft }}>

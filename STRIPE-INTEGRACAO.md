@@ -4,13 +4,16 @@ A Stripe cobre os **dois fluxos de dinheiro** do sistema:
 
 | Fluxo | Produto Stripe | Quem recebe | Moeda |
 |---|---|---|---|
-| **Licença SaaS** (mensal/anual do condomínio-cliente) | Billing + Checkout | Conta da **plataforma** (Stripe Brasil, CNPJ) | BRL |
-| **Cobranças condominiais** (morador → condomínio) | Connect (direct charge) + Checkout | Conta **conectada do condomínio**; a plataforma retém **1%** (application fee) | BRL |
+| **Licença SaaS** (mensal/anual do condomínio-cliente) | Billing + Checkout | Conta da **plataforma** (Stripe Brasil, CNPJ) | BRL (cliente estrangeiro paga na moeda local via Adaptive Pricing) |
+| **Cobranças condominiais** (morador → condomínio) | Connect (direct charge) + Checkout | Conta **conectada do condomínio** (país à escolha entre os ~40 suportados; `PAISES_CONNECT`); a plataforma retém **1% com teto de 1 unidade da moeda** (application fee) | Moeda da conta conectada (BRL, USD, EUR…) — a moeda de gestão do condomínio precisa ser a mesma |
 
-Os meios manuais (carteira Verum Wallet, transferência bancária, dinheiro)
-continuam existindo e são a única via para condomínios fora do Brasil — a
-Stripe não opera contas de empresas em Paraguai, Argentina, Bolívia e
-Colômbia, e o Connect transfronteiriço não alcança a América Latina.
+O condomínio escolhe o **país da conta** no seletor da seção "Pagamento
+online" (imutável após criar; BR recebe por Pix e cartão, os demais países
+por cartão + métodos locais dinâmicos). Os meios manuais (carteira Verum
+Wallet, transferência bancária, dinheiro) continuam existindo — e são a
+única via nos países onde a Stripe NÃO abre conta de recebedor (Paraguai,
+Argentina, Bolívia e Colômbia: lá só existe "cross-border payouts", produto
+indisponível para plataformas fora de US/UK/EEA/CA/CH).
 
 ---
 
@@ -26,10 +29,12 @@ LICENÇA SAAS
   por e-mail a cada ciclo; baixa manual; vencida → bloqueio automático)
 
 COBRANÇAS CONDOMINIAIS
-  Morador → /api/stripe/checkout-cobranca → Checkout (payment, Pix|cartão)
-    criado NA conta conectada ({ stripeAccount }) + application_fee_amount = 1%
+  Morador → /api/stripe/checkout-cobranca → Checkout (payment; contas BRL:
+    Pix|cartão explícito; demais moedas: métodos dinâmicos do país)
+    criado NA conta conectada ({ stripeAccount }) + application_fee_amount =
+    min(1% do valor, 1 unidade da moeda)
     → condomínio = merchant of record (recibo no nome dele, taxa Stripe dele)
-    → 1% cai na conta da plataforma
+    → a taxa da plataforma cai na conta da plataforma
   → webhook /api/stripe/webhook-connect → RPC registrar_pagamento_stripe():
     INSERT pagamentos (idempotente por payment intent)
     + cobranca → paga | paga_em_atraso
@@ -47,10 +52,10 @@ COBRANÇAS CONDOMINIAIS
 | `api/stripe/cancelar-assinatura.js` | cancelamento agendado (cancel_at_period_end) |
 | `api/stripe/portal.js` | Billing Portal (trocar cartão, faturas) |
 | `api/stripe/webhook.js` | eventos da conta própria → status da licença |
-| `api/stripe/connect/onboarding.js` | cria a conta conectada BR + Account Link |
+| `api/stripe/connect/onboarding.js` | cria a conta conectada (país do seletor, `PAISES_CONNECT`) + Account Link |
 | `api/stripe/connect/status.js` | flags da conta (charges/payouts/pendências) |
 | `api/stripe/webhook-connect.js` | account.updated + baixa das cobranças pagas |
-| `api/stripe/checkout-cobranca.js` | checkout de cobrança (direct charge + 1%) |
+| `api/stripe/checkout-cobranca.js` | checkout de cobrança (direct charge + 1% c/ teto) |
 | `api/stripe/cobranca-status.js` | polling do retorno + baixa (mesma RPC) |
 | `scripts/preparar-stripe-producao.mjs` | products/prices BRL, PAGOMANUAL, webhooks |
 | `supabase-stripe.sql` | migração (enums, colunas, RLS, RPC) |
@@ -80,7 +85,9 @@ no front, sem escopo PCI). Diagnóstico: `GET /api/auth/diag`.
 4. **Dashboard** —
    - Pagamentos → Métodos: ativar cartões e **Pix** (conta BR exige solicitação);
    - Billing → Portal do cliente: salvar a configuração padrão;
-   - Connect → completar o **platform profile** e o branding do onboarding.
+   - Connect → completar o **platform profile** e o branding do onboarding;
+   - Connect → Configurações: **habilitar o onboarding por país** para os
+     países de `PAISES_CONNECT` que a plataforma quiser atender (test e live).
 5. **Deploy** — envs na Vercel; os webhooks apontam para
    `https://condomaster.servenowglobal.com/api/stripe/webhook` e
    `/api/stripe/webhook-connect` (este com "eventos de contas conectadas").
@@ -199,22 +206,47 @@ metadata `situacao=inadimplente` aplicada pelo nº 1 e o refund automático
 executado pelo nº 7 (cartão de teste `4000 0000 0000 5423` gera o early
 fraud warning). Observação do teste: cancelar uma assinatura `incomplete`
 (vira `incomplete_expired`) NÃO acionou o nº 4 — o gatilho de churn dispara
-no cancelamento de assinaturas ativas. Ao ir para produção, recriar as
-mesmas no modo live — workflows não migram entre ambientes.
+no cancelamento de assinaturas ativas. As mesmas 7 receitas foram
+**recriadas e ativadas no modo live** (workflows não migram entre
+ambientes; live criado em set/2026, ainda sem execuções).
+
+**Complementos de Billing configurados no live** (Configurações →
+Faturamento, set/2026): e-mails ao cliente (lembrete 7 dias antes do fim
+do trial — exigência das bandeiras —, expiração de cartão, falha de
+pagamento), mensagem "teste encerrado" no descritor do extrato,
+atualização de pagamento via página hospedada da Stripe, link por e-mail
+para confirmar pagamentos com 3D Secure, Smart Retries (padrão: até 8
+tentativas em 2 semanas; esgotadas → cancela a assinatura, o webhook marca
+`cancelada`), faturas send_invoice com envio automático + lembretes de não
+pagas (vencidas ficam `past_due` — decisão manual, alertada pelo workflow
+nº 2) e Portal do cliente com configuração padrão salva (faturas, dados,
+formas de pagamento, cancelamento no fim do período com coleta de motivo;
+troca de plano/quantidade desativada — é pelo app).
 
 ## 8. Taxas e split
 
-- **1% da plataforma**: `application_fee_amount` = 1% do **valor de face** da
-  cobrança, sempre — independe de quem paga a taxa Stripe.
+- **Taxa da plataforma**: `application_fee_amount` = **1% do valor de face
+  com teto de 1 unidade da moeda** (`appFee(valor) = min(valor × 1%, 1)`:
+  R$ 50 → R$ 0,50 · R$ 100 ou mais → R$ 1,00; mesma regra em US$/€/¥),
+  sempre — independe de quem paga a taxa Stripe.
 - **Taxa Stripe**: debitada da conta conectada (direct charge). O diretor
   escolhe na aba *Meios de pagamento* se ela é repassada ao morador:
   - **repasse ativo** → linha "Taxa de conveniência" no checkout com gross-up
-    `total = (valor × 1,01 + fixo) / (1 − pct)` — o condomínio recebe o valor
-    cheio;
+    `total = (valor + appFee(valor) + fixo) / (1 − pct)` — o condomínio
+    recebe o valor cheio;
   - **repasse inativo** → o condomínio recebe o valor menos taxas.
 - Percentuais de referência em `api/stripe/_lib/comum.js` (`TAXAS_METODO`):
-  Pix 1,19% + R$ 0 · cartão 3,99% + R$ 0,39. **Confirme as tarifas da sua
-  conta no dashboard e ajuste as constantes se divergirem.**
+  Pix 1,19% + R$ 0 · cartão 3,99% + R$ 0,39. **Conferido em set/2026 contra
+  a tabela pública da Stripe Brasil (stripe.com/br/pricing) — valores
+  idênticos; a conta está no plano padrão (sem negociação custom).** Se um
+  dia houver negociação, ajuste as constantes. Outras tarifas relevantes da
+  tabela: cartão internacional +2% (o gross-up não cobre — moradores são
+  BR); disputa R$ 55,00 recebida + R$ 55,00 de refutação (devolvida se
+  ganhar) — embasa o limiar de R$ 80 do workflow nº 7; Billing 0,7% do
+  volume de assinaturas e Invoicing 0,4% por fatura paga (custos da
+  plataforma, fora do gross-up); Connect menciona 0,25% de "tarifa de
+  entrada" para plataformas que monetizam pagamentos — confirmar com a
+  Stripe se se aplica ao nosso application fee fixo.
 - Contabilidade: `lancamentos.valor` = valor de face da cobrança;
   `pagamentos.valor_pago` = total bruto pago pelo morador (com conveniência).
 
@@ -230,13 +262,19 @@ mesmas no modo live — workflows não migram entre ambientes.
    `inadimplente` → paywall.
 5. Planos → troca com licença ativa → invoice de diferença → `trocaAplicada`.
 6. Cancelar assinatura → aviso com `acesso_ate`; fim do período → `cancelada`.
-7. Condomínio (moeda BRL) → *Meios de pagamento* → "Ativar recebimento
-   online" → onboarding de teste → status ativo.
+7. Condomínio (moeda BRL) → *Meios de pagamento* → país "Brasil" → "Ativar
+   recebimento online" → onboarding de teste → status ativo.
 8. Gerar cobrança → portal do morador → "Pix (pagamento online)" → pagamento
    de teste → cobrança `paga`, linha em `pagamentos`, receita "Entrada" no
-   caixa, 1% na conta da plataforma. Replay do webhook não duplica.
-9. Pagar após o vencimento → `paga_em_atraso`. Condomínio com moeda ≠ BRL →
-   opção online não aparece e o endpoint recusa.
+   caixa, application fee (1% c/ teto de R$ 1) na conta da plataforma.
+   Replay do webhook não duplica.
+9. Pagar após o vencimento → `paga_em_atraso`. Condomínio com moeda de
+   gestão ≠ moeda da conta → opção online não aparece e o endpoint recusa
+   (409 com a moeda esperada).
+10. **Global**: condomínio com moeda USD → país "Estados Unidos" → onboarding
+    de teste → cobrança → botão único "Pagar online (cartão e métodos
+    locais)" → checkout em USD com métodos dinâmicos → `paga` + application
+    fee de min(1%, US$ 1); com repasse ativo, gross-up pela taxa de cartão US.
 
 ## 10. Limitações conhecidas (v1) e próximos passos
 
@@ -248,9 +286,16 @@ mesmas no modo live — workflows não migram entre ambientes.
   (`charge.refunded` / `charge.dispute.*`).
 - **Franquia de unidades**: apenas aviso visual — a cobrança de excedente via
   Billing Meters fica para uma fase futura.
-- **Países sem Stripe** (PY/AR/BO/CO): condomínios seguem com meios manuais.
-  Caminho futuro para AR/CO: Global Payouts (exige entidade US/UK e análise
-  de compliance — plataforma vira responsável pelos fundos).
+- **Países sem Stripe** (PY/AR/BO/CO): condomínios seguem com meios manuais —
+  a Stripe não abre conta de recebedor nesses países (são "cross-border
+  payouts only", produto restrito a plataformas em US/UK/EEA/CA/CH; a nossa é
+  BR). Caminho futuro: Mercado Pago para AR/CO (o seletor de país da seção
+  "Pagamento online" foi desenhado para virar roteador de provedores) ou
+  entidade US/UE da plataforma.
+- **Repasse fora do BRL**: com métodos dinâmicos o método só se conhece no
+  checkout, então o gross-up usa a taxa de CARTÃO da região
+  (`TAXA_CARTAO_POR_MOEDA`, aproximada) como teto — o condomínio nunca recebe
+  menos que o valor de face; confira as tarifas locais reais no dashboard.
 - **i18n**: os textos novos ainda estão só em PT (o fallback exibe a chave em
   português nos outros 14 idiomas) — traduzir em `src/lib/i18n.js` e
   `src/lib/langs/*` quando fechar o wording.

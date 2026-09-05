@@ -4,8 +4,9 @@
    e sincroniza as flags em integracoes_pagamento (o webhook account.updated
    faz o mesmo — este endpoint cobre dev local e o retorno do onboarding).
    Resposta:
-   · todos os perfis:  { online }  — cobranças podem ser pagas online
-     (conta ativa E moeda de gestão do condomínio em BRL);
+   · todos os perfis:  { online, moeda, contaMoeda, pais }  — cobranças podem
+     ser pagas online (conta ativa E moeda de gestão do condomínio IGUAL à
+     moeda da conta Stripe);
    · diretor (a mais): { configurado, chargesEnabled, payoutsEnabled,
      pendencias[], dashboardUrl }. */
 import { stripeClient, supabaseAdmin, lerClaims, integracaoStripe } from "../_lib/comum.js";
@@ -34,15 +35,19 @@ export default async function handler(req, res) {
     const chargesEnabled = !!conta?.charges_enabled;
     const payoutsEnabled = !!conta?.payouts_enabled;
     const pendencias = conta?.requirements?.currently_due || [];
+    const contaMoeda = String(conta?.default_currency || integ.credenciais.moeda || "BRL").toUpperCase();
+    const pais = String(conta?.country || integ.credenciais.country || "BR").toUpperCase();
     await supabase.from("integracoes_pagamento").update({
-      credenciais: { ...integ.credenciais, charges_enabled: chargesEnabled, payouts_enabled: payoutsEnabled, requirements_due: pendencias },
+      credenciais: { ...integ.credenciais, country: pais, moeda: contaMoeda, charges_enabled: chargesEnabled, payouts_enabled: payoutsEnabled, requirements_due: pendencias },
       ativa: chargesEnabled,
     }).eq("id", integ.id);
 
-    const online = chargesEnabled && moeda === "BRL";
-    if (!ehDiretor) return res.status(200).json({ online, moeda });
+    /* online exige moeda de gestão = moeda da conta (a cobrança é lançada e
+       cobrada na mesma moeda; sem conversão automática) */
+    const online = chargesEnabled && moeda === contaMoeda;
+    if (!ehDiretor) return res.status(200).json({ online, moeda, contaMoeda, pais });
     return res.status(200).json({
-      online, moeda,
+      online, moeda, contaMoeda, pais,
       configurado: true,
       chargesEnabled, payoutsEnabled, pendencias,
       dashboardUrl: "https://dashboard.stripe.com",
