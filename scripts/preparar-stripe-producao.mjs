@@ -11,9 +11,11 @@
      3. registra os 2 webhook endpoints (conta própria e Connect) e imprime
         os whsec_ — GUARDE-OS no .env e na Vercel (só aparecem uma vez).
 
-   Uso:  node scripts/preparar-stripe-producao.mjs            (só mostra o plano)
-         node scripts/preparar-stripe-producao.mjs --executar (executa)
-   Lê STRIPE_SECRET_KEY do .env — sk_test_ prepara o test mode; sk_live_, produção. */
+   Uso:  node scripts/preparar-stripe-producao.mjs                    (simulação, chave do dia a dia)
+         node scripts/preparar-stripe-producao.mjs --executar         (executa com STRIPE_SECRET_KEY)
+         node scripts/preparar-stripe-producao.mjs --live [--executar]
+           → usa STRIPE_SECRET_KEY_LIVE do .env (exige sk_live_) sem mexer na
+             chave de teste usada pelo npm run dev. */
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
@@ -24,10 +26,12 @@ const env = Object.fromEntries(
     .map((l) => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; })
 );
 const executar = process.argv.includes("--executar");
-const chave = env.STRIPE_SECRET_KEY || "";
+const live = process.argv.includes("--live");
+const chave = (live ? env.STRIPE_SECRET_KEY_LIVE : env.STRIPE_SECRET_KEY) || "";
 const modo = chave.startsWith("sk_live") ? "LIVE" : chave.startsWith("sk_test") ? "TEST" : "desconhecido";
-console.log(`Chave Stripe do .env: modo ${modo}`);
-if (!chave) { console.error("STRIPE_SECRET_KEY ausente no .env."); process.exit(1); }
+console.log(`Chave Stripe do .env (${live ? "STRIPE_SECRET_KEY_LIVE" : "STRIPE_SECRET_KEY"}): modo ${modo}`);
+if (!chave) { console.error(`${live ? "STRIPE_SECRET_KEY_LIVE" : "STRIPE_SECRET_KEY"} ausente no .env.`); process.exit(1); }
+if (live && modo !== "LIVE") { console.error("--live exige uma chave sk_live_ em STRIPE_SECRET_KEY_LIVE."); process.exit(1); }
 
 const stripe = new Stripe(chave);
 const sb = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
