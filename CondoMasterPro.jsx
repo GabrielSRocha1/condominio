@@ -1781,7 +1781,7 @@ function Cobrancas({ t }) {
                   ? <Btn t={t} onClick={rejeitarInforme}><X size={14} /> {L("Rejeitar")}</Btn> : <span />}
                 <div className="flex gap-2">
                   <Btn t={t} onClick={() => setConf(null)}>{L("Cancelar")}</Btn>
-                  <Btn t={t} kind="primary" disabled={confirmando}><Check size={14} /> {confirmando ? L("Confirmando…") : L("Confirmar baixa")}</Btn>
+                  <Btn t={t} kind="primary" type="submit" disabled={confirmando}><Check size={14} /> {confirmando ? L("Confirmando…") : L("Confirmar baixa")}</Btn>
                 </div>
               </div>
             </div>
@@ -3183,7 +3183,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                   {feedbackInforme}
                   <div className="flex justify-between pt-1">
                     <Btn t={t} onClick={() => setFormaPag(null)}><ChevronLeft size={14} /> {L("Voltar")}</Btn>
-                    <Btn t={t} kind="primary" disabled={envioInforme?.enviando}>
+                    <Btn t={t} kind="primary" type="submit" disabled={envioInforme?.enviando}>
                       <Upload size={14} /> {envioInforme?.enviando ? L("Enviando…") : L("Enviar comprovante")}</Btn>
                   </div>
                 </form>
