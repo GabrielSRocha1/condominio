@@ -10,6 +10,8 @@
    entra; vencida → past_due → paywall bloqueia sozinho) → { ativado: true }.
    A confirmação chega pelo webhook (customer.subscription.*). */
 import { stripeClient, supabaseAdmin, corpoJson, lerClaims, lookupKey, envVal, sincronizarLicenca } from "./_lib/comum.js";
+import { corpoValidado } from "../_lib/validar.js";
+import { limitar, origemBloqueada, prepararIdempotencia, logSeguro } from "../_lib/seguranca.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -18,14 +20,31 @@ export default async function handler(req, res) {
   const supabase = supabaseAdmin();
 
   try {
-    const corpo = corpoJson(req);
+    const corpo = corpoValidado(res, corpoJson(req), {
+      condominioId: { tipo: "uuid", obrigatorio: true },
+      ciclo:        { tipo: "enum", valores: ["mensal", "anual"] },
+      troca:        { tipo: "bool" },
+      codigo:       { tipo: "texto", max: 40, padrao: /^[A-Za-z0-9_-]+$/ },
+    });
+    if (!corpo) return;
     const { condominioId, ciclo, troca } = corpo;
     const codigoAtivacao = String(corpo.codigo || "").trim().toUpperCase();
-    if (!condominioId) return res.status(400).json({ error: "Informe condominioId." });
 
     const claims = lerClaims(req);
     if (!claims || claims.condominio_id !== condominioId || claims.perfil !== "diretor")
       return res.status(401).json({ error: "Sessão inválida — entre de novo como diretor." });
+    if (origemBloqueada(req, res)) return;
+
+    /* assinatura é dinheiro: retry de rede não pode criar duas subscriptions */
+    const idem = await prepararIdempotencia(supabase, req, res,
+      { usuarioId: claims.sub, rota: "stripe/assinatura" });
+    if (idem.repetida) return;
+    const ritmo = await limitar(supabase, `stripe-assinatura:${claims.sub}`,
+      { janelaSeg: 10 * 60, max: 10, bloqueioSeg: 10 * 60 });
+    if (ritmo.bloqueado)
+      return res.status(429).json({ error: "Muitas tentativas — aguarde alguns minutos e tente de novo." });
+    /* chave repassada também à Stripe (idempotência de ponta a ponta) */
+    const chaveStripe = String(req.headers["idempotency-key"] || "").trim() || null;
 
     const CAMPOS_ASS = "id, status, teste_fim, stripe_customer_id, stripe_subscription_id, condominios(id, nome_fantasia, cnpj), saas_planos(id, nome, preco_mensal, preco_anual)";
     let { data: ass, error } = await supabase
@@ -128,7 +147,7 @@ export default async function handler(req, res) {
         days_until_due: diasVencimento,
         description: `Licença CondoMaster · ${cond.nome_fantasia} (pagamento manual)`,
         metadata: { condominio_id: condominioId, codigo_ativacao: codigoAtivacao },
-      });
+      }, chaveStripe ? { idempotencyKey: `sub-${chaveStripe}` } : {});
 
       /* uso único: o código é invalidado AQUI (a Stripe só "resgataria" um
          promotion code aplicado como desconto — como ele é só autorização,
@@ -171,7 +190,7 @@ export default async function handler(req, res) {
       payment_method_collection: "always",
       success_url: `${origem}/?licenca=ok`,
       cancel_url: `${origem}/`,
-    });
+    }, chaveStripe ? { idempotencyKey: `chk-${chaveStripe}` } : {});
 
     return res.status(200).json({
       checkoutUrl: session.url,
@@ -180,7 +199,7 @@ export default async function handler(req, res) {
       trialDays: elegivelTeste ? 30 : 0,
     });
   } catch (e) {
-    console.error("[stripe/assinatura]", e);
-    return res.status(500).json({ error: e.message || "Erro ao criar a assinatura." });
+    logSeguro("[stripe/assinatura]", e);
+    return res.status(500).json({ error: "Erro ao criar a assinatura." });
   }
 }

@@ -5,6 +5,8 @@
    caminho do polling do retorno ?pagamento=ok e o fallback quando o webhook
    não alcança o ambiente (npm run dev). Devolve { paga }. */
 import { stripeClient, supabaseAdmin, corpoJson, lerClaims, integracaoStripe, deMenorUnidade } from "./_lib/comum.js";
+import { corpoValidado } from "../_lib/validar.js";
+import { logSeguro, origemBloqueada } from "../_lib/seguranca.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -13,10 +15,12 @@ export default async function handler(req, res) {
   const supabase = supabaseAdmin();
 
   try {
-    const { cobrancaId } = corpoJson(req);
-    if (!cobrancaId) return res.status(400).json({ error: "Informe cobrancaId." });
+    const corpo = corpoValidado(res, corpoJson(req), { cobrancaId: { tipo: "uuid", obrigatorio: true } });
+    if (!corpo) return;
+    const { cobrancaId } = corpo;
     const claims = lerClaims(req);
     if (!claims?.condominio_id) return res.status(401).json({ error: "Sessão inválida — entre de novo." });
+    if (origemBloqueada(req, res)) return;
 
     const { data: cobranca, error } = await supabase.from("cobrancas")
       .select("id, condominio_id, status, provider_charge_id")
@@ -55,7 +59,7 @@ export default async function handler(req, res) {
     if (eRpc) throw new Error(eRpc.message);
     return res.status(200).json({ paga: resultado?.ok !== false });
   } catch (e) {
-    console.error("[stripe/cobranca-status]", e);
-    return res.status(500).json({ error: e.message || "Erro ao verificar o pagamento." });
+    logSeguro("[stripe/cobranca-status]", e);
+    return res.status(500).json({ error: "Erro ao verificar o pagamento." });
   }
 }

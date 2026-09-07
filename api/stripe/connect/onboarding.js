@@ -20,6 +20,7 @@
    client-side — só os endpoints /api enxergam; um diretor mal-intencionado
    não consegue trocar a conta recebedora via supabase-js). */
 import { stripeClient, supabaseAdmin, corpoJson, lerClaims, integracaoStripe, PAISES_CONNECT } from "../_lib/comum.js";
+import { limitar, origemBloqueada, logSeguro } from "../../_lib/seguranca.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -31,7 +32,12 @@ export default async function handler(req, res) {
     const claims = lerClaims(req);
     if (!claims?.condominio_id || claims.perfil !== "diretor")
       return res.status(401).json({ error: "Sessão inválida — entre de novo como diretor." });
+    if (origemBloqueada(req, res)) return;
     const condominioId = claims.condominio_id;
+    const ritmo = await limitar(supabase, `stripe-onboarding:${claims.sub}`,
+      { janelaSeg: 10 * 60, max: 10, bloqueioSeg: 10 * 60 });
+    if (ritmo.bloqueado)
+      return res.status(429).json({ error: "Muitas tentativas — aguarde alguns minutos e tente de novo." });
 
     const integ = await integracaoStripe(supabase, condominioId);
     let accountId = integ?.credenciais?.account_id || null;
@@ -41,8 +47,8 @@ export default async function handler(req, res) {
     }
 
     if (!accountId) {
-      const pais = String(corpoJson(req).pais || "BR").toUpperCase();
-      const infoPais = PAISES_CONNECT[pais];
+      const pais = String(corpoJson(req).pais || "BR").toUpperCase().slice(0, 2);
+      const infoPais = Object.prototype.hasOwnProperty.call(PAISES_CONNECT, pais) ? PAISES_CONNECT[pais] : null;
       if (!infoPais)
         return res.status(400).json({ error: "País não suportado pela Stripe para contas de recebimento — use os meios de pagamento manuais." });
       const { data: cond } = await supabase.from("condominios")
@@ -85,7 +91,7 @@ export default async function handler(req, res) {
     });
     return res.status(200).json({ url: link.url });
   } catch (e) {
-    console.error("[stripe/connect/onboarding]", e);
-    return res.status(500).json({ error: e.message || "Erro ao iniciar o cadastro de recebimento." });
+    logSeguro("[stripe/connect/onboarding]", e);
+    return res.status(500).json({ error: "Erro ao iniciar o cadastro de recebimento." });
   }
 }

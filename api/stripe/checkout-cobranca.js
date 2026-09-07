@@ -13,6 +13,8 @@
    vira a linha "Taxa de conveniência" e o condomínio recebe o valor cheio.
    Devolve { checkoutUrl, total, taxa }. */
 import { stripeClient, supabaseAdmin, corpoJson, lerClaims, integracaoStripe, totalComRepasse, appFee, paraMenorUnidade, deMenorUnidade } from "./_lib/comum.js";
+import { corpoValidado } from "../_lib/validar.js";
+import { limitar, origemBloqueada, prepararIdempotencia, logSeguro } from "../_lib/seguranca.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -21,12 +23,27 @@ export default async function handler(req, res) {
   const supabase = supabaseAdmin();
 
   try {
-    const { cobrancaId } = corpoJson(req);
-    const metodo = corpoJson(req).metodo === "pix" ? "pix" : "card";
-    if (!cobrancaId) return res.status(400).json({ error: "Informe cobrancaId." });
+    const corpo = corpoValidado(res, corpoJson(req), {
+      cobrancaId: { tipo: "uuid", obrigatorio: true },
+      metodo:     { tipo: "enum", valores: ["pix", "card", "auto"] },
+    });
+    if (!corpo) return;
+    const { cobrancaId } = corpo;
+    const metodo = corpo.metodo === "pix" ? "pix" : "card";
     const claims = lerClaims(req);
     if (!claims?.condominio_id) return res.status(401).json({ error: "Sessão inválida — entre de novo." });
+    if (origemBloqueada(req, res)) return;
     const condominioId = claims.condominio_id;
+
+    /* pagamento é dinheiro: retry de rede reaproveita o MESMO checkout */
+    const idem = await prepararIdempotencia(supabase, req, res,
+      { usuarioId: claims.sub, rota: "stripe/checkout-cobranca" });
+    if (idem.repetida) return;
+    const ritmo = await limitar(supabase, `stripe-checkout:${claims.sub}`,
+      { janelaSeg: 10 * 60, max: 30, bloqueioSeg: 10 * 60 });
+    if (ritmo.bloqueado)
+      return res.status(429).json({ error: "Muitas tentativas — aguarde alguns minutos e tente de novo." });
+    const chaveStripe = String(req.headers["idempotency-key"] || "").trim() || null;
 
     const { data: cobranca, error } = await supabase.from("cobrancas")
       .select("id, condominio_id, competencia, valor_original, vencimento, status, unidades(numero, blocos(nome))")
@@ -97,7 +114,7 @@ export default async function handler(req, res) {
       ...(ehBRL && metodo === "pix" ? { payment_method_options: { pix: { expires_after_seconds: 3600 } } } : {}),
       success_url: `${origem}/?pagamento=ok&cobranca=${cobranca.id}`,
       cancel_url: `${origem}/`,
-    }, { stripeAccount: accountId });
+    }, { stripeAccount: accountId, ...(chaveStripe ? { idempotencyKey: `cob-${chaveStripe}` } : {}) });
 
     /* rastro para a tela Cobranças (coluna "Transação") — o webhook troca
        pelo charge id definitivo quando o pagamento confirmar */
@@ -109,7 +126,7 @@ export default async function handler(req, res) {
       taxa: deMenorUnidade(taxaCentavos, contaMoeda),
     });
   } catch (e) {
-    console.error("[stripe/checkout-cobranca]", e);
-    return res.status(500).json({ error: e.message || "Erro ao abrir o pagamento da cobrança." });
+    logSeguro("[stripe/checkout-cobranca]", e);
+    return res.status(500).json({ error: "Erro ao abrir o pagamento da cobrança." });
   }
 }

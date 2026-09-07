@@ -1,28 +1,16 @@
 /* POST /api/auth/condominio  (Authorization: Bearer <token do cadastro>)
    Primeiro acesso: cria o condomínio DA CONTA LOGADA — condomínio, pessoa do
    diretor, vínculo, perfil e assinatura em teste — e devolve um token novo já
-   carimbado com o condominio_id, que passa a valer nas políticas de RLS. */
+   carimbado com o condominio_id, que passa a valer nas políticas de RLS.
+
+   Blindagem (Etapa 1): payload validado deny-by-default (limites de tamanho,
+   formato de CNPJ/CPF), token pela lib central e refresh cookie reemitido com
+   o condomínio novo (a sessão antiga, sem condomínio, é revogada). */
 import { createClient } from "@supabase/supabase-js";
-import { createHmac, timingSafeEqual } from "crypto";
+import { corpoValidado } from "../_lib/validar.js";
+import { assinarToken, lerClaimsReq, emitirRefresh, revogarRefresh, origemBloqueada, logSeguro } from "../_lib/seguranca.js";
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
-const b64u = (s) => Buffer.from(s).toString("base64url");
-const assinarToken = (claims, secret) => {
-  const h = b64u(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const p = b64u(JSON.stringify({ role: "authenticated", iss: "condomaster",
-    exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7, ...claims }));
-  return `${h}.${p}.${createHmac("sha256", secret).update(`${h}.${p}`).digest("base64url")}`;
-};
-const lerToken = (token, secret) => {
-  try {
-    const [h, p, sig] = String(token || "").split(".");
-    const esperada = createHmac("sha256", secret).update(`${h}.${p}`).digest("base64url");
-    if (!timingSafeEqual(Buffer.from(sig), Buffer.from(esperada))) return null;
-    const claims = JSON.parse(Buffer.from(p, "base64url").toString());
-    if (claims.exp && claims.exp < Date.now() / 1000) return null;
-    return claims;
-  } catch { return null; }
-};
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -31,13 +19,24 @@ export default async function handler(req, res) {
   if (!secret || !serviceKey)
     return res.status(503).json({ error: "Configure SUPABASE_JWT_SECRET e SUPABASE_SERVICE_ROLE_KEY no servidor." });
 
-  const claims = lerToken((req.headers.authorization || "").replace(/^Bearer\s+/i, ""), secret);
+  const claims = lerClaimsReq(req);
   if (!claims?.sub) return res.status(401).json({ error: "Sessão inválida — entre de novo." });
   if (claims.condominio_id) return res.status(409).json({ error: "Esta conta já tem um condomínio." });
+  if (origemBloqueada(req, res)) return;
 
   const supabase = createClient(envVal("SUPABASE_URL") || process.env.VITE_SUPABASE_URL, serviceKey);
   try {
-    const f = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+    const f = corpoValidado(res, typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {}), {
+      nome:     { tipo: "texto", max: 120, obrigatorio: true },
+      razao:    { tipo: "texto", max: 160 },
+      cnpj:     { tipo: "texto", max: 20, padrao: /^[\d./-]{11,20}$/, obrigatorio: true },
+      cpf:      { tipo: "texto", max: 16, padrao: /^[\d.-]{9,16}$/, obrigatorio: true },
+      endereco: { tipo: "texto", max: 300, obrigatorio: true },
+      tipo:     { tipo: "enum", valores: ["Residencial", "Comercial", "Misto"] },
+      porte:    { tipo: "enum", valores: ["Alto padrão", "Médio padrão", "Baixo padrão"] },
+      plano:    { tipo: "texto", max: 80 },
+    });
+    if (!f) return;
     const TIPO = { Residencial: "residencial", Comercial: "comercial", Misto: "misto" };
     const PORTE = { "Alto padrão": "alto", "Médio padrão": "medio", "Baixo padrão": "baixo" };
 
@@ -75,11 +74,14 @@ export default async function handler(req, res) {
       inicio: new Date().toISOString().slice(0, 10), forma_pagamento: "stripe",
     });
 
+    /* a sessão de refresh antiga não carrega o condomínio — troca pela nova */
+    await revogarRefresh(supabase, req, res);
     const token = assinarToken({ sub: usuario.id, email: usuario.email, nome: claims.nome,
       perfil: "diretor", condominio_id: cond.id }, secret);
+    await emitirRefresh(supabase, res, { usuarioId: usuario.id, perfil: "diretor", condominioId: cond.id });
     return res.status(200).json({ condominioId: cond.id, token });
   } catch (e) {
-    console.error("[auth/condominio]", e);
-    return res.status(500).json({ error: e.message || "Erro ao criar o condomínio." });
+    logSeguro("[auth/condominio]", e);
+    return res.status(500).json({ error: "Erro ao criar o condomínio." });
   }
 }

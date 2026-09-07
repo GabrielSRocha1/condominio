@@ -5,6 +5,8 @@
    e do polling do retorno ?licenca=ok — funciona mesmo quando o webhook ainda
    não chegou (ou não alcança o ambiente, como em npm run dev). */
 import { stripeClient, supabaseAdmin, corpoJson, lerClaims, sincronizarLicenca } from "./_lib/comum.js";
+import { corpoValidado } from "../_lib/validar.js";
+import { logSeguro, origemBloqueada } from "../_lib/seguranca.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -13,11 +15,13 @@ export default async function handler(req, res) {
   const supabase = supabaseAdmin();
 
   try {
-    const { condominioId } = corpoJson(req);
-    if (!condominioId) return res.status(400).json({ error: "Informe condominioId." });
+    const corpo = corpoValidado(res, corpoJson(req), { condominioId: { tipo: "uuid", obrigatorio: true } });
+    if (!corpo) return;
+    const { condominioId } = corpo;
     const claims = lerClaims(req);
     if (!claims || claims.condominio_id !== condominioId)
       return res.status(401).json({ error: "Sessão inválida — entre de novo." });
+    if (origemBloqueada(req, res)) return;
 
     const { data: local, error } = await supabase.from("saas_assinaturas")
       .select("status, teste_fim, stripe_customer_id")
@@ -57,7 +61,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ ativa: false, teste: false });
   } catch (e) {
-    console.error("[stripe/licenca]", e);
-    return res.status(500).json({ error: e.message || "Erro ao verificar a licença." });
+    logSeguro("[stripe/licenca]", e);
+    return res.status(500).json({ error: "Erro ao verificar a licença." });
   }
 }

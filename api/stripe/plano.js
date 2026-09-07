@@ -4,16 +4,23 @@
    (saas_assinaturas.plano_id). A cobrança do novo valor é feita em seguida
    por /api/stripe/assinatura (novo checkout ou troca na assinatura ativa). */
 import { supabaseAdmin, corpoJson, lerClaims } from "./_lib/comum.js";
+import { corpoValidado } from "../_lib/validar.js";
+import { origemBloqueada, logSeguro } from "../_lib/seguranca.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
   const supabase = supabaseAdmin();
   try {
-    const { condominioId, plano } = corpoJson(req);
-    if (!condominioId || !plano) return res.status(400).json({ error: "Informe condominioId e plano." });
+    const corpo = corpoValidado(res, corpoJson(req), {
+      condominioId: { tipo: "uuid", obrigatorio: true },
+      plano:        { tipo: "texto", max: 80, obrigatorio: true },
+    });
+    if (!corpo) return;
+    const { condominioId, plano } = corpo;
     const claims = lerClaims(req);
     if (!claims || claims.condominio_id !== condominioId || claims.perfil !== "diretor")
       return res.status(401).json({ error: "Sessão inválida — entre de novo como diretor." });
+    if (origemBloqueada(req, res)) return;
 
     const { data: novo, error: eP } = await supabase
       .from("saas_planos").select("id, nome").eq("nome", plano).eq("ativo", true).maybeSingle();
@@ -33,7 +40,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ ok: true, plano: novo.nome });
   } catch (e) {
-    console.error("[stripe/plano]", e);
-    return res.status(500).json({ error: e.message || "Erro ao trocar o plano." });
+    logSeguro("[stripe/plano]", e);
+    return res.status(500).json({ error: "Erro ao trocar o plano." });
   }
 }

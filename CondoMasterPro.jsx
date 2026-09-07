@@ -19,7 +19,7 @@ import {
   assinarLicenca, verificarLicenca, cancelarAssinatura, abrirPortalCobranca, listarPlanos, trocarPlanoLicenca, registrarDiretor,
   iniciarOnboardingStripe, statusStripeConnect, pagarCobrancaOnline, verificarCobranca,
   informarPagamentoCobranca, confirmarPagamentoManual, rejeitarPagamentoInformado,
-  criarAcesso, listarAcessos, removerAcesso, loginUsuario, setAuthToken,
+  criarAcesso, listarAcessos, removerAcesso, loginUsuario, setAuthToken, encerrarSessaoServidor,
   salvarLogoCondominio, removerLogoCondominio, salvarLogoMenuCondominio, removerLogoMenuCondominio,
   obterCondominio, salvarCondominio, salvarAreaUnidade, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
@@ -470,7 +470,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
   const registrar = async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.currentTarget));
-    if (f.senha.length < 4) return setErro(L("A senha deve ter pelo menos 4 caracteres."));
+    if (f.senha.length < 8) return setErro(L("A senha deve ter pelo menos 8 caracteres."));
     if (f.senha !== f.confirma) return setErro(L("As senhas não conferem."));
     const conta = { nome: f.nome.trim(), email: f.email.trim().toLowerCase(), senha: f.senha };
     setVerificando(true);
@@ -546,7 +546,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
                 {L(", que poderá cadastrar os e-mails e senhas dos demais perfis em Gerenciar Acessos.")}</div>
               <Field t={t} label="Nome completo"><input name="nome" required placeholder={L("Seu nome")} style={inputStyle(t)} /></Field>
               <Field t={t} label="E-mail"><input name="email" type="email" required placeholder={L("voce@exemplo.com")} style={inputStyle(t)} /></Field>
-              <Field t={t} label="Senha"><PasswordInput t={t} name="senha" required placeholder={L("Mínimo 4 caracteres")} /></Field>
+              <Field t={t} label="Senha"><PasswordInput t={t} name="senha" required placeholder={L("Mínimo 8 caracteres")} /></Field>
               <Field t={t} label="Confirmar senha"><PasswordInput t={t} name="confirma" required placeholder={L("Repita a senha")} /></Field>
               {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
               <Btn t={t} kind="primary" type="submit" className="w-full" disabled={verificando}>
@@ -2508,7 +2508,7 @@ function GerenciarEmails({ t }) {
   const salvar = async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.currentTarget));
-    if (f.senha.length < 4) return setErro("A senha deve ter pelo menos 4 caracteres.");
+    if (f.senha.length < 8) return setErro("A senha deve ter pelo menos 8 caracteres.");
     if (f.perfil === "morador" && !f.unidade) return setErro("Cadastre unidades primeiro na tela Unidades.");
     setSalvando(true);
     try {
@@ -2585,7 +2585,7 @@ function GerenciarEmails({ t }) {
               ) : (
                 <Field t={t} label="E-mail"><input name="email" type="email" required placeholder="pessoa@exemplo.com" style={inputStyle(t)} /></Field>
               )}
-              <Field t={t} label="Senha"><PasswordInput t={t} name="senha" required placeholder="Mínimo 4 caracteres" /></Field>
+              <Field t={t} label="Senha"><PasswordInput t={t} name="senha" required placeholder="Mínimo 8 caracteres" /></Field>
               {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
             </div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovo(false)}>Cancelar</Btn>
@@ -3721,6 +3721,7 @@ export default function App() {
   );
 
   const sair = useCallback(() => {
+    encerrarSessaoServidor(); // revoga o refresh token (cookie HttpOnly) no servidor
     salvarSessao(null); setAuthToken(null);
     try { sessionStorage.removeItem(K_TELA); sessionStorage.removeItem("cm_tela_portal"); } catch { /* sem storage */ }
     setMorador(null); setDiretorConta(null); setCondId(null); setRole(null);

@@ -5,6 +5,8 @@
    do teste) e nenhuma cobrança futura é feita. O webhook
    customer.subscription.deleted marca "cancelada" quando o período termina. */
 import { stripeClient, supabaseAdmin, corpoJson, lerClaims, dataISO, hojeISO } from "./_lib/comum.js";
+import { corpoValidado } from "../_lib/validar.js";
+import { limitar, origemBloqueada, logSeguro } from "../_lib/seguranca.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -13,11 +15,17 @@ export default async function handler(req, res) {
   const supabase = supabaseAdmin();
 
   try {
-    const { condominioId } = corpoJson(req);
-    if (!condominioId) return res.status(400).json({ error: "Informe condominioId." });
+    const corpo = corpoValidado(res, corpoJson(req), { condominioId: { tipo: "uuid", obrigatorio: true } });
+    if (!corpo) return;
+    const { condominioId } = corpo;
     const claims = lerClaims(req);
     if (!claims || claims.condominio_id !== condominioId || claims.perfil !== "diretor")
       return res.status(401).json({ error: "Sessão inválida — entre de novo como diretor." });
+    if (origemBloqueada(req, res)) return;
+    const ritmo = await limitar(supabase, `stripe-cancelar:${claims.sub}`,
+      { janelaSeg: 10 * 60, max: 10, bloqueioSeg: 10 * 60 });
+    if (ritmo.bloqueado)
+      return res.status(429).json({ error: "Muitas tentativas — aguarde alguns minutos e tente de novo." });
 
     const { data: ass, error } = await supabase
       .from("saas_assinaturas").select("id, status, stripe_subscription_id")
@@ -61,7 +69,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ cancelada: true, imediato, fimAcesso });
   } catch (e) {
-    console.error("[stripe/cancelar-assinatura]", e);
-    return res.status(500).json({ error: e.message || "Erro ao cancelar a assinatura." });
+    logSeguro("[stripe/cancelar-assinatura]", e);
+    return res.status(500).json({ error: "Erro ao cancelar a assinatura." });
   }
 }

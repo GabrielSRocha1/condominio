@@ -4,6 +4,8 @@
    ver faturas e recibos. Exige a configuração padrão do portal salva no
    dashboard (Billing → Portal do cliente). Devolve { url }. */
 import { stripeClient, supabaseAdmin, corpoJson, lerClaims } from "./_lib/comum.js";
+import { corpoValidado } from "../_lib/validar.js";
+import { origemBloqueada, logSeguro } from "../_lib/seguranca.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -12,11 +14,13 @@ export default async function handler(req, res) {
   const supabase = supabaseAdmin();
 
   try {
-    const { condominioId } = corpoJson(req);
-    if (!condominioId) return res.status(400).json({ error: "Informe condominioId." });
+    const corpo = corpoValidado(res, corpoJson(req), { condominioId: { tipo: "uuid", obrigatorio: true } });
+    if (!corpo) return;
+    const { condominioId } = corpo;
     const claims = lerClaims(req);
     if (!claims || claims.condominio_id !== condominioId || claims.perfil !== "diretor")
       return res.status(401).json({ error: "Sessão inválida — entre de novo como diretor." });
+    if (origemBloqueada(req, res)) return;
 
     const { data: ass, error } = await supabase
       .from("saas_assinaturas").select("stripe_customer_id")
@@ -33,7 +37,7 @@ export default async function handler(req, res) {
     });
     return res.status(200).json({ url: portal.url });
   } catch (e) {
-    console.error("[stripe/portal]", e);
-    return res.status(500).json({ error: e.message || "Erro ao abrir o portal de pagamento." });
+    logSeguro("[stripe/portal]", e);
+    return res.status(500).json({ error: "Erro ao abrir o portal de pagamento." });
   }
 }

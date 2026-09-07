@@ -1,23 +1,40 @@
 /* Camada de dados: lê e grava no Supabase e converte para o formato das telas. */
-import { supabase, setAuthToken, getAuthToken } from "./supabase";
+import { supabase, setAuthToken, getAuthToken, encerrarSessaoServidor, sessaoPronta } from "./supabase";
 import { jsPDF } from "jspdf";
+
+/* POST com Idempotency-Key + retry único de rede: cada chamada ganha uma
+   chave própria; se a conexão cair NO MEIO (fetch rejeita), o reenvio leva a
+   MESMA chave e o servidor devolve a resposta original sem processar de novo
+   — internet instável nunca vira pagamento/registro duplicado. */
+async function postComRetry(url, body) {
+  const chave = crypto.randomUUID();
+  const enviar = () => fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": chave,
+      ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
+    },
+    body: JSON.stringify(body || {}),
+  });
+  try { return await enviar(); }
+  catch {
+    await new Promise((r) => setTimeout(r, 800));
+    return enviar(); // 2ª tentativa — idempotente por causa da chave
+  }
+}
 
 /* chamadas ao backend de autenticação (/api/auth/*) — é ele quem confere as
    credenciais e emite o token que o RLS usa para escopar por condomínio */
 async function chamarAuth(rota, body) {
   let r;
-  try {
-    r = await fetch(`/api/auth/${rota}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}) },
-      body: JSON.stringify(body),
-    });
-  } catch { throw new Error("Não foi possível falar com o servidor de login."); }
+  try { r = await postComRetry(`/api/auth/${rota}`, body); }
+  catch { throw new Error("Não foi possível falar com o servidor de login."); }
   const corpo = await r.json().catch(() => null);
   if (!r.ok) { const e = new Error(corpo?.error || `Erro ${r.status}.`); e.status = r.status; throw e; }
   return corpo;
 }
-export { setAuthToken, getAuthToken };
+export { setAuthToken, getAuthToken, encerrarSessaoServidor };
 
 /* ─────────── helpers ─────────── */
 const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
@@ -98,6 +115,7 @@ const ACESSO_UI = {
 
 /* ─────────── carga completa ─────────── */
 export async function loadAll(condominioId) {
+  await sessaoPronta(); // token vencido ao reabrir a aba? espera a renovação silenciosa
   const tenantsRaw = await q(
     supabase.from("condominios").select("id, nome_fantasia, saas_assinaturas(status, renovacao, teste_fim, teste_estendido, cancelamento_agendado_em, acesso_ate, saas_planos(nome, preco_mensal, preco_anual, limite_unidades)), unidades(count)").order("criado_em"),
     "condominios"
@@ -490,75 +508,34 @@ export async function registrarDiretor({ nome, email, senha }) {
   return { ...r.conta, token: r.token };
 }
 
-/* ─────────── acessos (Gerenciar Acessos) — gravados na tabela usuarios ─────────── */
-
-/* e-mail sintético para morador, que entra pelo nome e não tem e-mail próprio */
-const emailMorador = (nome, condominioId) =>
-  `morador+${nome.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, ".")}@${condominioId.slice(0, 8)}.local`;
+/* ─────────── acessos (Gerenciar Acessos) — agora 100% via /api/auth/acessos ───────────
+   Saíram do navegador por segurança: senha_hash e usuario_perfis não são
+   mais graváveis/legíveis pelo client (supabase-seguranca.sql) — o backend
+   valida que quem pede é o diretor do condomínio e cria a senha com scrypt. */
 
 /* Cria um acesso (sindico, tesouraria ou morador):
    pessoa + usuário (senha com hash) + perfil; morador ganha também o
    vínculo com a unidade. */
 export async function criarAcesso(ctx, f) {
   const ehMorador = f.perfil === "morador";
-  const nome = ehMorador ? f.nome.trim() : (f.email.trim().toLowerCase().split("@")[0]);
-  const email = ehMorador ? emailMorador(f.nome.trim(), ctx.condominioId) : f.email.trim().toLowerCase();
-
-  const { data: dup } = await supabase.from("usuarios").select("id").eq("email", email).maybeSingle();
-  if (dup) throw new Error(ehMorador ? "Já existe um morador cadastrado com este nome." : "Já existe um acesso cadastrado com este e-mail.");
-
-  const [pessoa] = await q(supabase.from("pessoas").insert({
-    condominio_id: ctx.condominioId, nome: ehMorador ? f.nome.trim() : nome,
-    tipo_pessoa: "fisica", cpf_cnpj: `P-${crypto.randomUUID().slice(0, 12)}`,
-    email: ehMorador ? null : email,
-  }).select(), "pessoas");
-  const [usuario] = await q(supabase.from("usuarios").insert({
-    pessoa_id: pessoa.id, email, senha_hash: await sha256(f.senha),
-  }).select(), "usuarios");
-  const perfil = await q(supabase.from("perfis").select("id").eq("nome", f.perfil).single(), "perfis");
-  await q(supabase.from("usuario_perfis").insert({
-    usuario_id: usuario.id, condominio_id: ctx.condominioId, perfil_id: perfil.id,
-  }).select(), "usuario_perfis");
-  /* o perfil escolhido vira o papel da pessoa no condomínio (lista Pessoas);
-     morador ganha também o vínculo com a unidade */
   const un = ehMorador ? ctx.unidades.find((u) => u.label === f.unidade || u.id === f.unidade) : null;
-  await q(supabase.from("pessoa_vinculos").insert({
-    condominio_id: ctx.condominioId, pessoa_id: pessoa.id, unidade_id: un?.id || null,
-    papel: f.perfil, inicio: new Date().toISOString().slice(0, 10),
-  }).select(), "pessoa_vinculos");
-  /* morador vinculado à unidade vira o responsável financeiro dela automaticamente */
-  if (un) await salvarResponsavelUnidade(ctx, un.id, pessoa.id);
-  return { id: usuario.id };
+  return chamarAuth("acessos", {
+    acao: "criar", perfil: f.perfil, senha: f.senha,
+    ...(ehMorador ? { nome: f.nome?.trim() } : { email: f.email?.trim().toLowerCase() }),
+    ...(un ? { unidadeId: un.id } : {}),
+  });
 }
 
 /* Lista os acessos do condomínio (todos os perfis, exceto o diretor). */
-export async function listarAcessos(ctx) {
-  const rows = await q(supabase.from("usuario_perfis")
-    .select("perfis(nome), usuarios(id, email, pessoas(nome, pessoa_vinculos(papel, unidades(numero, blocos(nome)))))")
-    .eq("condominio_id", ctx.condominioId), "usuario_perfis");
-  return rows
-    .filter((r) => r.perfis?.nome && r.perfis.nome !== "diretor" && r.usuarios)
-    .map((r) => {
-      const u = r.usuarios, p = u.pessoas;
-      const vinc = (p?.pessoa_vinculos || []).find((v) => v.papel === "morador");
-      const unidade = vinc?.unidades ? `${vinc.unidades.numero}-${vinc.unidades.blocos?.nome || "?"}` : null;
-      return {
-        id: u.id, role: r.perfis.nome, nome: p?.nome || null,
-        email: u.email.endsWith(".local") ? null : u.email, unidade,
-      };
-    });
+export async function listarAcessos() {
+  const r = await chamarAuth("acessos", { acao: "listar" });
+  return r.acessos || [];
 }
 
 /* Remove um acesso: usuário, perfis e vínculos (a pessoa some junto se
    não estiver referenciada em outra tabela). */
 export async function removerAcesso(usuarioId) {
-  const { data: u } = await supabase.from("usuarios").select("pessoa_id").eq("id", usuarioId).maybeSingle();
-  await supabase.from("usuario_perfis").delete().eq("usuario_id", usuarioId);
-  await q(supabase.from("usuarios").delete().eq("id", usuarioId), "usuarios");
-  if (u?.pessoa_id) {
-    await supabase.from("pessoa_vinculos").delete().eq("pessoa_id", u.pessoa_id);
-    await supabase.from("pessoas").delete().eq("id", u.pessoa_id).then(() => {}, () => {});
-  }
+  await chamarAuth("acessos", { acao: "remover", usuarioId });
 }
 
 /* Login dos demais perfis. Morador entra pelo nome; os outros, pelo e-mail.
@@ -601,13 +578,8 @@ export async function loginDiretor(email, senha) {
 /* chamada padrão ao backend /api/* — sempre com o Bearer da sessão */
 async function chamarApi(caminho, body, erroPadrao) {
   let r;
-  try {
-    r = await fetch(`/api/${caminho}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}) },
-      body: JSON.stringify(body || {}),
-    });
-  } catch {
+  try { r = await postComRetry(`/api/${caminho}`, body); }
+  catch {
     throw new Error("Não foi possível falar com o backend de pagamentos.");
   }
   let corpo = null; try { corpo = await r.json(); } catch { /* sem JSON */ }

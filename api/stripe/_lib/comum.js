@@ -95,13 +95,21 @@ export async function sincronizarLicenca(supabase, sub, condominioId) {
   return status;
 }
 
-/* descobre o condomínio dono de uma subscription (metadata → banco) */
+/* descobre o condomínio dono de uma subscription (metadata → banco).
+   Os ids entram num filtro .or() interpolado do PostgREST — só passam se
+   tiverem o formato exato da Stripe (nada de vírgula/parêntese injetável). */
+const ID_STRIPE = /^(sub|cus)_[A-Za-z0-9]{8,64}$/;
 export async function condominioDaSub(supabase, sub) {
   if (sub.metadata?.condominio_id) return sub.metadata.condominio_id;
   const customer = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
+  const subOk = ID_STRIPE.test(String(sub.id || ""));
+  const cusOk = ID_STRIPE.test(String(customer || ""));
+  if (!subOk && !cusOk) return null;
+  const filtros = [];
+  if (subOk) filtros.push(`stripe_subscription_id.eq.${sub.id}`);
+  if (cusOk) filtros.push(`stripe_customer_id.eq.${customer}`);
   const { data } = await supabase.from("saas_assinaturas").select("condominio_id")
-    .or(`stripe_subscription_id.eq.${sub.id}${customer ? `,stripe_customer_id.eq.${customer}` : ""}`)
-    .limit(1).maybeSingle();
+    .or(filtros.join(",")).limit(1).maybeSingle();
   return data?.condominio_id || null;
 }
 

@@ -10,6 +10,7 @@
    · diretor (a mais): { configurado, chargesEnabled, payoutsEnabled,
      pendencias[], dashboardUrl }. */
 import { stripeClient, supabaseAdmin, lerClaims, integracaoStripe } from "../_lib/comum.js";
+import { logSeguro, origemBloqueada } from "../../_lib/seguranca.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -20,6 +21,7 @@ export default async function handler(req, res) {
   try {
     const claims = lerClaims(req);
     if (!claims?.condominio_id) return res.status(401).json({ error: "Sessão inválida — entre de novo." });
+    if (origemBloqueada(req, res)) return;
     const condominioId = claims.condominio_id;
     const ehDiretor = claims.perfil === "diretor";
 
@@ -53,7 +55,7 @@ export default async function handler(req, res) {
       dashboardUrl: "https://dashboard.stripe.com",
     });
   } catch (e) {
-    console.error("[stripe/connect/status]", e);
-    return res.status(500).json({ error: e.message || "Erro ao consultar a conta de recebimento." });
+    logSeguro("[stripe/connect/status]", e);
+    return res.status(500).json({ error: "Erro ao consultar a conta de recebimento." });
   }
 }

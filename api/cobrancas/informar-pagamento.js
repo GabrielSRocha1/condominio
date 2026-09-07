@@ -17,6 +17,8 @@
 import { randomUUID, createHash } from "crypto";
 import { supabaseAdmin, corpoJson, lerClaims } from "../stripe/_lib/comum.js";
 import { verificarTransacao } from "../_lib/cripto.js";
+import { corpoValidado } from "../_lib/validar.js";
+import { limitar, origemBloqueada, prepararIdempotencia, logSeguro } from "../_lib/seguranca.js";
 
 const MAX_ARQUIVO = 4 * 1024 * 1024; // 4 MB
 const EXT_OK = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
@@ -26,12 +28,37 @@ export default async function handler(req, res) {
   const supabase = supabaseAdmin();
 
   try {
-    const body = corpoJson(req);
+    const body = corpoValidado(res, corpoJson(req), {
+      cobrancaId:     { tipo: "uuid", obrigatorio: true },
+      forma:          { tipo: "enum", valores: ["transferencia", "verum_pay"] },
+      txHash:         { tipo: "texto", max: 120, padrao: /^(0x[0-9a-fA-F]{64}|[1-9A-HJ-NP-Za-km-z]{40,90})$/ },
+      valorInformado: { tipo: "numero", min: 0.01, maximo: 999999999 },
+      pagoEm:         { tipo: "data" },
+      arquivoBase64:  { tipo: "base64", max: 6 * 1024 * 1024 }, // teto bruto; o limite fino (4 MB) segue abaixo
+      nomeArquivo:    { tipo: "texto", max: 140 },
+      mime:           { tipo: "texto", max: 60, padrao: /^[\w.+-]+\/[\w.+-]+$/ },
+    });
+    if (!body) return;
     const { cobrancaId, txHash } = body;
     const forma = body.forma === "verum_pay" ? "verum_pay" : "transferencia";
-    if (!cobrancaId) return res.status(400).json({ error: "Informe cobrancaId." });
     const claims = lerClaims(req);
     if (!claims?.condominio_id) return res.status(401).json({ error: "Sessão inválida — entre de novo." });
+    if (origemBloqueada(req, res)) return;
+
+    /* retry de rede com a mesma Idempotency-Key devolve a resposta original
+       sem registrar um segundo informe (conexão instável ≠ pagamento duplo) */
+    const idem = await prepararIdempotencia(supabase, req, res,
+      { usuarioId: claims.sub, rota: "cobrancas/informar-pagamento" });
+    if (idem.repetida) return;
+
+    /* rate-limit por conta: a verificação cripto consulta RPCs externos e o
+       upload grava storage — nenhum dos dois pode virar brinquedo de flood */
+    const ritmo = await limitar(supabase, `informar:${forma}:${claims.sub}`,
+      forma === "verum_pay"
+        ? { janelaSeg: 10 * 60, max: 10, bloqueioSeg: 10 * 60 }
+        : { janelaSeg: 60 * 60, max: 30, bloqueioSeg: 30 * 60 });
+    if (ritmo.bloqueado)
+      return res.status(429).json({ error: "Muitas tentativas — aguarde alguns minutos e tente de novo." });
 
     const { data: cobranca, error } = await supabase.from("cobrancas")
       .select("id, condominio_id, competencia, valor_original, vencimento, status")
@@ -160,7 +187,7 @@ export default async function handler(req, res) {
       motivo: duplicado ? "comprovante repetido" : (!valorOk ? "valor diferente da cobrança" : null),
     });
   } catch (e) {
-    console.error("[cobrancas/informar-pagamento]", e);
-    return res.status(500).json({ error: e.message || "Erro ao registrar o pagamento informado." });
+    logSeguro("[cobrancas/informar-pagamento]", e);
+    return res.status(500).json({ error: "Erro ao registrar o pagamento informado." });
   }
 }
