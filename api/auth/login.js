@@ -14,7 +14,7 @@ import { createClient } from "@supabase/supabase-js";
 import { corpoValidado } from "../_lib/validar.js";
 import {
   assinarToken, verificarSenha, migrarSenhaSeLegada, emitirRefresh,
-  limitar, limparLimite, ipDoRequest, origemBloqueada, logSeguro,
+  limitar, limparLimite, ipDoRequest, origemBloqueada, logSeguro, auditar,
 } from "../_lib/seguranca.js";
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
@@ -53,15 +53,21 @@ export default async function handler(req, res) {
     const chaveConta = `login:${f.perfil}:${identidade}`;
     const chaveIp = `login:ip:${ip}`;
 
-    if (await bloqueado(supabase, chaveConta) || await bloqueado(supabase, chaveIp))
+    if (await bloqueado(supabase, chaveConta) || await bloqueado(supabase, chaveIp)) {
+      await auditar(supabase, { evento: "login_bloqueado", severidade: "aviso", ip,
+        detalhe: { perfil: f.perfil, identidade } });
       return res.status(429).json({ error: "Muitas tentativas — aguarde alguns minutos e tente de novo." });
+    }
 
     const nega = async () => {
       /* só a falha alimenta os contadores (uso legítimo nunca é punido) */
       const [porConta, porIp] = await Promise.all([
         limitar(supabase, chaveConta, LOCK), limitar(supabase, chaveIp, LOCK_IP),
       ]);
-      if (porConta.bloqueado || porIp.bloqueado)
+      const virouBloqueio = porConta.bloqueado || porIp.bloqueado;
+      await auditar(supabase, { evento: virouBloqueio ? "login_bloqueado" : "login_falha",
+        severidade: virouBloqueio ? "aviso" : "info", ip, detalhe: { perfil: f.perfil, identidade } });
+      if (virouBloqueio)
         return res.status(429).json({ error: "Muitas tentativas — aguarde alguns minutos e tente de novo." });
       return res.status(401).json({ error: "Credenciais incorretas." });
     };
@@ -85,6 +91,8 @@ export default async function handler(req, res) {
       const vincPerfil = conta.usuario_perfis.find((up) => up.perfis?.nome === "morador");
       const vincUnidade = (conta.pessoas?.pessoa_vinculos || []).find((v) => v.papel === "morador");
       const condominioId = vincPerfil?.condominio_id || null;
+      await auditar(supabase, { evento: "login_sucesso", usuarioId: conta.id, condominioId, ip,
+        detalhe: { perfil: "morador" } });
       const token = assinarToken({ sub: conta.id, nome: conta.pessoas.nome, perfil: "morador",
         condominio_id: condominioId }, secret);
       await emitirRefresh(supabase, res, { usuarioId: conta.id, perfil: "morador", condominioId });
@@ -112,6 +120,8 @@ export default async function handler(req, res) {
 
     const nome = data.pessoas?.nome || "Diretor";
     const condominioId = vinculo?.condominio_id || null;
+    await auditar(supabase, { evento: "login_sucesso", usuarioId: data.id, condominioId, ip,
+      detalhe: { perfil: f.perfil } });
     const token = assinarToken({ sub: data.id, email: f.email, nome, perfil: f.perfil,
       condominio_id: condominioId }, secret);
     await emitirRefresh(supabase, res, { usuarioId: data.id, perfil: f.perfil, condominioId });

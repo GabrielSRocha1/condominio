@@ -119,6 +119,11 @@ export async function rotacionarRefresh(supabase, req, res) {
     /* token já consumido voltou a aparecer: derruba toda a cadeia */
     await supabase.from("auth_sessoes").update({ revogada: true }).eq("familia", sessao.familia);
     limparCookieRefresh(res);
+    await auditar(supabase, {
+      evento: "sessao_reuso_detectado", severidade: "alta",
+      usuarioId: sessao.usuario_id, condominioId: sessao.condominio_id,
+      ip: ipDoRequest(req), detalhe: { familia: sessao.familia },
+    });
     return null;
   }
   if (new Date(sessao.expira_em) < new Date()) { limparCookieRefresh(res); return null; }
@@ -161,6 +166,20 @@ export async function limitar(supabase, chave, { janelaSeg, max, bloqueioSeg }) 
 
 export async function limparLimite(supabase, chave) {
   await supabase.rpc("limpar_tentativas", { p_chave: chave.slice(0, 160) }).then(() => {}, () => {});
+}
+
+/* ── Etapa 3: trilha de auditoria (auditoria_eventos, append-only) ──
+   Grava eventos de autenticação/segurança com IP. Sem a tabela
+   (supabase-seguranca3.sql não rodado) degrada em silêncio. */
+export async function auditar(supabase, { evento, severidade = "info", usuarioId = null, condominioId = null, ip = null, detalhe = null }) {
+  try {
+    const { error } = await supabase.from("auditoria_eventos").insert({
+      evento, severidade, usuario_id: usuarioId, condominio_id: condominioId,
+      ip, detalhe: detalhe || null,
+    });
+    if (error && !/does not exist|schema cache/i.test(error.message))
+      console.error("[seguranca] auditoria não gravada:", error.message);
+  } catch { /* auditoria nunca derruba o fluxo */ }
 }
 
 /* IP do cliente (Vercel/proxies primeiro; dev local cai no socket) */

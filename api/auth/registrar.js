@@ -8,7 +8,7 @@
    JWT de 1h + refresh em cookie HttpOnly. */
 import { createClient } from "@supabase/supabase-js";
 import { corpoValidado } from "../_lib/validar.js";
-import { assinarToken, gerarHashSenha, emitirRefresh, limitar, ipDoRequest, origemBloqueada, logSeguro } from "../_lib/seguranca.js";
+import { assinarToken, gerarHashSenha, emitirRefresh, limitar, ipDoRequest, origemBloqueada, logSeguro, auditar } from "../_lib/seguranca.js";
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
 
@@ -46,6 +46,8 @@ export default async function handler(req, res) {
       .insert({ email: f.email, senha_hash: gerarHashSenha(f.senha), pessoa_id: null }).select().single();
     if (error) throw new Error(error.message);
 
+    await auditar(supabase, { evento: "conta_criada", usuarioId: novo.id, ip: ipDoRequest(req),
+      detalhe: { email: f.email } });
     const token = assinarToken({ sub: novo.id, email: f.email, nome: f.nome, perfil: "diretor", condominio_id: null }, secret);
     await emitirRefresh(supabase, res, { usuarioId: novo.id, perfil: "diretor", condominioId: null });
     return res.status(200).json({ token, conta: { nome: f.nome, email: f.email, condominioId: null } });

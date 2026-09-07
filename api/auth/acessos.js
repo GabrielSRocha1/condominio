@@ -11,7 +11,7 @@
    criável é whitelist (nunca "diretor") e a senha nasce em scrypt+salt. */
 import { createClient } from "@supabase/supabase-js";
 import { corpoValidado } from "../_lib/validar.js";
-import { lerClaimsReq, gerarHashSenha, origemBloqueada, prepararIdempotencia, logSeguro } from "../_lib/seguranca.js";
+import { lerClaimsReq, gerarHashSenha, origemBloqueada, prepararIdempotencia, logSeguro, auditar, ipDoRequest } from "../_lib/seguranca.js";
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
 const PERFIS_CRIAVEIS = ["sindico", "tesouraria", "morador"];
@@ -92,6 +92,8 @@ export default async function handler(req, res) {
         await supabase.from("pessoa_vinculos").delete().eq("pessoa_id", u.pessoa_id).eq("condominio_id", condominioId);
         await supabase.from("pessoas").delete().eq("id", u.pessoa_id).then(() => {}, () => {}); // falha se referenciada — ok
       }
+      await auditar(supabase, { evento: "acesso_removido", severidade: "aviso", usuarioId: claims.sub,
+        condominioId, ip: ipDoRequest(req), detalhe: { usuario_alvo: f.usuarioId } });
       return res.status(200).json({ ok: true });
     }
 
@@ -142,6 +144,8 @@ export default async function handler(req, res) {
     if (ehMorador && f.unidadeId)
       await supabase.from("unidades").update({ responsavel_financeiro_id: pessoa.id }).eq("id", f.unidadeId);
 
+    await auditar(supabase, { evento: "acesso_criado", usuarioId: claims.sub, condominioId,
+      ip: ipDoRequest(req), detalhe: { usuario_alvo: usuario.id, perfil: f.perfil } });
     return res.status(200).json({ id: usuario.id });
   } catch (e) {
     logSeguro("[auth/acessos]", e);

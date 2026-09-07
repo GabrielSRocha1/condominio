@@ -8,7 +8,7 @@
    o condomínio novo (a sessão antiga, sem condomínio, é revogada). */
 import { createClient } from "@supabase/supabase-js";
 import { corpoValidado } from "../_lib/validar.js";
-import { assinarToken, lerClaimsReq, emitirRefresh, revogarRefresh, origemBloqueada, logSeguro } from "../_lib/seguranca.js";
+import { assinarToken, lerClaimsReq, emitirRefresh, revogarRefresh, origemBloqueada, logSeguro, auditar, ipDoRequest } from "../_lib/seguranca.js";
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
 
@@ -74,6 +74,8 @@ export default async function handler(req, res) {
       inicio: new Date().toISOString().slice(0, 10), forma_pagamento: "stripe",
     });
 
+    await auditar(supabase, { evento: "condominio_criado", usuarioId: usuario.id,
+      condominioId: cond.id, ip: ipDoRequest(req), detalhe: { nome: f.nome } });
     /* a sessão de refresh antiga não carrega o condomínio — troca pela nova */
     await revogarRefresh(supabase, req, res);
     const token = assinarToken({ sub: usuario.id, email: usuario.email, nome: claims.nome,
