@@ -19,6 +19,7 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
+import { slug } from "../api/stripe/_lib/comum.js";
 
 const env = Object.fromEntries(
   readFileSync(new URL("../.env", import.meta.url), "utf8").split(/\r?\n/)
@@ -35,7 +36,6 @@ if (live && modo !== "LIVE") { console.error("--live exige uma chave sk_live_ em
 
 const stripe = new Stripe(chave);
 const sb = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
-const slug = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
 const brl = (v) => `R$ ${Number(v).toFixed(2)}`;
 
 /* ── 1. products + prices BRL por plano ── */

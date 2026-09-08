@@ -4,9 +4,9 @@ import {
   LayoutDashboard, Building2, Home, Users, Wallet, QrCode, Gavel, Megaphone,
   FileText, Wrench, ShieldCheck, LogOut, Sun, Moon, Search, Plus,
   ChevronRight, ChevronLeft, X, Check, Clock, AlertCircle, CheckCircle2,
-  Download, Filter, Bell, Menu, Eye, Send, Printer, RefreshCw, TrendingUp,
+  Download, Bell, Menu, Eye, Send, Printer, RefreshCw, TrendingUp,
   TrendingDown, CircleDot, User, KeyRound, Car, Package, DoorOpen, Star,
-  CalendarClock, ListChecks, MoreHorizontal, Pencil, Ban,
+  ListChecks, Ban,
   Mail, EyeOff, Trash2, UserPlus, Upload, Copy, MapPin, Banknote, CreditCard
 } from "lucide-react";
 import {
@@ -21,7 +21,7 @@ import {
   informarPagamentoCobranca, confirmarPagamentoManual, rejeitarPagamentoInformado,
   criarAcesso, listarAcessos, removerAcesso, loginUsuario, setAuthToken, encerrarSessaoServidor,
   salvarLogoCondominio, removerLogoCondominio, salvarLogoMenuCondominio, removerLogoMenuCondominio,
-  obterCondominio, salvarCondominio, salvarAreaUnidade, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
+  obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
 } from "./src/lib/api.js";
@@ -75,7 +75,6 @@ const BRL = (v) => v.toLocaleString(LOCALE_MOEDA[MOEDA] || "en-US", { style: "cu
 /* preços da licença SaaS: sempre em reais (BRL) — a conta da plataforma é
    Stripe Brasil —, independente da moeda de gestão do condomínio */
 const BRLLic = (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const uid = () => Math.random().toString(36).slice(2, 9);
 
 /* Países onde a Stripe abre conta de recebimento para o condomínio (espelho
    de PAISES_CONNECT no backend — só aparecem no seletor os que a Stripe

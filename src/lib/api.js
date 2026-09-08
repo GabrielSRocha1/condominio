@@ -851,13 +851,6 @@ export async function excluirUnidade(ctx, id) {
   await recalcularFracoes(ctx);
 }
 
-/* Altera a área privativa de uma unidade e refaz as frações do prédio todo */
-export async function salvarAreaUnidade(ctx, unidadeId, area) {
-  await q(supabase.from("unidades").update({ area_privativa_m2: parseBRL(area) || null })
-    .eq("id", unidadeId).select(), "unidades");
-  await recalcularFracoes(ctx);
-}
-
 /* ─────────── uploads (bucket "documentos") ───────────
    Os arquivos vão para <condominio_id>/<pasta>/<uuid>.<ext> — o prefixo com o
    condominio_id é o que a política de RLS do storage confere. */

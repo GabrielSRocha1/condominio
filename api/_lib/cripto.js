@@ -45,9 +45,6 @@ const SOLANA = {
 };
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
-export const explorerDaChain = (chain) =>
-  chain === "solana" ? SOLANA.explorer : (EVM_CHAINS.find((c) => c.id === chain)?.explorer || "");
-
 const rpcCall = async (url, method, params) => {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 12_000);
