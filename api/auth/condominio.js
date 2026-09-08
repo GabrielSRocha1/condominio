@@ -68,7 +68,7 @@ export default async function handler(req, res) {
     const planoNome = String(f.plano || "Essencial").split(" —")[0].trim();
     let { data: plano } = await supabase.from("saas_planos").select("id").eq("nome", planoNome).maybeSingle();
     if (!plano) ({ data: plano } = await supabase.from("saas_planos").select("id").eq("nome", "Essencial").maybeSingle());
-    /* forma_pagamento "stripe" exige o RUN 1 do supabase-stripe.sql aplicado */
+    /* forma_pagamento "stripe" vem do enum do supabase-schema.sql */
     if (plano) await supabase.from("saas_assinaturas").insert({
       condominio_id: cond.id, plano_id: plano.id, status: "teste",
       inicio: new Date().toISOString().slice(0, 10), forma_pagamento: "stripe",

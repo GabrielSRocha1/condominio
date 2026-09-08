@@ -1,11 +1,15 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 -- CONDOMASTER PRO — SCHEMA COMPLETO PARA SUPABASE (PostgreSQL)
--- Gerado a partir de MODELAGEM-BANCO-DE-DADOS.tsv (v1)
+-- Base: MODELAGEM-BANCO-DE-DADOS.tsv (v1) + migrações absorvidas
+-- (cancelamento, teste grátis, proteção de perfis, Stripe, pagamentos
+-- manuais, penalidades-status).
 --
--- COMO USAR:
+-- COMO USAR (instalação do zero — ordem completa no README.md):
 --   1. Abra seu projeto no https://supabase.com/dashboard
 --   2. Menu lateral → SQL Editor → New query
 --   3. Cole este arquivo INTEIRO e clique em RUN
+--   4. Depois rode, nesta ordem: supabase-storage.sql → supabase-rls.sql
+--      → supabase-seguranca.sql → supabase-seguranca2.sql → supabase-seguranca3.sql
 --
 -- O script é idempotente onde possível, mas foi pensado para rodar UMA vez
 -- em um banco vazio. Para recomeçar do zero, rode antes:
@@ -20,7 +24,7 @@ create extension if not exists btree_gist;  -- constraint de exclusão em reserv
 
 -- ─────────────────────────── ENUMS ───────────────────────────
 create type assinatura_status      as enum ('teste','ativa','inadimplente','bloqueada','cancelada');
-create type assinatura_pagamento   as enum ('verum_pay','transferencia');
+create type assinatura_pagamento   as enum ('verum_pay','transferencia','stripe');
 create type condominio_tipo        as enum ('residencial','comercial','misto');
 create type condominio_porte       as enum ('alto','medio','baixo');
 create type unidade_tipo           as enum ('apartamento','sala','loja','cobertura','box','deposito');
@@ -31,12 +35,12 @@ create type pessoa_tipo            as enum ('fisica','juridica');
 create type vinculo_papel          as enum ('proprietario','coproprietario','inquilino','morador','dependente','sindico','diretor','tesouraria','conselho_fiscal','funcionario','prestador','visitante_recorrente','imobiliaria');
 create type categoria_fin_tipo     as enum ('receita','despesa','ambas');
 create type lancamento_tipo        as enum ('receita','despesa');
-create type forma_pagamento        as enum ('verum_pay','transferencia','debito_automatico','dinheiro');
+create type forma_pagamento        as enum ('verum_pay','transferencia','debito_automatico','dinheiro','stripe');
 create type lancamento_status      as enum ('aguardando_aprovacao','aprovado','rejeitado','pago','cancelado');
 create type cobranca_tipo          as enum ('ordinaria','extra','multa','chamada_caixa');
-create type cobranca_status        as enum ('rascunho','emitida','paga','vencida','paga_em_atraso','cancelada','pagamento_divergente');
+create type cobranca_status        as enum ('rascunho','emitida','paga','vencida','paga_em_atraso','cancelada','pagamento_divergente','pagamento_informado');
 create type pagamento_origem       as enum ('webhook','baixa_manual','reconciliacao');
-create type provedor_pagamento     as enum ('verum_pay');
+create type provedor_pagamento     as enum ('verum_pay','stripe');
 create type penalidade_tipo        as enum ('advertencia','multa');
 create type penalidade_status      as enum ('registrada','em_defesa','aprovada','cancelada','lancada');
 create type prova_tipo             as enum ('foto','video','audio','documento');
@@ -113,6 +117,8 @@ create table saas_assinaturas (
   cancelamento_agendado_em date,               -- dia em que o cliente pediu o cancelamento
   acesso_ate             date,                 -- dia em que o acesso será desativado (fim do período pago)
   forma_pagamento        assinatura_pagamento not null,
+  stripe_customer_id     varchar(60),         -- IDs do gateway: a Stripe amarra
+  stripe_subscription_id varchar(60),         -- por customer/subscription
   bloqueada_em           timestamptz,
   checklist_implantacao  jsonb,
   criado_em              timestamptz not null default now(),
@@ -120,6 +126,7 @@ create table saas_assinaturas (
 );
 -- 1 assinatura não-cancelada por condomínio
 create unique index uq_assinatura_ativa on saas_assinaturas (condominio_id) where status <> 'cancelada';
+create index idx_saas_ass_stripe_customer on saas_assinaturas (stripe_customer_id);
 
 -- ═══════════════════════ GRUPO NÚCLEO ═══════════════════════
 
@@ -299,7 +306,7 @@ create table lancamentos (
   centro_custo     varchar(80),
   forma_pagamento  forma_pagamento,
   status           lancamento_status not null default 'aguardando_aprovacao',
-  lancado_por      uuid not null references usuarios(id),
+  lancado_por      uuid references usuarios(id),   -- NULL: criado pelo webhook (sem usuário logado)
   aprovado_por     uuid references usuarios(id),
   nota_fiscal_url  varchar(300),
   origem_tipo      varchar(30),   -- penalidade · chamado · cobranca · manual
@@ -376,12 +383,35 @@ create table integracoes_pagamento (
   condominio_id    uuid not null references condominios(id),
   provedor         provedor_pagamento not null default 'verum_pay',
   credenciais      jsonb not null,          -- criptografadas na aplicação
-  webhook_secret   varchar(120) not null,   -- validação HMAC
-  conta_recebedora jsonb not null,
+  webhook_secret   varchar(120),            -- NULL na Stripe: webhook global, não por tenant
+  conta_recebedora jsonb,
   ativa            boolean not null default true,
   criado_em        timestamptz not null default now(),
   atualizado_em    timestamptz not null default now()
 );
+create unique index uq_integracao_provedor on integracoes_pagamento (condominio_id, provedor);
+
+-- 19b · pagamentos_informados — Trilha dos informes do morador
+-- (transferência com comprovante / cripto com hash on-chain). Escrita SÓ
+-- pelo backend/service role; leitura pelo tenant (policy no supabase-rls.sql).
+create table pagamentos_informados (
+  id                uuid primary key default gen_random_uuid(),
+  condominio_id     uuid not null references condominios(id),
+  cobranca_id       uuid not null references cobrancas(id),
+  forma             forma_pagamento not null,          -- transferencia | verum_pay
+  valor_informado   numeric(14,2) not null,
+  pago_em_informado date,
+  documento_id      uuid references documentos(id),    -- comprovante (transferência)
+  tx_hash           varchar(120),                      -- cripto
+  chain             varchar(20),                       -- ethereum | bnb | polygon | solana
+  situacao          varchar(12) not null default 'pendente'
+                    check (situacao in ('pendente','confirmado','rejeitado')),
+  motivo_rejeicao   text,
+  criado_em         timestamptz not null default now(),
+  atualizado_em     timestamptz not null default now()
+);
+create index idx_pag_informados_cobranca on pagamentos_informados (cobranca_id);
+create index idx_pag_informados_pendentes on pagamentos_informados (condominio_id) where situacao = 'pendente';
 
 -- ═══════════════════════ GRUPO PENALIDADES ═══════════════════════
 
@@ -406,6 +436,8 @@ create table penalidades (
   parecer            text,
   documento_id       uuid references documentos(id),
   lancamento_id      uuid references lancamentos(id),
+  entregue_em        timestamptz,                     -- envio ao responsável (ciclo da tela Multas)
+  cobranca_id        uuid references cobrancas(id),   -- cobrança gerada pela multa
   criado_em          timestamptz not null default now(),
   atualizado_em      timestamptz not null default now(),
   unique (condominio_id, numero),
@@ -694,6 +726,227 @@ create trigger trg_perfis_protege_sistema
   before delete on perfis
   for each row execute function bloquear_delete_perfil_sistema();
 
+-- ═══════════════════════ BAIXA DE PAGAMENTOS (RPCs) ═══════════════════════
+-- Claims do JWT caseiro usadas pelas RPCs (jwt_condominio/jwt_perfil ficam
+-- no supabase-rls.sql, junto das policies que dependem delas).
+create or replace function public.jwt_usuario() returns uuid
+language sql stable as $$
+  select nullif(coalesce(current_setting('request.jwt.claims', true)::jsonb ->> 'sub', ''), '')::uuid
+$$;
+
+create or replace function public.jwt_role() returns text
+language sql stable as $$
+  select coalesce(current_setting('request.jwt.claims', true)::jsonb ->> 'role', '')
+$$;
+
+-- Baixa transacional e idempotente de cobrança paga via Stripe.
+-- Chamada pelo webhook Connect E pelo endpoint de verificação (polling) —
+-- a deduplicação por provider_event_id (= payment_intent id) garante que
+-- os dois caminhos nunca registrem o mesmo pagamento duas vezes.
+create or replace function public.registrar_pagamento_stripe(
+  p_cobranca_id    uuid,
+  p_valor_pago     numeric,
+  p_pago_em        timestamptz,
+  p_payment_intent varchar,
+  p_charge         varchar
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  c        cobrancas%rowtype;
+  v_cat    uuid;
+  v_status cobranca_status;
+begin
+  select * into c from cobrancas where id = p_cobranca_id for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'erro', 'cobranca_inexistente');
+  end if;
+  if exists (select 1 from pagamentos where provider_event_id = p_payment_intent) then
+    return jsonb_build_object('ok', true, 'duplicado', true, 'status', c.status);
+  end if;
+  if c.status in ('paga', 'paga_em_atraso', 'cancelada') then
+    return jsonb_build_object('ok', true, 'ja_baixada', true, 'status', c.status);
+  end if;
+
+  v_status := case when p_pago_em::date > c.vencimento
+                   then 'paga_em_atraso'::cobranca_status
+                   else 'paga'::cobranca_status end;
+
+  insert into pagamentos (condominio_id, cobranca_id, valor_pago, pago_em, origem,
+                          provider_event_id, provider_tx_id)
+    values (c.condominio_id, c.id, p_valor_pago, p_pago_em, 'webhook',
+            p_payment_intent, p_charge);
+
+  update cobrancas
+     set status = v_status, provider_charge_id = coalesce(p_charge, provider_charge_id)
+   where id = c.id;
+
+  -- receita direto no caixa (status 'pago' = badge "Entrada" e soma no saldo)
+  select id into v_cat from categorias_financeiras
+   where condominio_id = c.condominio_id and nome = 'Taxa condominial'
+     and tipo in ('receita', 'ambas') limit 1;
+  if v_cat is null then
+    insert into categorias_financeiras (condominio_id, nome, tipo)
+      values (c.condominio_id, 'Taxa condominial', 'receita')
+      returning id into v_cat;
+  end if;
+  insert into lancamentos (condominio_id, tipo, categoria_id, descricao, valor, data,
+                           competencia, forma_pagamento, status, origem_tipo, origem_id)
+    values (c.condominio_id, 'receita', v_cat,
+            'Cobrança ' || substr(c.competencia, 6, 2) || '/' || substr(c.competencia, 1, 4) || ' paga online (Stripe)',
+            c.valor_original, p_pago_em::date, c.competencia,
+            'stripe', 'pago', 'cobranca', c.id);
+
+  return jsonb_build_object('ok', true, 'status', v_status);
+end $$;
+
+revoke all on function public.registrar_pagamento_stripe(uuid, numeric, timestamptz, varchar, varchar)
+  from public, anon, authenticated;
+
+-- Baixa manual/reconciliada — transacional e idempotente.
+-- Chamável: pelo client autenticado (gestor: diretor/síndico/tesouraria do
+-- condomínio — validado AQUI dentro via jwt_perfil/jwt_condominio do
+-- supabase-rls.sql, não por RLS) e pelos endpoints /api (service role,
+-- ex.: auto-baixa da verificação on-chain).
+-- Idempotência: provider_event_id único = p_tx (hash on-chain) ou
+-- 'manual-<cobranca_id>' — duplo clique não duplica pagamento nem caixa.
+create or replace function public.registrar_pagamento_manual(
+  p_cobranca_id   uuid,
+  p_forma         forma_pagamento,
+  p_valor         numeric,
+  p_pago_em       timestamptz,
+  p_justificativa text,
+  p_tx            varchar default null,
+  p_informado_id  uuid default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  c        cobrancas%rowtype;
+  v_cat    uuid;
+  v_status cobranca_status;
+  v_evento varchar(80);
+  v_forma_rotulo text;
+begin
+  select * into c from cobrancas where id = p_cobranca_id for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'erro', 'cobranca_inexistente');
+  end if;
+
+  -- autorização: service role (endpoints) OU gestor do próprio condomínio
+  if public.jwt_role() <> 'service_role' then
+    if public.jwt_perfil() not in ('diretor','sindico','tesouraria')
+       or public.jwt_condominio() is distinct from c.condominio_id then
+      return jsonb_build_object('ok', false, 'erro', 'nao_autorizado');
+    end if;
+  end if;
+
+  if coalesce(trim(p_justificativa), '') = '' then
+    return jsonb_build_object('ok', false, 'erro', 'justificativa_obrigatoria');
+  end if;
+
+  v_evento := coalesce(nullif(trim(p_tx), ''), 'manual-' || p_cobranca_id::text);
+  if exists (select 1 from pagamentos where provider_event_id = v_evento) then
+    return jsonb_build_object('ok', true, 'duplicado', true, 'status', c.status);
+  end if;
+  if c.status in ('paga', 'paga_em_atraso', 'cancelada') then
+    return jsonb_build_object('ok', true, 'ja_baixada', true, 'status', c.status);
+  end if;
+
+  v_status := case when p_pago_em::date > c.vencimento
+                   then 'paga_em_atraso'::cobranca_status
+                   else 'paga'::cobranca_status end;
+
+  insert into pagamentos (condominio_id, cobranca_id, valor_pago, pago_em, origem,
+                          provider_event_id, provider_tx_id, baixado_por, justificativa)
+    values (c.condominio_id, c.id, coalesce(p_valor, c.valor_original), p_pago_em,
+            case when p_tx is not null then 'reconciliacao'::pagamento_origem
+                 else 'baixa_manual'::pagamento_origem end,
+            v_evento, p_tx, public.jwt_usuario(), p_justificativa);
+
+  update cobrancas
+     set status = v_status, provider_charge_id = coalesce(p_tx, provider_charge_id)
+   where id = c.id;
+
+  if p_informado_id is not null then
+    update pagamentos_informados
+       set situacao = 'confirmado', atualizado_em = now()
+     where id = p_informado_id and cobranca_id = c.id;
+  end if;
+
+  -- receita direto no caixa (status 'pago' = badge "Entrada" e soma no saldo)
+  select id into v_cat from categorias_financeiras
+   where condominio_id = c.condominio_id and nome = 'Taxa condominial'
+     and tipo in ('receita', 'ambas') limit 1;
+  if v_cat is null then
+    insert into categorias_financeiras (condominio_id, nome, tipo)
+      values (c.condominio_id, 'Taxa condominial', 'receita')
+      returning id into v_cat;
+  end if;
+  v_forma_rotulo := case p_forma
+    when 'transferencia' then 'Transferência'
+    when 'verum_pay' then 'Cripto'
+    when 'dinheiro' then 'Dinheiro'
+    when 'debito_automatico' then 'Débito automático'
+    else p_forma::text end;
+  insert into lancamentos (condominio_id, tipo, categoria_id, descricao, valor, data,
+                           competencia, forma_pagamento, status, origem_tipo, origem_id)
+    values (c.condominio_id, 'receita', v_cat,
+            'Cobrança ' || substr(c.competencia, 6, 2) || '/' || substr(c.competencia, 1, 4) || ' paga (' || v_forma_rotulo || ')',
+            c.valor_original, p_pago_em::date, c.competencia,
+            p_forma, 'pago', 'cobranca', c.id);
+
+  return jsonb_build_object('ok', true, 'status', v_status);
+end $$;
+
+revoke all on function public.registrar_pagamento_manual(uuid, forma_pagamento, numeric, timestamptz, text, varchar, uuid)
+  from public, anon;
+grant execute on function public.registrar_pagamento_manual(uuid, forma_pagamento, numeric, timestamptz, text, varchar, uuid)
+  to authenticated;
+
+-- Rejeição de um informe: cobrança volta ao estado aberto correto
+create or replace function public.rejeitar_pagamento_informado(
+  p_informado_id uuid,
+  p_motivo       text
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  i pagamentos_informados%rowtype;
+  c cobrancas%rowtype;
+begin
+  select * into i from pagamentos_informados where id = p_informado_id for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'erro', 'informe_inexistente');
+  end if;
+  select * into c from cobrancas where id = i.cobranca_id for update;
+
+  if public.jwt_role() <> 'service_role' then
+    if public.jwt_perfil() not in ('diretor','sindico','tesouraria')
+       or public.jwt_condominio() is distinct from i.condominio_id then
+      return jsonb_build_object('ok', false, 'erro', 'nao_autorizado');
+    end if;
+  end if;
+  if i.situacao <> 'pendente' then
+    return jsonb_build_object('ok', true, 'ja_decidido', true, 'situacao', i.situacao);
+  end if;
+
+  update pagamentos_informados
+     set situacao = 'rejeitado', motivo_rejeicao = coalesce(p_motivo, ''), atualizado_em = now()
+   where id = p_informado_id;
+
+  -- só reabre se a cobrança ainda está na fase de conferência
+  if c.status in ('pagamento_informado', 'pagamento_divergente') then
+    update cobrancas
+       set status = case when c.vencimento < current_date
+                         then 'vencida'::cobranca_status
+                         else 'emitida'::cobranca_status end
+     where id = c.id;
+  end if;
+
+  return jsonb_build_object('ok', true);
+end $$;
+
+revoke all on function public.rejeitar_pagamento_informado(uuid, text) from public, anon;
+grant execute on function public.rejeitar_pagamento_informado(uuid, text) to authenticated;
+
 -- ═══════════════════════ ROW LEVEL SECURITY ═══════════════════════
 -- ⚠️  ATENÇÃO: as políticas abaixo são de DESENVOLVIMENTO — liberam leitura e
 -- escrita para qualquer requisição com a chave anon/authenticated, para você
@@ -716,7 +969,9 @@ end $$;
 
 -- ═══════════════════════ SEEDS INICIAIS (opcional) ═══════════════════════
 
--- Planos do SaaS (preços sempre em dólar — batem com o Painel SaaS do frontend)
+-- Planos do SaaS — preços da LICENÇA sempre em BRL (conta Stripe Brasil).
+-- Depois de definir os valores, rode scripts/preparar-stripe-producao.mjs
+-- para criar os products/prices correspondentes na Stripe.
 insert into saas_planos (nome, preco_mensal, preco_anual, limite_unidades, modulos) values
   ('Essencial',  299.90,  2999.00, 150,  '{"portaria":false,"whatsapp":false,"assembleia_digital":false}'),
   ('Standard',   699.90,  6999.00, 500,  '{"portaria":true,"whatsapp":false,"assembleia_digital":true}'),

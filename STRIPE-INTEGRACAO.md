@@ -58,7 +58,7 @@ COBRANÇAS CONDOMINIAIS
 | `api/stripe/checkout-cobranca.js` | checkout de cobrança (direct charge + 1% c/ teto) |
 | `api/stripe/cobranca-status.js` | polling do retorno + baixa (mesma RPC) |
 | `scripts/preparar-stripe-producao.mjs` | products/prices BRL, PAGOMANUAL, webhooks |
-| `supabase-stripe.sql` | migração (enums, colunas, RLS, RPC) |
+| `supabase-schema.sql` | enums, colunas e RPC da Stripe (migração absorvida) |
 
 ## 3. Variáveis de ambiente (`.env` local + Vercel)
 
@@ -73,9 +73,9 @@ no front, sem escopo PCI). Diagnóstico: `GET /api/auth/diag`.
 
 ## 4. Passo a passo de ativação
 
-1. **Banco** — no SQL Editor do Supabase, rode o `supabase-stripe.sql` em
-   DUAS execuções (RUN 1 = enums; depois RUN 2). Antes do RUN 2, descomente e
-   defina os **preços BRL** dos planos (seção F).
+1. **Banco** — o schema atual (`supabase-schema.sql`) já traz enums, colunas
+   e RPC da Stripe. Confira os **preços BRL** dos planos em `saas_planos`
+   (seed do schema) antes do passo 3.
 2. **Conta Stripe** — crie a conta Stripe Brasil (CNPJ da plataforma), copie a
    `sk_test_` para o `.env`.
 3. **Catálogo** — `node scripts/preparar-stripe-producao.mjs --executar`
@@ -307,8 +307,8 @@ troca de plano/quantidade desativada — é pelo app).
 ## 11. Segurança
 
 - `integracoes_pagamento` (account id recebedor) e as escritas em
-  `saas_assinaturas` ficaram **sem policy client-side** (supabase-stripe.sql,
-  seção C) — só a service role dos endpoints toca nelas.
+  `saas_assinaturas` ficaram **sem policy client-side** (exceções no
+  supabase-rls.sql) — só a service role dos endpoints toca nelas.
 - Todos os endpoints `/api/stripe/*` exigem o Bearer da sessão (JWT caseiro)
   e conferem `condominio_id`/perfil; os webhooks validam `stripe-signature`
   com corpo bruto.

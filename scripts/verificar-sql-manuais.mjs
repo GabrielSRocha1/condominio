@@ -1,8 +1,8 @@
-/* TEMPORÁRIO — confere se supabase-pagamentos-manuais.sql foi aplicado:
-   enum 'pagamento_informado' (RUN 1), tabela pagamentos_informados,
-   RPCs registrar_pagamento_manual / rejeitar_pagamento_informado (RUN 2),
-   e mostra se o cenário do seed já existe. Só leitura + chamadas com id
-   inexistente (não altera nada). */
+/* TEMPORÁRIO — confere se os objetos da conciliação manual existem no banco
+   (hoje fazem parte do supabase-schema.sql): enum 'pagamento_informado',
+   tabela pagamentos_informados, RPCs registrar_pagamento_manual /
+   rejeitar_pagamento_informado, e mostra se o cenário do seed já existe.
+   Só leitura + chamadas com id inexistente (não altera nada). */
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 

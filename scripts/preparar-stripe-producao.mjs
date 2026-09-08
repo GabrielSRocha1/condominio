@@ -42,7 +42,7 @@ const brl = (v) => `R$ ${Number(v).toFixed(2)}`;
 const { data: planosDb, error } = await sb.from("saas_planos")
   .select("nome, preco_mensal, preco_anual").eq("ativo", true).order("preco_mensal");
 if (error) { console.error("Supabase:", error.message); process.exit(1); }
-console.log("⚠ Os preços abaixo vêm de saas_planos — rode o RUN F do supabase-stripe.sql (valores BRL) ANTES deste script.");
+console.log("⚠ Os preços abaixo vêm de saas_planos (seed do supabase-schema.sql) — confira os valores BRL ANTES deste script.");
 
 for (const p of planosDb) {
   const chaveProduto = `condomaster_${slug(p.nome)}`;

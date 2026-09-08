@@ -153,8 +153,8 @@ export async function loadAll(condominioId) {
     q(supabase.from("condominios").select("nome_fantasia, cnpj, endereco, identidade_visual, regras_internas").eq("id", cid), "condominios"),
   ]);
 
-  /* pagamentos informados pelo morador aguardando confirmação (tabela do
-     supabase-pagamentos-manuais.sql — se a migração não rodou, segue vazio) */
+  /* pagamentos informados pelo morador aguardando confirmação (tabela
+     pagamentos_informados do supabase-schema.sql — sem ela, segue vazio) */
   const informesRaw = await supabase.from("pagamentos_informados")
     .select("id, cobranca_id, forma, valor_informado, pago_em_informado, tx_hash, chain, motivo_rejeicao, documentos(arquivo_url)")
     .eq("condominio_id", cid).eq("situacao", "pendente")
@@ -660,7 +660,7 @@ export async function verificarCobranca(cobrancaId) {
 }
 
 /* ── conciliação de pagamentos MANUAIS das cobranças ──
-   (supabase-pagamentos-manuais.sql + /api/cobrancas/informar-pagamento) */
+   (RPCs do supabase-schema.sql + /api/cobrancas/informar-pagamento) */
 
 /* Morador informa um pagamento manual:
    · transferência: { cobrancaId, forma:'transferencia', valorInformado,
@@ -700,7 +700,7 @@ export async function confirmarPagamentoManual(cobrancaId, { forma, valor, pagoE
     p_justificativa: justificativa, p_tx: tx, p_informado_id: informeId,
   });
   if (error) throw new Error(/does not exist|schema cache/i.test(error.message)
-    ? "Rode o supabase-pagamentos-manuais.sql no SQL Editor do Supabase para habilitar a baixa manual."
+    ? "O banco está desatualizado: rode o supabase-schema.sql atual (RPC registrar_pagamento_manual) para habilitar a baixa manual."
     : error.message);
   if (data?.ok === false) throw new Error(ERROS_RPC[data.erro] || `Baixa recusada: ${data.erro}`);
   return data;
@@ -1000,7 +1000,7 @@ export async function criarPenalidade(ctx, f) {
 /* Envia a penalidade aprovada ao responsável: registra a entrega e, se for
    multa, emite a cobrança (tipo "multa", vencimento no prazo de defesa ou em
    30 dias) vinculada — é ela que define os status "paga"/"vencida".
-   Requer as colunas do supabase-penalidades-status.sql. */
+   Requer as colunas entregue_em/cobranca_id de penalidades (supabase-schema.sql). */
 export async function enviarPenalidade(ctx, m) {
   const upd = { entregue_em: new Date().toISOString() };
   if (m.valor > 0) {
@@ -1019,7 +1019,7 @@ export async function enviarPenalidade(ctx, m) {
   }
   const { error } = await supabase.from("penalidades").update(upd).eq("id", m.id).select();
   if (error) throw new Error(/entregue_em|cobranca_id|column|schema cache/i.test(error.message)
-    ? "Rode o supabase-penalidades-status.sql no SQL Editor do Supabase para habilitar o envio ao responsável."
+    ? "O banco está desatualizado: rode o supabase-schema.sql atual (colunas entregue_em/cobranca_id) para habilitar o envio ao responsável."
     : `penalidades: ${error.message}`);
 }
 

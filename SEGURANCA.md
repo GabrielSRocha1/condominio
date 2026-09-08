@@ -21,6 +21,10 @@ ficam inertes (com aviso no log do servidor).
 
 SQLs (rodar no SQL Editor, nesta ordem, todos idempotentes):
 `supabase-rls.sql` → `supabase-seguranca.sql` → `supabase-seguranca2.sql` → `supabase-seguranca3.sql`.
+(Instalação do zero: antes deles vêm `supabase-schema.sql` e
+`supabase-storage.sql` — ordem completa no `README.md`. Se re-rodar o
+`supabase-rls.sql` depois das etapas, re-rode as três em seguida — ele derruba
+todas as policies antes de recriar as suas.)
 
 ## Ferramentas
 

@@ -17,6 +17,13 @@
 --   · filhas sem condominio_id   → herdam o escopo da tabela-mãe
 --   · saas_planos/perfis/permissoes → referência, leitura liberada
 --   · INSERT de condominios e de usuarios "pendentes" → só via backend
+--   · exceções (fim do arquivo): integracoes_pagamento sem policy nenhuma;
+--     saas_assinaturas e pagamentos_informados só leitura pelo tenant
+--
+-- ⚠️ RE-EXECUÇÃO: este arquivo derruba TODAS as policies do schema public
+-- antes de recriar as suas. Se você re-rodar DEPOIS das etapas de segurança,
+-- re-rode em seguida supabase-seguranca.sql → 2 → 3 (as policies delas
+-- também são derrubadas aqui).
 -- ═══════════════════════════════════════════════════════════════
 
 -- Claims do token ------------------------------------------------
@@ -47,7 +54,12 @@ begin
   for t in
     select table_name from information_schema.columns
     where table_schema = 'public' and column_name = 'condominio_id'
-      and table_name not in ('condominios')
+      -- fora do loop: condominios tem policies próprias abaixo; as demais são
+      -- exceções (escrita só backend) tratadas no fim do arquivo; auth_sessoes
+      -- e auditoria_eventos pertencem às etapas de segurança (seguranca 1/3)
+      and table_name not in ('condominios', 'integracoes_pagamento',
+                             'saas_assinaturas', 'pagamentos_informados',
+                             'auth_sessoes', 'auditoria_eventos')
   loop
     execute format('alter table public.%I enable row level security', t.table_name);
     -- leitura: qualquer perfil do próprio condomínio
@@ -123,3 +135,20 @@ begin
     execute format('create policy ref_select on public.%I for select to anon, authenticated using (true)', t);
   end loop;
 end $$;
+
+-- Exceções: escrita só pelo backend (service role) ----------------
+-- integracoes_pagamento guarda o account id que RECEBE os pagamentos:
+-- sem policy nenhuma, só os endpoints /api leem e gravam.
+alter table public.integracoes_pagamento enable row level security;
+
+-- saas_assinaturas: o front lê status/plano, mas o diretor não pode se
+-- auto-ativar via supabase-js — leitura sim, escrita nenhuma.
+alter table public.saas_assinaturas enable row level security;
+create policy tenant_select on public.saas_assinaturas for select to authenticated
+  using (condominio_id = public.jwt_condominio());
+
+-- pagamentos_informados: gestor vê o que confirmar, morador acompanha;
+-- só a service role dos endpoints /api grava.
+alter table public.pagamentos_informados enable row level security;
+create policy tenant_select on public.pagamentos_informados for select to authenticated
+  using (condominio_id = public.jwt_condominio());
