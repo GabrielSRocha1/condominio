@@ -82,6 +82,11 @@ no front, sem escopo PCI). Diagnóstico: `GET /api/auth/diag`.
 > entregas 200 dos webhooks live; Pix da conta da plataforma ainda
 > "indisponível" (exige solicitação); 1 conta conectada live com onboarding
 > incompleto (`charges_enabled: false` — cliente precisa concluir o KYC).
+> **Constatado em 11/09**: entregas live do webhook-connect falhando 401
+> desde 09/09 — o whsec_ na Vercel não é o do endpoint live. Correção:
+> revelar o signing secret dos DOIS endpoints live na dashboard, colar na
+> Vercel (Production) e redeployar; as retentativas da Stripe dão conta do
+> resto (ou "Resend" manual nos eventos falhados).
 
 1. **Banco** — o schema atual (`supabase-schema.sql`) já traz enums, colunas
    e RPC da Stripe. Confira os **preços BRL** dos planos em `saas_planos`
