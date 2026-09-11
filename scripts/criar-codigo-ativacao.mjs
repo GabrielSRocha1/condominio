@@ -3,11 +3,12 @@
    (valor cheio, fatura por e-mail, sem cartão) e é desativado
    automaticamente pelo backend no primeiro uso — um código por cliente.
 
-   Uso:  node scripts/criar-codigo-ativacao.mjs PAGO-JOAO26 [dias-validade]
+   Uso:  node scripts/criar-codigo-ativacao.mjs PAGO-JOAO26 [dias-validade] [--live]
          (dias-validade opcional: o código expira sozinho se não for usado)
 
    Letras, números e hífens; maiúsculas recomendadas. Lê STRIPE_SECRET_KEY
-   do .env — o código nasce no modo (test/live) da chave. */
+   do .env — o código nasce no modo (test/live) da chave. Com --live usa
+   STRIPE_SECRET_KEY_LIVE, sem precisar trocar a chave no .env. */
 import Stripe from "stripe";
 import { readFileSync } from "node:fs";
 
@@ -16,15 +17,23 @@ const env = Object.fromEntries(
     .filter((l) => l.includes("=") && !l.trim().startsWith("#"))
     .map((l) => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; })
 );
-const codigo = String(process.argv[2] || "").trim().toUpperCase();
-const dias = Number(process.argv[3]) || 0;
+const args = process.argv.slice(2);
+const live = args.includes("--live");
+const [codigoArg, diasArg] = args.filter((a) => a !== "--live");
+const codigo = String(codigoArg || "").trim().toUpperCase();
+const dias = Number(diasArg) || 0;
 if (!codigo || !/^[A-Z0-9-]{4,40}$/.test(codigo)) {
-  console.error("Informe o código (4-40 caracteres, letras/números/hífen). Ex.: node scripts/criar-codigo-ativacao.mjs PAGO-JOAO26 30");
+  console.error("Informe o código (4-40 caracteres, letras/números/hífen). Ex.: node scripts/criar-codigo-ativacao.mjs PAGO-JOAO26 30 [--live]");
   process.exit(1);
 }
 
-const stripe = new Stripe(env.STRIPE_SECRET_KEY);
-console.log(`Chave Stripe do .env: modo ${env.STRIPE_SECRET_KEY?.startsWith("sk_live") ? "LIVE" : "TEST"}`);
+const chave = live ? env.STRIPE_SECRET_KEY_LIVE : env.STRIPE_SECRET_KEY;
+if (live && !chave?.startsWith("sk_live")) {
+  console.error("--live exige STRIPE_SECRET_KEY_LIVE (sk_live_...) no .env.");
+  process.exit(1);
+}
+const stripe = new Stripe(chave);
+console.log(`Chave Stripe do .env: modo ${chave?.startsWith("sk_live") ? "LIVE" : "TEST"}`);
 
 /* o cupom é só o CONTÊINER exigido pela API para promotion codes existirem —
    o backend nunca o aplica como desconto (o código vira assinatura
