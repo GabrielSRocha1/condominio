@@ -106,7 +106,7 @@ export default {
   "Você pode apresentar defesa até": "您可在以下日期前提出申诉：",
   "Procure a administração do condomínio.": "请联系小区管理处。",
   "Movimentação de hoje": "今日出入记录", "Nenhum chamado aqui": "此处暂无工单", "sem custo lançado": "未录入费用",
-  "Nome fantasia *": "商用名称 *", "Razão social": "法定名称", "CNPJ *": "企业税号 *", "Seu CPF (diretor) *": "您的证件号（董事）*",
+  "Nome fantasia *": "商用名称 *", "Razão social": "法定名称", "CNPJ *": "企业税号 *", "CPF ou RG do diretor *": "您的证件号（董事）*",
   "Porte": "规模", "Endereço completo *": "完整地址 *", "Nome fantasia": "商用名称", "CNPJ": "企业税号",
   "Inscrição municipal": "市政登记号", "Torres / blocos": "楼栋", "Unidades / vagas": "单元 / 车位",
   "Endereço completo": "完整地址", "Administradora responsável": "负责的管理公司", "Síndico atual": "现任物业经理",

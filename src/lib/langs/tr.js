@@ -106,7 +106,7 @@ export default {
   "Você pode apresentar defesa até": "Şu tarihe kadar itiraz edebilirsiniz:",
   "Procure a administração do condomínio.": "Site yönetimine başvurun.",
   "Movimentação de hoje": "Bugünün hareketleri", "Nenhum chamado aqui": "Burada talep yok", "sem custo lançado": "maliyet girilmedi",
-  "Nome fantasia *": "Ticari ad *", "Razão social": "Resmi unvan", "CNPJ *": "Şirket vergi no *", "Seu CPF (diretor) *": "Kimlik numaranız (direktör) *",
+  "Nome fantasia *": "Ticari ad *", "Razão social": "Resmi unvan", "CNPJ *": "Şirket vergi no *", "CPF ou RG do diretor *": "Kimlik numaranız (direktör) *",
   "Porte": "Büyüklük", "Endereço completo *": "Tam adres *", "Nome fantasia": "Ticari ad", "CNPJ": "Şirket vergi no",
   "Inscrição municipal": "Belediye kaydı", "Torres / blocos": "Kuleler / bloklar", "Unidades / vagas": "Daireler / otoparklar",
   "Endereço completo": "Tam adres", "Administradora responsável": "Sorumlu yönetim şirketi", "Síndico atual": "Mevcut yönetici",

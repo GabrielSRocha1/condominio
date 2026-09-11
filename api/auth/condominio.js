@@ -4,7 +4,7 @@
    carimbado com o condominio_id, que passa a valer nas políticas de RLS.
 
    Blindagem (Etapa 1): payload validado deny-by-default (limites de tamanho,
-   formato de CNPJ/CPF), token pela lib central e refresh cookie reemitido com
+   formato de ID fiscal por país), token pela lib central e refresh cookie reemitido com
    o condomínio novo (a sessão antiga, sem condomínio, é revogada). */
 import { createClient } from "@supabase/supabase-js";
 import { corpoValidado } from "../_lib/validar.js";
@@ -29,8 +29,12 @@ export default async function handler(req, res) {
     const f = corpoValidado(res, typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {}), {
       nome:     { tipo: "texto", max: 120, obrigatorio: true },
       razao:    { tipo: "texto", max: 160 },
-      cnpj:     { tipo: "texto", max: 20, padrao: /^[\d./-]{11,20}$/, obrigatorio: true },
-      cpf:      { tipo: "texto", max: 16, padrao: /^[\d.-]{9,16}$/, obrigatorio: true },
+      /* Documentos da América Latina — cnpj: ID fiscal (CNPJ, RUC, NIT, CUIT,
+         RUT, RFC…); cpf: identidade do diretor (CPF, RG, CI, DNI, cédula…) —
+         letras cobrem RUT chileno (dígito K), RG com sufixo X ou prefixo de
+         estado e RFC mexicano; 18 é o varchar(18) das colunas cnpj/cpf_cnpj */
+      cnpj:     { tipo: "texto", max: 18, padrao: /^(?=.*\d)[A-Za-z0-9][A-Za-z0-9 ./-]{5,17}$/, obrigatorio: true },
+      cpf:      { tipo: "texto", max: 18, padrao: /^(?=.*\d)[A-Za-z0-9][A-Za-z0-9 .-]{4,17}$/, obrigatorio: true },
       endereco: { tipo: "texto", max: 300, obrigatorio: true },
       tipo:     { tipo: "enum", valores: ["Residencial", "Comercial", "Misto"] },
       porte:    { tipo: "enum", valores: ["Alto padrão", "Médio padrão", "Baixo padrão"] },

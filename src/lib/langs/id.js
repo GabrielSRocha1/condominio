@@ -106,7 +106,7 @@ export default {
   "Você pode apresentar defesa até": "Anda dapat mengajukan pembelaan hingga",
   "Procure a administração do condomínio.": "Hubungi pengelola kompleks.",
   "Movimentação de hoje": "Aktivitas hari ini", "Nenhum chamado aqui": "Tidak ada permintaan di sini", "sem custo lançado": "belum ada biaya dicatat",
-  "Nome fantasia *": "Nama usaha *", "Razão social": "Nama resmi", "CNPJ *": "NPWP perusahaan *", "Seu CPF (diretor) *": "No. identitas Anda (direktur) *",
+  "Nome fantasia *": "Nama usaha *", "Razão social": "Nama resmi", "CNPJ *": "NPWP perusahaan *", "CPF ou RG do diretor *": "No. identitas Anda (direktur) *",
   "Porte": "Ukuran", "Endereço completo *": "Alamat lengkap *", "Nome fantasia": "Nama usaha", "CNPJ": "NPWP perusahaan",
   "Inscrição municipal": "Registrasi kota", "Torres / blocos": "Menara / blok", "Unidades / vagas": "Unit / parkir",
   "Endereço completo": "Alamat lengkap", "Administradora responsável": "Perusahaan pengelola", "Síndico atual": "Pengelola saat ini",

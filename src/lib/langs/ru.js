@@ -106,7 +106,7 @@ export default {
   "Você pode apresentar defesa até": "Вы можете подать возражение до",
   "Procure a administração do condomínio.": "Обратитесь в администрацию ЖК.",
   "Movimentação de hoje": "Сегодняшние события", "Nenhum chamado aqui": "Заявок нет", "sem custo lançado": "затраты не указаны",
-  "Nome fantasia *": "Коммерческое название *", "Razão social": "Юридическое название", "CNPJ *": "ИНН организации *", "Seu CPF (diretor) *": "Ваш ИНН/паспорт (директор) *",
+  "Nome fantasia *": "Коммерческое название *", "Razão social": "Юридическое название", "CNPJ *": "ИНН организации *", "CPF ou RG do diretor *": "Ваш ИНН/паспорт (директор) *",
   "Porte": "Размер", "Endereço completo *": "Полный адрес *", "Nome fantasia": "Коммерческое название", "CNPJ": "ИНН организации",
   "Inscrição municipal": "Муниципальная регистрация", "Torres / blocos": "Башни / корпуса", "Unidades / vagas": "Квартиры / парковочные места",
   "Endereço completo": "Полный адрес", "Administradora responsável": "Управляющая компания", "Síndico atual": "Текущий управляющий",

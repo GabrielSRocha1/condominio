@@ -106,7 +106,7 @@ export default {
   "Você pode apresentar defesa até": "Sie können bis zum folgenden Datum Einspruch einlegen:",
   "Procure a administração do condomínio.": "Wenden Sie sich an die Hausverwaltung.",
   "Movimentação de hoje": "Heutige Bewegungen", "Nenhum chamado aqui": "Keine Anfragen hier", "sem custo lançado": "keine Kosten erfasst",
-  "Nome fantasia *": "Firmenname *", "Razão social": "Rechtlicher Name", "CNPJ *": "Steuernr. des Unternehmens *", "Seu CPF (diretor) *": "Ihre Steuernr. (Direktor) *",
+  "Nome fantasia *": "Firmenname *", "Razão social": "Rechtlicher Name", "CNPJ *": "Steuernr. des Unternehmens *", "CPF ou RG do diretor *": "Ihre Steuer- oder Ausweisnr. (Direktor) *",
   "Porte": "Größe", "Endereço completo *": "Vollständige Adresse *", "Nome fantasia": "Firmenname", "CNPJ": "Steuernr. des Unternehmens",
   "Inscrição municipal": "Kommunale Registrierung", "Torres / blocos": "Türme / Blöcke", "Unidades / vagas": "Einheiten / Stellplätze",
   "Endereço completo": "Vollständige Adresse", "Administradora responsável": "Zuständige Hausverwaltung", "Síndico atual": "Aktueller Verwalter",

@@ -106,7 +106,7 @@ export default {
   "Você pode apresentar defesa até": "يمكنك تقديم اعتراض حتى",
   "Procure a administração do condomínio.": "تواصل مع إدارة المجمّع.",
   "Movimentação de hoje": "حركة اليوم", "Nenhum chamado aqui": "لا طلبات هنا", "sem custo lançado": "لا تكلفة مسجّلة",
-  "Nome fantasia *": "الاسم التجاري *", "Razão social": "الاسم القانوني", "CNPJ *": "الرقم الضريبي للشركة *", "Seu CPF (diretor) *": "رقم هويتك (المدير) *",
+  "Nome fantasia *": "الاسم التجاري *", "Razão social": "الاسم القانوني", "CNPJ *": "الرقم الضريبي للشركة *", "CPF ou RG do diretor *": "رقم هويتك (المدير) *",
   "Porte": "الحجم", "Endereço completo *": "العنوان الكامل *", "Nome fantasia": "الاسم التجاري", "CNPJ": "الرقم الضريبي للشركة",
   "Inscrição municipal": "التسجيل البلدي", "Torres / blocos": "الأبراج / المباني", "Unidades / vagas": "الوحدات / المواقف",
   "Endereço completo": "العنوان الكامل", "Administradora responsável": "شركة الإدارة المسؤولة", "Síndico atual": "مدير المبنى الحالي",

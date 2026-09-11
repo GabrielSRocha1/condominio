@@ -639,8 +639,8 @@ function SetupCondominio({ t, role, diretor, onCriado, onSair, dark, setDark }) 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field t={t} label="Nome fantasia *"><input name="nome" required placeholder="Ex.: Residencial Águas Claras" style={inputStyle(t)} /></Field>
                 <Field t={t} label="Razão social"><input name="razao" placeholder="Se diferente do nome" style={inputStyle(t)} /></Field>
-                <Field t={t} label="CNPJ *"><input name="cnpj" required placeholder="00.000.000/0000-00" style={inputStyle(t)} /></Field>
-                <Field t={t} label="Seu CPF (diretor) *"><input name="cpf" required placeholder="000.000.000-00" style={inputStyle(t)} /></Field>
+                <Field t={t} label="CNPJ *"><input name="cnpj" required maxLength={18} placeholder="CNPJ, RUC, NIT, CUIT, RUT…" style={inputStyle(t)} /></Field>
+                <Field t={t} label="CPF ou RG do diretor *"><input name="cpf" required maxLength={18} placeholder="CPF, RG, CI, DNI…" style={inputStyle(t)} /></Field>
                 <Field t={t} label="Tipo"><select name="tipo" style={inputStyle(t)}><option>Residencial</option><option>Comercial</option><option>Misto</option></select></Field>
                 <Field t={t} label="Porte"><select name="porte" style={inputStyle(t)}><option>Médio padrão</option><option>Alto padrão</option><option>Baixo padrão</option></select></Field>
               </div>

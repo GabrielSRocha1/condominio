@@ -106,7 +106,7 @@ export default {
   "Você pode apresentar defesa até": "다음 날짜까지 소명할 수 있습니다:",
   "Procure a administração do condomínio.": "관리사무소에 문의하세요.",
   "Movimentação de hoje": "오늘의 출입", "Nenhum chamado aqui": "민원이 없습니다", "sem custo lançado": "비용 미등록",
-  "Nome fantasia *": "상호 *", "Razão social": "법인명", "CNPJ *": "사업자 번호 *", "Seu CPF (diretor) *": "본인 신분증 번호(이사장) *",
+  "Nome fantasia *": "상호 *", "Razão social": "법인명", "CNPJ *": "사업자 번호 *", "CPF ou RG do diretor *": "본인 신분증 번호(이사장) *",
   "Porte": "규모", "Endereço completo *": "전체 주소 *", "Nome fantasia": "상호", "CNPJ": "사업자 번호",
   "Inscrição municipal": "시 등록 번호", "Torres / blocos": "동", "Unidades / vagas": "세대 / 주차면",
   "Endereço completo": "전체 주소", "Administradora responsável": "담당 관리회사", "Síndico atual": "현 관리소장",

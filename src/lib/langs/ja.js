@@ -106,7 +106,7 @@ export default {
   "Você pode apresentar defesa até": "次の期日まで異議申立てができます：",
   "Procure a administração do condomínio.": "管理事務所にお問い合わせください。",
   "Movimentação de hoje": "本日の入退館", "Nenhum chamado aqui": "依頼はありません", "sem custo lançado": "費用未計上",
-  "Nome fantasia *": "通称名 *", "Razão social": "正式名称", "CNPJ *": "法人番号 *", "Seu CPF (diretor) *": "あなたの身分証番号（理事長）*",
+  "Nome fantasia *": "通称名 *", "Razão social": "正式名称", "CNPJ *": "法人番号 *", "CPF ou RG do diretor *": "あなたの身分証番号（理事長）*",
   "Porte": "規模", "Endereço completo *": "住所 *", "Nome fantasia": "通称名", "CNPJ": "法人番号",
   "Inscrição municipal": "市登録番号", "Torres / blocos": "棟", "Unidades / vagas": "住戸 / 駐車場",
   "Endereço completo": "住所", "Administradora responsável": "担当管理会社", "Síndico atual": "現管理者",

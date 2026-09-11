@@ -106,7 +106,7 @@ export default {
   "Você pode apresentar defesa até": "এই তারিখ পর্যন্ত আপত্তি জানাতে পারবেন:",
   "Procure a administração do condomínio.": "আবাসন কর্তৃপক্ষের সাথে যোগাযোগ করুন।",
   "Movimentação de hoje": "আজকের গতিবিধি", "Nenhum chamado aqui": "এখানে কোনো অনুরোধ নেই", "sem custo lançado": "কোনো খরচ লেখা হয়নি",
-  "Nome fantasia *": "ব্যবসায়িক নাম *", "Razão social": "আইনি নাম", "CNPJ *": "কোম্পানির কর নম্বর *", "Seu CPF (diretor) *": "আপনার পরিচয়পত্র নম্বর (পরিচালক) *",
+  "Nome fantasia *": "ব্যবসায়িক নাম *", "Razão social": "আইনি নাম", "CNPJ *": "কোম্পানির কর নম্বর *", "CPF ou RG do diretor *": "আপনার পরিচয়পত্র নম্বর (পরিচালক) *",
   "Porte": "আকার", "Endereço completo *": "পূর্ণ ঠিকানা *", "Nome fantasia": "ব্যবসায়িক নাম", "CNPJ": "কোম্পানির কর নম্বর",
   "Inscrição municipal": "পৌর নিবন্ধন", "Torres / blocos": "টাওয়ার / ব্লক", "Unidades / vagas": "ইউনিট / পার্কিং",
   "Endereço completo": "পূর্ণ ঠিকানা", "Administradora responsável": "দায়িত্বপ্রাপ্ত ব্যবস্থাপনা কোম্পানি", "Síndico atual": "বর্তমান ব্যবস্থাপক",

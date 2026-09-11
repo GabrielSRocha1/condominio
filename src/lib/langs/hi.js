@@ -106,7 +106,7 @@ export default {
   "Você pode apresentar defesa até": "आप इस तारीख़ तक आपत्ति दर्ज कर सकते हैं:",
   "Procure a administração do condomínio.": "सोसाइटी प्रशासन से संपर्क करें।",
   "Movimentação de hoje": "आज की गतिविधि", "Nenhum chamado aqui": "यहाँ कोई अनुरोध नहीं", "sem custo lançado": "कोई लागत दर्ज नहीं",
-  "Nome fantasia *": "व्यावसायिक नाम *", "Razão social": "कानूनी नाम", "CNPJ *": "कंपनी कर संख्या *", "Seu CPF (diretor) *": "आपकी पहचान संख्या (निदेशक) *",
+  "Nome fantasia *": "व्यावसायिक नाम *", "Razão social": "कानूनी नाम", "CNPJ *": "कंपनी कर संख्या *", "CPF ou RG do diretor *": "आपकी पहचान संख्या (निदेशक) *",
   "Porte": "आकार", "Endereço completo *": "पूरा पता *", "Nome fantasia": "व्यावसायिक नाम", "CNPJ": "कंपनी कर संख्या",
   "Inscrição municipal": "नगरपालिका पंजीकरण", "Torres / blocos": "टावर / ब्लॉक", "Unidades / vagas": "यूनिट / पार्किंग",
   "Endereço completo": "पूरा पता", "Administradora responsável": "ज़िम्मेदार प्रबंधन कंपनी", "Síndico atual": "वर्तमान प्रबंधक",

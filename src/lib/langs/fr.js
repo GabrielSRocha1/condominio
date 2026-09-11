@@ -106,7 +106,7 @@ export default {
   "Você pode apresentar defesa até": "Vous pouvez présenter une défense jusqu'au",
   "Procure a administração do condomínio.": "Contactez l'administration de la copropriété.",
   "Movimentação de hoje": "Mouvements du jour", "Nenhum chamado aqui": "Aucune demande ici", "sem custo lançado": "aucun coût enregistré",
-  "Nome fantasia *": "Nom commercial *", "Razão social": "Raison sociale", "CNPJ *": "Nº fiscal de l'entreprise *", "Seu CPF (diretor) *": "Votre nº fiscal (directeur) *",
+  "Nome fantasia *": "Nom commercial *", "Razão social": "Raison sociale", "CNPJ *": "Nº fiscal de l'entreprise *", "CPF ou RG do diretor *": "Nº fiscal ou pièce d'identité (directeur) *",
   "Porte": "Taille", "Endereço completo *": "Adresse complète *", "Nome fantasia": "Nom commercial", "CNPJ": "Nº fiscal de l'entreprise",
   "Inscrição municipal": "Immatriculation municipale", "Torres / blocos": "Tours / bâtiments", "Unidades / vagas": "Unités / places",
   "Endereço completo": "Adresse complète", "Administradora responsável": "Société gestionnaire", "Síndico atual": "Syndic actuel",

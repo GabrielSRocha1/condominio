@@ -160,7 +160,7 @@ const EN = {
   "Movimentação de hoje": "Today's activity", "Nenhum chamado aqui": "No requests here", "sem custo lançado": "no cost recorded",
 
   /* campos de formulário */
-  "Nome fantasia *": "Trade name *", "Razão social": "Legal name", "CNPJ *": "Company tax ID *", "Seu CPF (diretor) *": "Your tax ID (director) *",
+  "Nome fantasia *": "Trade name *", "Razão social": "Legal name", "CNPJ *": "Company tax ID *", "CPF ou RG do diretor *": "Your tax ID or ID card (director) *",
   "Porte": "Size", "Endereço completo *": "Full address *", "Nome fantasia": "Trade name", "CNPJ": "Company tax ID",
   "Inscrição municipal": "Municipal registration", "Torres / blocos": "Towers / blocks", "Unidades / vagas": "Units / parking spots",
   "Endereço completo": "Full address", "Administradora responsável": "Managing company", "Síndico atual": "Current manager",
@@ -359,8 +359,8 @@ const ES = {
   "Movimentação de hoje": "Movimiento de hoy", "Nenhum chamado aqui": "Ninguna solicitud aquí", "sem custo lançado": "sin costo registrado",
 
   /* campos de formulário */
-  "Nome fantasia *": "Nombre comercial *", "Razão social": "Razón social", "CNPJ *": "RUC/CNPJ *", "Seu CPF (diretor) *": "Su documento (director) *",
-  "Porte": "Tamaño", "Endereço completo *": "Dirección completa *", "Nome fantasia": "Nombre comercial", "CNPJ": "RUC/CNPJ",
+  "Nome fantasia *": "Nombre comercial *", "Razão social": "Razón social", "CNPJ *": "RUC/NIT/CUIT/RUT *", "CPF ou RG do diretor *": "Su documento (director) *",
+  "Porte": "Tamaño", "Endereço completo *": "Dirección completa *", "Nome fantasia": "Nombre comercial", "CNPJ": "ID fiscal",
   "Inscrição municipal": "Registro municipal", "Torres / blocos": "Torres / bloques", "Unidades / vagas": "Unidades / plazas",
   "Endereço completo": "Dirección completa", "Administradora responsável": "Gestora responsable", "Síndico atual": "Administrador actual",
   "Diretor administrativo": "Director administrativo", "Início da gestão": "Inicio de la gestión", 
