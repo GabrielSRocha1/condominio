@@ -43,7 +43,7 @@ idiomas, instalável como PWA.
 | `emergencia-sessoes.mjs` | resposta a incidente: revoga sessões em massa |
 | `verificar-segredos-bundle.mjs` | confere que nenhum segredo vazou no build |
 | `preparar-stripe-producao.mjs` | provisiona a conta Stripe (test ou `--live`) |
-| `criar-codigo-ativacao.mjs` | gera código de ativação por cliente |
+| `criar-codigo-ativacao.mjs` | gera código de ativação por cliente (test ou `--live`) |
 | `supabase-limpar-dados.sql` + `limpar-storage.mjs` | zera dados de teste |
 
 ## Documentação
