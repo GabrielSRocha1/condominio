@@ -73,6 +73,16 @@ no front, sem escopo PCI). Diagnóstico: `GET /api/auth/diag`.
 
 ## 4. Passo a passo de ativação
 
+> **Status (11/set/2026): PRODUÇÃO ATIVA.** Catálogo live provisionado
+> (products/prices conferem com `saas_planos`), 2 webhooks live registrados,
+> conta da plataforma com charges+payouts habilitados e a Vercel rodando com
+> `sk_live_` — primeira assinatura live criada em 09/09 (código de ativação,
+> `send_invoice`). O `.env` local permanece em TEST (dev não toca dinheiro
+> real; scripts admin usam `--live`). Pendências: confirmar na dashboard as
+> entregas 200 dos webhooks live; Pix da conta da plataforma ainda
+> "indisponível" (exige solicitação); 1 conta conectada live com onboarding
+> incompleto (`charges_enabled: false` — cliente precisa concluir o KYC).
+
 1. **Banco** — o schema atual (`supabase-schema.sql`) já traz enums, colunas
    e RPC da Stripe. Confira os **preços BRL** dos planos em `saas_planos`
    (seed do schema) antes do passo 3.
