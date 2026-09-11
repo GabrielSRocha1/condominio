@@ -83,12 +83,15 @@ no front, sem escopo PCI). Diagnóstico: `GET /api/auth/diag`.
 > "indisponível" (exige solicitação); 1 conta conectada live com onboarding
 > incompleto (`charges_enabled: false` — cliente precisa concluir o KYC).
 > **Constatado e RESOLVIDO em 11/09**: as entregas live falhavam 401 desde
-> 09/09 (whsec_ errados na Vercel). Corrigido: signing secrets revelados na
-> dashboard e colados na Vercel + redeploy; sonda cruzada confirmou os dois
-> endpoints validando o próprio secret (200) e rejeitando o do outro (401).
-> Os whsec_ live ficam na Vercel, com cópia de referência no `.env` local
-> (`STRIPE_*_SECRET_LIVE`). Eventos perdidos voltam pelas retentativas
-> automáticas ou "Resend" manual.
+> 09/09 (whsec_ errados na Vercel). O "Reveal" da dashboard devolvia um
+> valor que NÃO batia com a assinatura real das entregas — a saída foi
+> recriar os endpoints via `scripts/recriar-webhooks-live.mjs --executar`
+> (o secret vem na resposta da API, sem ambiguidade), colar os novos na
+> Vercel + redeploy; sonda cruzada confirmou os dois endpoints validando o
+> próprio secret (200) e rejeitando o do outro (401). Os whsec_ live ficam
+> na Vercel, com cópia de referência no `.env` (`STRIPE_*_SECRET_LIVE`).
+> Eventos falhados dos endpoints antigos não fazem falta (account.updated
+> de estado que não mudou; licença sincronizada na ativação).
 
 1. **Banco** — o schema atual (`supabase-schema.sql`) já traz enums, colunas
    e RPC da Stripe. Confira os **preços BRL** dos planos em `saas_planos`
