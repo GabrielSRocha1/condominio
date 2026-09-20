@@ -903,6 +903,58 @@ export async function criarPessoa(ctx, f) {
   if (f.unidade) await salvarResponsavelUnidade(ctx, f.unidade, p.id);
 }
 
+/* Importação em massa (planilha da tela Pessoas). Segue o molde criarUnidade:
+   pré-consulta duplicados num SELECT, um insert(array) de pessoas e um de
+   vínculos. Diferenças deliberadas em relação a criarPessoa: documento já
+   cadastrado é PULADO (nunca atualizado) e o responsável financeiro só é
+   definido em unidade que ainda não tem um — um lote nunca reatribui. */
+export async function importarPessoas(ctx, linhas) {
+  if (!linhas.length) return { criadas: 0, puladas: 0, responsaveisDefinidos: 0 };
+  if (linhas.length > 500) throw new Error("Máximo de 500 pessoas por importação.");
+
+  const jaExistem = await q(supabase.from("pessoas").select("cpf_cnpj")
+    .eq("condominio_id", ctx.condominioId).in("cpf_cnpj", linhas.map((l) => l.doc)), "pessoas");
+  const existentes = new Set(jaExistem.map((p) => p.cpf_cnpj));
+  const novas = linhas.filter((l) => !existentes.has(l.doc));
+  const puladas = linhas.length - novas.length;
+  if (!novas.length) return { criadas: 0, puladas, responsaveisDefinidos: 0 };
+
+  const hoje = new Date().toISOString().slice(0, 10);
+  const criadas = await q(supabase.from("pessoas").insert(novas.map((l) => ({
+    condominio_id: ctx.condominioId, nome: l.nome,
+    tipo_pessoa: String(l.doc).replace(/\D/g, "").length > 11 ? "juridica" : "fisica",
+    cpf_cnpj: l.doc, telefone: l.tel || null, email: l.email || null,
+  }))).select("id, cpf_cnpj"), "pessoas");
+  const idPorDoc = Object.fromEntries(criadas.map((p) => [p.cpf_cnpj, p.id]));
+
+  try {
+    await q(supabase.from("pessoa_vinculos").insert(novas.map((l) => ({
+      condominio_id: ctx.condominioId, pessoa_id: idPorDoc[l.doc],
+      unidade_id: l.unidadeId || null, papel: PAPEL_ENUM[l.papel] || "morador",
+      inicio: l.inicio || hoje,
+    }))).select("id"), "pessoa_vinculos");
+  } catch (e) {
+    /* sem transação no client: desfaz as pessoas para não deixar cadastro sem vínculo */
+    await supabase.from("pessoas").delete().in("id", criadas.map((p) => p.id));
+    throw e;
+  }
+
+  const prioridade = (papel) => (papel === "Proprietário" ? 0 : papel === "Inquilino" ? 1 : 2);
+  const vencedores = new Map(); // unidadeId → linha que vira responsável financeiro
+  for (const l of novas) {
+    if (!l.unidadeId) continue;
+    const u = ctx.unidades.find((x) => x.id === l.unidadeId);
+    if (!u || u.responsavelId) continue; // unidade já tem responsável — não mexe
+    const atual = vencedores.get(l.unidadeId);
+    if (!atual || prioridade(l.papel) < prioridade(atual.papel)) vencedores.set(l.unidadeId, l);
+  }
+  await Promise.all([...vencedores.entries()].map(([unidadeId, l]) =>
+    q(supabase.from("unidades").update({ responsavel_financeiro_id: idPorDoc[l.doc] })
+      .eq("id", unidadeId).select(), "unidades")));
+
+  return { criadas: novas.length, puladas, responsaveisDefinidos: vencedores.size };
+}
+
 /* Edição: atualiza o cadastro e o vínculo principal (papel/unidade/início).
    Documento novo substitui o anterior; sem arquivo, o atual é mantido. */
 export async function atualizarPessoa(ctx, pessoa, f) {

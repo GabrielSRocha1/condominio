@@ -24,8 +24,9 @@ import {
   obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
-  salvarPreferencias,
+  salvarPreferencias, importarPessoas,
 } from "./src/lib/api.js";
+import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
 import { geoCache } from "./src/lib/geo.js";
@@ -1332,6 +1333,7 @@ function Pessoas({ t }) {
   const { db, reload } = useData();
   const [q, setQ] = useState(""); const [papel, setPapel] = useState("todos"); const [novo, setNovo] = useState(false);
   const [edit, setEdit] = useState(null); // pessoa em edição — reutiliza o mesmo popup de criar
+  const [importar, setImportar] = useState(false); // modal de importação em massa (planilha)
   const fechar = () => { setNovo(false); setEdit(null); };
   const [salvar, saving] = useSubmit(async (f) => {
     if (edit) await atualizarPessoa(db.ctx, edit, f); else await criarPessoa(db.ctx, f);
@@ -1350,7 +1352,10 @@ function Pessoas({ t }) {
   return (
     <div className="vfade">
       <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por nome…"
-        action={<Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Pessoa</Btn>}>
+        action={<>
+          <Btn t={t} onClick={() => setImportar(true)}><Upload size={15} /> Importar</Btn>
+          <Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Pessoa</Btn>
+        </>}>
         <Sel t={t} value={papel} onChange={setPapel} opts={[["todos","Todos os papéis"], ...papeis.map((p) => [p, p])]} />
       </Toolbar>
       <Tbl t={t} cols={[{k:"nome",l:"Nome"},{k:"papel",l:"Papel"},{k:"unidade",l:"Unidade"},{k:"doc",l:"Identificação (CI)"},{k:"tel",l:"Telefone"},{k:"arquivo",l:"Documento"},{k:"status",l:"Status"}]}
@@ -1390,7 +1395,157 @@ function Pessoas({ t }) {
               <Btn t={t} kind="primary" type="submit" disabled={saving || excluindo}><Check size={14} /> {saving ? "Salvando…" : edit ? "Salvar alterações" : "Cadastrar"}</Btn></div>
           </form>
         </Modal>)}
+      {importar && <ImportarPessoas t={t} onClose={() => setImportar(false)} />}
     </div>
+  );
+}
+
+/* Importação em massa: baixar modelo .xlsx → enviar preenchido → prévia
+   validada linha a linha → importar só as válidas → resultado. Estados
+   próprios no lugar do useSubmit — a prévia é o feedback, não alert(). */
+function ImportarPessoas({ t, onClose }) {
+  const { db, reload } = useData();
+  const [passo, setPasso] = useState("inicio"); // inicio | previa | resultado
+  const [gerando, setGerando] = useState(false);
+  const [lendo, setLendo] = useState(false);
+  const [erro, setErro] = useState("");
+  const [previa, setPrevia] = useState(null); // { linhas, errosGerais }
+  const [importando, setImportando] = useState(false);
+  const [resultado, setResultado] = useState(null);
+  const [drag, setDrag] = useState(false);
+  const [fechando, setFechando] = useState(false);
+
+  const baixarModelo = async () => {
+    setErro(""); setGerando(true);
+    try { await gerarModeloPessoas(db.ctx); }
+    catch (e) { setErro(e?.message || String(e)); }
+    finally { setGerando(false); }
+  };
+
+  const receberArquivo = async (file) => {
+    if (!file || lendo) return;
+    setErro(""); setLendo(true);
+    try {
+      const r = await lerPlanilhaPessoas(file, db.ctx, db.pessoas);
+      if (!r.linhas.length) { setErro(r.errosGerais.join(" ") || L("Nenhuma linha preenchida encontrada na planilha.")); return; }
+      /* erros primeiro, depois as puladas — o que precisa de atenção fica no topo */
+      const ordem = { erro: 0, duplicada: 1, ok: 2 };
+      r.linhas.sort((a, b) => ordem[a.status] - ordem[b.status] || a.n - b.n);
+      setPrevia(r); setPasso("previa");
+    } catch (e) { setErro(e?.message || String(e)); }
+    finally { setLendo(false); }
+  };
+
+  const validas = previa?.linhas.filter((l) => l.status === "ok") || [];
+  const duplicadas = previa?.linhas.filter((l) => l.status === "duplicada") || [];
+  const comErro = previa?.linhas.filter((l) => l.status === "erro") || [];
+
+  const confirmar = async () => {
+    setErro(""); setImportando(true);
+    try {
+      const res = await importarPessoas(db.ctx, validas);
+      setResultado({ ...res, puladas: res.puladas + duplicadas.length, avisos: previa.linhas.flatMap((l) => l.avisos) });
+      setPasso("resultado");
+    } catch (e) { setErro(e?.message || String(e)); }
+    finally { setImportando(false); }
+  };
+
+  const concluir = async () => {
+    setFechando(true);
+    try { await reload(); } finally { onClose(); }
+  };
+
+  const chip = (n, cor, texto) => (
+    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+      style={{ background: cor + "1E", color: cor }}><CircleDot size={9} /> {n} {L(texto)}</span>
+  );
+  const SITUACAO = { ok: ["ok", "Pronta"], duplicada: ["warn", "Já cadastrada"], erro: ["danger", "Com erro"] };
+
+  return (
+    <Modal t={t} onClose={passo === "resultado" ? concluir : onClose} wide>
+      <ModalHeader t={t} title="Importar pessoas" onClose={passo === "resultado" ? concluir : onClose} />
+
+      {passo === "inicio" && (
+        <div className="space-y-3">
+          <Card t={t}>
+            <div className="text-sm font-semibold">{L("1. Baixe o modelo")}</div>
+            <div className="mt-1 text-xs" style={{ color: t.dim }}>{L("O modelo já vem com os papéis e as unidades do seu condomínio em listas de seleção.")}</div>
+            <div className="mt-3"><Btn t={t} kind="soft" onClick={baixarModelo} disabled={gerando}>
+              <Download size={14} /> {gerando ? "Gerando…" : "Baixar modelo (.xlsx)"}</Btn></div>
+          </Card>
+          <Card t={t}>
+            <div className="text-sm font-semibold">{L("2. Envie a planilha preenchida")}</div>
+            <label className="mt-3 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-8 text-xs"
+              style={{ borderColor: drag ? t.gold : t.borderSoft, color: drag ? t.gold : t.dim, background: drag ? t.goldSoft : "transparent" }}
+              onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+              onDragLeave={() => setDrag(false)}
+              onDrop={(e) => { e.preventDefault(); setDrag(false); receberArquivo(e.dataTransfer.files?.[0]); }}>
+              <input type="file" accept=".xlsx,.csv" className="hidden"
+                onChange={(e) => { receberArquivo(e.target.files?.[0]); e.target.value = ""; }} />
+              <Upload size={22} />
+              <span>{lendo ? L("Lendo arquivo…") : L("Clique para escolher ou arraste o arquivo aqui")}</span>
+              <span style={{ color: t.dim }}>.xlsx / .csv · {L("Até 500 pessoas por importação.")}</span>
+            </label>
+            {erro && <div className="mt-2 text-xs font-medium" style={{ color: t.danger }}>{erro}</div>}
+          </Card>
+        </div>
+      )}
+
+      {passo === "previa" && previa && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {chip(validas.length, t.ok, "prontas para importar")}
+            {duplicadas.length > 0 && chip(duplicadas.length, t.warn, "já cadastradas — serão puladas")}
+            {comErro.length > 0 && chip(comErro.length, t.danger, "com erro — ficarão de fora")}
+          </div>
+          {previa.errosGerais.map((g, i) => (
+            <div key={i} className="text-xs font-medium" style={{ color: t.warn }}>{g}</div>
+          ))}
+          <div className="max-h-[45vh] overflow-y-auto">
+            <Tbl t={t} cols={[{k:"n",l:"Linha"},{k:"nome",l:"Nome"},{k:"doc",l:"Documento (CPF, RG ou CI)"},{k:"papel",l:"Papel"},{k:"unidadeTxt",l:"Unidade"},{k:"status",l:"Situação"}]}
+              rows={previa.linhas} empty={null}
+              renderCell={(r, k) => {
+                if (k === "status") {
+                  const [cor, label] = SITUACAO[r.status];
+                  return (<div className="text-right md:text-left">
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium"
+                      style={{ background: t[cor] + "1E", color: t[cor] }}><CircleDot size={9} /> {L(label)}</span>
+                    {r.erros.map((e, i) => <div key={i} className="mt-0.5 text-xs" style={{ color: t.danger }}>{e}</div>)}
+                  </div>);
+                }
+                if (k === "papel") return L(r.papel);
+                if (k === "unidadeTxt") return r.unidadeTxt || "—";
+                return r[k] || "—";
+              }} />
+          </div>
+          {erro && <div className="text-xs font-medium" style={{ color: t.danger }}>{erro}</div>}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Btn t={t} onClick={() => { setPrevia(null); setErro(""); setPasso("inicio"); }} disabled={importando}>Voltar</Btn>
+            <Btn t={t} kind="primary" onClick={confirmar} disabled={!validas.length || importando}>
+              <Check size={14} /> {importando ? L("Importando…") : `${L("Importar")} ${validas.length} ${L("pessoa(s)")}`}</Btn>
+          </div>
+        </div>
+      )}
+
+      {passo === "resultado" && resultado && (
+        <div className="space-y-3 text-center">
+          <CheckCircle2 size={34} color={t.ok} className="mx-auto" />
+          <div className="text-sm font-semibold">{L("Importação concluída")}</div>
+          <div className="text-sm">
+            <b>{resultado.criadas}</b> {L("pessoa(s) criada(s)")}
+            {resultado.puladas > 0 && <> · {resultado.puladas} {L("pessoa(s) pulada(s) — já cadastradas")}</>}
+            {resultado.responsaveisDefinidos > 0 && <> · {resultado.responsaveisDefinidos} {L("unidade(s) ganharam responsável financeiro")}</>}
+          </div>
+          {resultado.avisos.length > 0 && (
+            <div className="mx-auto max-w-md rounded-xl p-3 text-left text-xs" style={{ background: t.warn + "14", color: t.warn }}>
+              <b>{L("Avisos:")}</b>
+              {resultado.avisos.map((a, i) => <div key={i} className="mt-1">{a}</div>)}
+            </div>
+          )}
+          <Btn t={t} kind="primary" onClick={concluir} disabled={fechando}><Check size={14} /> Concluir</Btn>
+        </div>
+      )}
+    </Modal>
   );
 }
 
