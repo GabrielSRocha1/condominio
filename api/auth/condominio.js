@@ -9,6 +9,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { corpoValidado } from "../_lib/validar.js";
 import { assinarToken, lerClaimsReq, emitirRefresh, revogarRefresh, origemBloqueada, logSeguro, auditar, ipDoRequest } from "../_lib/seguranca.js";
+import { resolverGeo } from "../_lib/geo.js";
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
 
@@ -48,9 +49,15 @@ export default async function handler(req, res) {
       .select("id, email, pessoa_id").eq("id", claims.sub).maybeSingle();
     if (eU || !usuario) return res.status(401).json({ error: "Conta não encontrada — entre de novo." });
 
+    /* moeda de gestão inicial pelo país do IP de quem está cadastrando — é só
+       a semente do campo em Dados gerais, que o diretor confere e pode trocar.
+       Daqui em diante quem manda é o valor salvo: nada aqui sobrescreve um
+       condomínio existente, porque só existe no insert. */
+    const moedaInicial = resolverGeo(req).moeda || "USD";
     const { data: cond, error: e1 } = await supabase.from("condominios").insert({
       nome_fantasia: f.nome, razao_social: f.razao || f.nome, cnpj: f.cnpj,
       endereco: { texto: f.endereco }, tipo: TIPO[f.tipo] || "residencial", porte: PORTE[f.porte] || "medio",
+      regras_internas: { moeda: moedaInicial },
     }).select().single();
     if (e1) throw new Error(e1.message);
 

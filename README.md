@@ -28,6 +28,10 @@ idiomas, instalável como PWA.
    4. `supabase-seguranca.sql` → `supabase-seguranca2.sql` → `supabase-seguranca3.sql`
       — sessões/refresh, idempotência de API e auditoria imutável (detalhes no
       `SEGURANCA.md`)
+
+   Banco **já instalado**? Não re-rode o schema inteiro — rode apenas o
+   `alter table usuarios add column if not exists preferencias …` que vem logo
+   abaixo do `create table usuarios` (guarda o idioma escolhido por cada conta).
 4. **Stripe** — `node scripts/preparar-stripe-producao.mjs --executar` cria
    products/prices, o promotion code de ativação manual e os 2 webhooks
    (guarde os `whsec_` no `.env`). Passo a passo completo no `STRIPE-INTEGRACAO.md`.
@@ -39,6 +43,7 @@ idiomas, instalável como PWA.
 |---|---|
 | `seed.mjs` | popula dados de demonstração |
 | `testar-seguranca.mjs` / `2` / `3` | sondas de regressão das etapas de segurança |
+| `testar-idioma-moeda.mjs` | sondas do idioma por IP, da preferência no banco e da semente de moeda |
 | `relatorio-seguranca.mjs` | auditoria semanal (sessões, eventos, anomalias) |
 | `emergencia-sessoes.mjs` | resposta a incidente: revoga sessões em massa |
 | `verificar-segredos-bundle.mjs` | confere que nenhum segredo vazou no build |

@@ -14,7 +14,17 @@ import TR from "./langs/tr.js";
 import ID from "./langs/id.js";
 import BN from "./langs/bn.js";
 
+/* Duas chaves com significados que não se misturam:
+   cm_lang      = ESCOLHA da pessoa (seletor de idioma ou preferência do banco)
+   cm_lang_auto = detecção automática pelo país do IP (src/lib/idioma-boot.js)
+   A escolha sempre vence, e a detecção nunca a sobrescreve. Separar as duas
+   também mantém um bundle antigo (service worker) se comportando como antes:
+   ele lê só cm_lang e ignora o que foi detectado. */
 const K_LANG = "cm_lang";
+const K_AUTO = "cm_lang_auto";
+
+const ler = (k) => { try { return localStorage.getItem(k) || null; } catch { return null; } };
+const grava = (k, v) => { try { localStorage.setItem(k, v); } catch { /* sem storage */ } };
 
 /* os 15 idiomas do seletor, com nome nativo */
 export const LANGS = [
@@ -30,13 +40,42 @@ const aplicarDocumento = (l) => {
   } catch { /* fora do navegador */ }
 };
 
-export let LANG = (() => { try { return localStorage.getItem(K_LANG) || "pt"; } catch { return "pt"; } })();
+/* Espanhol é o idioma de entrada: quem chega sem escolha e sem país
+   reconhecido pelo IP começa nele. */
+export const IDIOMA_PADRAO = "es";
+export let LANG = ler(K_LANG) || ler(K_AUTO) || IDIOMA_PADRAO;
 aplicarDocumento(LANG);
 
-export const setLang = (l) => {
-  LANG = l;
-  try { localStorage.setItem(K_LANG, l); } catch { /* sem storage */ }
-  aplicarDocumento(l);
+/* LANG é uma variável de módulo: mudar seu valor não re-renderiza nada por si
+   só. Quem depende do idioma (o App) se inscreve aqui. */
+const ouvintes = new Set();
+export const aoTrocarIdioma = (fn) => { ouvintes.add(fn); return () => ouvintes.delete(fn); };
+const aplicar = (l) => { LANG = l; aplicarDocumento(l); ouvintes.forEach((fn) => { try { fn(l); } catch { /* ouvinte quebrado não derruba a troca */ } }); };
+
+export const escolhaExplicita = () => !!ler(K_LANG);
+/* já há idioma decidido neste aparelho (escolhido ou detectado antes)? */
+export const idiomaResolvido = () => !!(ler(K_LANG) || ler(K_AUTO));
+
+/* escolha da pessoa — grava em cm_lang e passa a valer sempre neste aparelho */
+let trocadoNestaSessao = false; // trocou no seletor desde que a página abriu
+export const setLang = (l) => { trocadoNestaSessao = true; grava(K_LANG, l); aplicar(l); };
+
+/* detecção automática — nunca encosta em cm_lang nem sobrepõe uma escolha */
+export const setLangAuto = (l) => {
+  if (escolhaExplicita() || !l || l === LANG) return;
+  grava(K_AUTO, l);
+  aplicar(l);
+};
+
+/* Entrou numa conta: acerta o idioma com a preferência guardada no banco.
+   Quem acabou de escolher no seletor não é sobrescrito — a escolha recente
+   é que sobe para o servidor. Devolve o idioma a salvar, ou null se o banco
+   já está em dia. */
+export const conciliarIdiomaDaConta = (idiomaSalvo) => {
+  const salvar = !idiomaSalvo || (trocadoNestaSessao && idiomaSalvo !== LANG);
+  if (idiomaSalvo && !trocadoNestaSessao) { grava(K_LANG, idiomaSalvo); aplicar(idiomaSalvo); }
+  trocadoNestaSessao = false;
+  return salvar ? LANG : null;
 };
 
 const EN = {
@@ -236,6 +275,306 @@ const EN = {
 
   "Não foi possível carregar os dados": "Couldn't load the data",
   "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "Check your connection and try again. If the problem persists, contact support.",
+
+  /* entrada e cadastro da conta */
+  "Ocultar senha": "Hide password", "Mostrar senha": "Show password",
+  "QR Code de pagamento (ilustrativo)": "Payment QR code (sample)",
+  "A senha deve ter pelo menos 8 caracteres.": "The password must be at least 8 characters long.",
+  "Não foi possível concluir o cadastro agora.": "We couldn't finish the sign-up right now.",
+  "Nome ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Acessos.": "Wrong name or password. Ask the director to check your access under Manage Access.",
+  "Mínimo 8 caracteres": "At least 8 characters", "Salvando cadastro…": "Saving…",
+  "Plano da licença *": "Licence plan *",
+  "Senha protegida por criptografia": "Password protected by encryption",
+  "Sair da conta": "Sign out",
+
+  /* rótulos de botão que chegam por trKids (texto solto dentro de <Btn>) */
+  "Descartar alterações": "Discard changes", "Confirmar": "Confirm",
+  "Ocorrências": "Incidents", "Plano contratado": "Contracted plan",
+
+  /* cadastro do condomínio */
+  "Excluir o logo do condomínio? O portal e os documentos voltam a usar as iniciais.": "Delete the condominium logo? The portal and documents will go back to the initials.",
+  "Excluir o logo do menu? O cabeçalho volta a mostrar a marca CondoMaster.": "Delete the menu logo? The header will show the CondoMaster brand again.",
+  "Carregando cadastro do condomínio…": "Loading the condominium record…",
+  "Somente leitura — alterações no cadastro do condomínio são feitas pelo diretor.": "Read-only — changes to the condominium record are made by the director.",
+  "CNPJ / ID fiscal": "Company / tax ID",
+  "Registro fiscal conforme o país do condomínio": "Tax registration as used in the condominium's country",
+  "Ex.: 2 torres (A, B)": "E.g.: 2 towers (A, B)",
+  "Ex.: 96 unidades · 148 vagas": "E.g.: 96 units · 148 parking spaces",
+  "Moeda de gestão": "Management currency",
+  "Plano contratado (somente visualização)": "Contracted plan (view only)",
+  "Sem assinatura registrada": "No subscription on record",
+  "Definido pela assinatura da licença — o plano acompanha o pagamento feito no checkout.": "Set by the licence subscription — the plan follows the payment made at checkout.",
+  "Ex.: 22h — 8h": "E.g.: 10pm — 8am",
+  "Ex.: Seg–Sáb, 8h–17h, com agendamento": "E.g.: Mon–Sat, 8am–5pm, by appointment",
+  "Ex.: Seg–Sex, 8h–17h": "E.g.: Mon–Fri, 8am–5pm",
+  "Ex.: Pré-autorização pelo portal": "E.g.: Pre-authorisation through the portal",
+  "Ex.: Permitidos com coleira nas áreas comuns": "E.g.: Allowed on a leash in common areas",
+  "Ex.: Reserva com 48h de antecedência": "E.g.: Book 48h in advance",
+  "Dados do edifício": "Building details",
+
+  /* meios de pagamento e conta Stripe */
+  "Pagamento online": "Online payment",
+  "Consultando a conta de recebimento…": "Checking the payout account…",
+  "Receba as cobranças online direto na conta bancária do condomínio, com baixa automática no sistema (no Brasil por Pix e cartão; nos demais países, cartão e métodos locais). O cadastro é feito em ambiente seguro da Stripe (ID fiscal e conta bancária do condomínio).": "Receive charges online straight into the condominium's bank account, settled automatically in the system (in Brazil by Pix and card; elsewhere by card and local methods). Onboarding happens in Stripe's secure environment (the condominium's tax ID and bank account).",
+  "Ativar recebimento online": "Enable online payouts",
+  "O país define a moeda de recebimento": "The country sets the payout currency",
+  "e não pode ser alterado depois. A moeda de gestão (Dados gerais) precisa ser a mesma. Países fora da lista não são atendidos pela Stripe — use os meios manuais abaixo.": "and cannot be changed later. The management currency (General data) must match it. Countries outside the list aren't served by Stripe — use the manual methods below.",
+  "Cadastro iniciado — a Stripe ainda precisa de informações para liberar os recebimentos.": "Onboarding started — Stripe still needs information before payouts are enabled.",
+  "Pendências": "Pending items", "Retomar cadastro": "Resume onboarding",
+  "Recebimento online ativo — os moradores podem pagar as cobranças por Pix e cartão pelo portal.": "Online payments active — residents can pay charges by Pix and card through the portal.",
+  "Recebimento online ativo — os moradores podem pagar as cobranças pelo portal (cartão e métodos locais, em": "Online payments active — residents can pay charges through the portal (card and local methods, in",
+  "(repasses bancários ainda em liberação pela Stripe)": "(bank payouts still being cleared by Stripe)",
+  "A plataforma retém 1% da cobrança, limitado a": "The platform keeps 1% of the charge, capped at",
+  ", por pagamento online.": ", per online payment.",
+  "Gerencie recebimentos e repasses em": "Manage receipts and payouts at",
+  "O pagamento online exige a moeda de gestão igual à da conta de recebimento": "Online payment requires the management currency to match the payout account's",
+  "ajuste em Dados gerais. Os meios manuais abaixo continuam valendo.": "adjust it under General data. The manual methods below still apply.",
+  "Repassar a taxa do pagamento online ao morador": "Pass the online payment fee on to the resident",
+  "Ativado: a taxa de processamento é somada no checkout e o condomínio recebe o valor cheio. Desativado: o condomínio absorve a taxa.": "On: the processing fee is added at checkout and the condominium receives the full amount. Off: the condominium absorbs the fee.",
+  "Cripto ativos": "Crypto assets",
+  "Chave pública da carteira Verum Wallet": "Verum Wallet public key",
+  "Cole aqui a chave pública (endereço de recebimento) da carteira": "Paste the wallet's public key (receiving address) here",
+  "Ainda não tem uma carteira?": "Don't have a wallet yet?",
+  "clique para baixar o app e criar a sua.": "tap to download the app and create yours.",
+  "Dinheiro": "Cash", "Aceitar pagamento em dinheiro": "Accept cash payment",
+  "O morador paga presencialmente na administração do condomínio.": "The resident pays in person at the condominium office.",
+  "Transferência bancária": "Bank transfer", "Titular da conta": "Account holder",
+  "Nome ou razão social do condomínio": "Condominium name or legal name",
+  "Banco": "Bank", "Nome da instituição financeira": "Name of the financial institution",
+  "País da conta": "Account country",
+  "Ex.: Brasil, Estados Unidos, Paraguai…": "E.g.: Brazil, United States, Paraguay…",
+  "IBAN": "IBAN", "Conta internacional (quando houver)": "International account (when applicable)",
+  "SWIFT / BIC": "SWIFT / BIC", "Código internacional do banco": "Bank's international code",
+  "Número da conta": "Account number", "Conta corrente / account number": "Checking account / account number",
+  "Agência / código de roteamento": "Branch / routing code",
+  "Agência, routing number ou sort code": "Branch, routing number or sort code",
+  "Observações": "Notes", "Ex.: enviar comprovante à administração": "E.g.: send the receipt to the office",
+  "Estes dados são exibidos ao morador como opções para pagamento das cobranças. Preencha só o que se aplica ao seu país — IBAN e SWIFT/BIC tornam a conta acessível internacionalmente.": "These details are shown to residents as ways to pay their charges. Fill in only what applies to your country — IBAN and SWIFT/BIC make the account reachable internationally.",
+
+  /* identidade visual */
+  "Sem logo cadastrado": "No logo on file",
+  "Recomendado: imagem quadrada de 512×512 px (PNG com fundo transparente), até 1 MB.": "Recommended: square 512×512 px image (PNG with transparent background), up to 1 MB.",
+  "Excluir logo": "Delete logo", "Logo do menu (retangular)": "Menu logo (rectangular)",
+  "Trocar logo": "Replace logo", "Clique para enviar (salva na hora)": "Click to upload (saves right away)",
+  "Recomendado: imagem retangular de 600×200 px (PNG com fundo transparente), até 1 MB. Substitui a marca CondoMaster no topo do menu.": "Recommended: rectangular 600×200 px image (PNG with transparent background), up to 1 MB. Replaces the CondoMaster brand at the top of the menu.",
+  "A identidade acima é aplicada aos documentos timbrados, ao portal do morador e ao cabeçalho do menu.": "The identity above is applied to letterheaded documents, the resident portal and the menu header.",
+
+  /* unidades */
+  "Excluir a unidade": "Delete the unit", "Bloco": "Block",
+  "O histórico de cobranças e multas é preservado, mas a unidade sai do rateio e das listagens.": "The charge and fine history is kept, but the unit leaves the cost split and the listings.",
+  "— sem responsável —": "— no one responsible —",
+  "Fração ideal (calculada)": "Ownership share (calculated)",
+  "Área privativa da unidade ÷ área total do edifício": "Unit's private area ÷ building's total area",
+  "Somente o diretor pode alterar a área privativa": "Only the director can change the private area",
+  "Alterar a área privativa recalcula a fração ideal de todas as unidades — é ela que define a proporção de cada unidade no rateio das despesas comuns.": "Changing the private area recalculates every unit's ownership share — it is what sets each unit's proportion in the common-expense split.",
+  "A área privativa define a fração ideal do rateio e só pode ser alterada pelo diretor. O responsável financeiro pode ser alterado acima.": "The private area sets the ownership share used in the split and can only be changed by the director. The financially responsible person can be changed above.",
+  "Nada consta": "Nothing on record",
+  "nenhuma cobrança registrada para esta unidade.": "no charges recorded for this unit.",
+  "venc.": "due", "nenhuma multa ou advertência para esta unidade.": "no fines or warnings for this unit.",
+  "advertência": "warning",
+  "nenhum morador ou responsável vinculado a esta unidade.": "no resident or responsible person linked to this unit.",
+  "Bloco / torre (opcional)": "Block / tower (optional)",
+  "Ex.: B — vazio usa o bloco A": "E.g.: B — empty uses block A",
+  "Andar (ou início do intervalo)": "Floor (or start of range)", "Ex.: 1": "E.g.: 1",
+  "Até o andar (opcional)": "To floor (optional)",
+  "Ex.: 12 — vazio usa um só andar": "E.g.: 12 — empty uses a single floor",
+  "A fração ideal é calculada automaticamente: área privativa da unidade ÷ área total do edifício. Ela define a proporção de cada unidade no rateio das despesas comuns e é refeita para o prédio inteiro a cada unidade criada ou alterada.": "The ownership share is calculated automatically: the unit's private area ÷ the building's total area. It sets each unit's proportion in the common-expense split and is recalculated for the whole building whenever a unit is created or changed.",
+  "Preencha \"Até o número\" para criar várias unidades de uma vez: 1 até 100 cria 1, 2… 100; 1D até 4D cria 1D, 2D, 3D e 4D. Números que já existem no bloco são pulados. Tipo, status e área valem para todas.": "Fill in \"To number\" to create several units at once: 1 to 100 creates 1, 2… 100; 1D to 4D creates 1D, 2D, 3D and 4D. Numbers that already exist in the block are skipped. Type, status and area apply to all of them.",
+  "Preencha também \"Até o andar\" para criar por andares: andares 1 até 12 com unidades 1 até 4 criam 101–104, 201–204 … 1201–1204 — o andar de cada unidade é preenchido automaticamente.": "Also fill in \"To floor\" to create floor by floor: floors 1 to 12 with units 1 to 4 create 101–104, 201–204 … 1201–1204 — each unit's floor is filled in automatically.",
+
+  /* pessoas */
+  "Excluir o cadastro de": "Delete the record of", "Esta ação não pode ser desfeita.": "This cannot be undone.",
+  "Carteira de identificação (CI)": "Identity card", "RG, CPF ou CI": "ID or taxpayer number",
+  "Trocar documento (mantém o atual se vazio)": "Replace document (keeps the current one if empty)",
+
+  /* financeiro */
+  "Registrar recebimento em DINHEIRO desta cobrança. Justificativa (auditoria):": "Record a CASH payment for this charge. Reason (for the audit trail):",
+  "Recebimento em dinheiro na administração": "Cash received at the office",
+  "Nada para exportar — nenhum lançamento na lista.": "Nothing to export — no entries in the list.",
+  "Nada consta — nenhum lançamento aguardando aprovação": "Nothing on record — no entries awaiting approval",
+  "Receitas lançadas no financeiro (parcelas, fundos, taxas extras, multas e outras entradas).": "Income recorded in finance (instalments, funds, extra fees, fines and other inflows).",
+  "Total:": "Total:", "Nenhuma receita lançada ainda": "No income recorded yet",
+  "Despesas lançadas e ainda não pagas.": "Expenses recorded and not yet paid.",
+  "Total em aberto:": "Outstanding total:", "Nada consta — nenhuma conta a pagar": "Nothing on record — no bills to pay",
+  "Despesas que já receberam baixa de pagamento.": "Expenses already settled.",
+  "Total pago:": "Total paid:", "Nenhuma conta paga ainda": "No bills paid yet",
+  "Cobranças emitidas e ainda não pagas pelas unidades.": "Charges issued and not yet paid by the units.",
+  "Nada consta — nenhuma cobrança em aberto": "Nothing on record — no open charges",
+  "Registrar recebimento em dinheiro (baixa + Entrada no caixa)": "Record cash received (settles the charge + cash inflow)",
+  "Receber": "Receive",
+  "Proporção de cada unidade nas despesas comuns, pela fração ideal (área privativa ÷ área total).": "Each unit's proportion of common expenses, by ownership share (private area ÷ total area).",
+  "Despesas da competência atual:": "Expenses for the current period:",
+  "A emissão das cobranças é feita na tela Cobranças QR.": "Charges are issued on the QR Billing screen.",
+  "Nada consta — nenhuma despesa lançada nesta competência; as cotas abaixo estão zeradas.": "Nothing on record — no expenses in this period; the shares below are all zero.",
+  "Nenhuma unidade cadastrada": "No units registered", "Escolha a unidade…": "Choose the unit…",
+  "Pago:": "Paid:", "Em aberto:": "Open:", "Escolha uma unidade": "Choose a unit",
+  "Nada consta para esta unidade": "Nothing on record for this unit",
+
+  /* cobranças */
+  "Cobrança do condomínio": "Condominium charge", "competência": "period", "valor": "amount",
+  "vencimento": "due date",
+  "Você pode pagar pelo QR Code no portal do morador.": "You can pay via the QR code in the resident portal.",
+  "Motivo da rejeição (a cobrança volta a ficar em aberto e o morador pode informar de novo):": "Reason for rejecting (the charge goes back to open and the resident can report it again):",
+  "Conferir o pagamento informado pelo morador": "Review the payment reported by the resident",
+  "Registrar recebimento em dinheiro": "Record cash received",
+  "Reenvia a cobrança por WhatsApp": "Resend the charge by WhatsApp",
+  "Transação": "Transaction", "baixa automática confirmada": "automatic settlement confirmed",
+  "QR ilustrativo — o morador paga pelo portal (Pix/cartão online ou meios cadastrados do condomínio).": "Sample QR — the resident pays through the portal (Pix/card online or the condominium's registered methods).",
+  "Confirmar pagamento informado": "Confirm reported payment", "valor da cobrança": "charge amount",
+  "Informado pelo morador": "Reported by the resident", "Cripto": "Crypto", "em": "in",
+  "Abrir comprovante anexado": "Open the attached receipt",
+  "Valor recebido": "Amount received", "Data do recebimento": "Date received",
+  "Justificativa (fica na auditoria do pagamento)": "Reason (kept in the payment audit trail)",
+  "Transação cripto conferida pelo gestor": "Crypto transaction verified by the manager",
+  "Comprovante de transferência conferido": "Transfer receipt verified",
+  "Ao confirmar: a cobrança é baixada, o pagamento entra na auditoria e a receita cai no caixa como Entrada — tudo em uma única transação.": "On confirming: the charge is settled, the payment is logged in the audit trail and the income lands in the cash book as an inflow — all in a single transaction.",
+  "Rejeitar": "Reject", "Confirmando…": "Confirming…", "Confirmar baixa": "Confirm settlement",
+  "Valor da cobrança": "Charge amount", "Valor por unidade": "Amount per unit",
+  "Valor total a ratear": "Total amount to split",
+  "Rateio por fração ideal (proporcional à área)": "Split by ownership share (proportional to area)",
+  "Dividir igual por unidade": "Split equally per unit",
+  "Cobrar igual todas as unidades": "Charge every unit the same",
+  "cobranças (unidades com responsável financeiro)": "charges (units with someone financially responsible)",
+  "mesmo valor cobrado de cada unidade": "the same amount charged to each unit",
+  "valor dividido em partes iguais entre as unidades": "amount divided equally between the units",
+  "rateadas pela fração ideal de cada unidade": "split by each unit's ownership share",
+
+  /* multas e comunicados */
+  "Libere pop-ups do site para imprimir o documento.": "Allow pop-ups for this site to print the document.",
+  "Enviar ao responsável (emite a cobrança)": "Send to the responsible person (issues the charge)",
+  "Entregue ao responsável em": "Delivered to the responsible person on",
+  "Cancelar advertência": "Cancel warning", "Ver comunicado": "View announcement",
+  "Este comunicado foi publicado sem a versão em PDF. Os novos são arquivados automaticamente no módulo Documentos.": "This announcement was published without a PDF version. New ones are archived automatically in the Documents module.",
+  "Todas as unidades": "All units", "Somente inadimplentes": "Overdue only",
+  "Unidade específica (opcional)": "Specific unit (optional)",
+  "Todas as unidades deste tipo": "All units of this type", "Todos os anos": "All years",
+  "Morador cadastrado:": "Registered resident:",
+  "nenhum morador vinculado a esta unidade": "no resident linked to this unit",
+  "Ex.: Autorização de mudança": "E.g.: Move-in authorisation",
+  "Descrição adicional (opcional)": "Additional description (optional)",
+  "Algo a mais que queira acrescentar ao modelo…": "Anything else you'd like to add to the template…",
+  "PRÉVIA COM PAPEL TIMBRADO — MODELO + DADOS PREENCHIDOS": "LETTERHEAD PREVIEW — TEMPLATE + FILLED-IN DATA",
+  "(sem título)": "(untitled)",
+
+  /* manutenção */
+  "Vídeo": "Video", "Foto": "Photo", "Fechado em": "Closed on", "Aberto em": "Opened on",
+  "Responsável atual": "Current owner", "Custo realizado": "Actual cost",
+  "DESCRIÇÃO DO PROBLEMA": "PROBLEM DESCRIPTION", "CHAMADO CONCLUÍDO": "TICKET COMPLETED",
+  "GERENCIAR CHAMADO": "MANAGE TICKET",
+  "Este chamado foi concluído e ficou registrado no histórico — não pode mais ser editado.": "This ticket is complete and kept in the history — it can no longer be edited.",
+  "Designar depois": "Assign later", "Custo realizado ($)": "Actual cost ($)",
+  "Nenhum funcionário ou prestador cadastrado — cadastre na tela Pessoas para poder designar um responsável.": "No staff or contractor registered — add one on the People screen to be able to assign an owner.",
+
+  /* portaria */
+  "Este navegador não tem leitor nativo de QR — aponte por outro dispositivo ou digite o código abaixo.": "This browser has no built-in QR reader — scan from another device or type the code below.",
+  "Câmera indisponível — digite o código abaixo.": "Camera unavailable — type the code below.",
+  "Ler QR de acesso": "Scan access QR", "Registrar entrega": "Log a delivery",
+  "E-mail do visitante (recebe o QR Code)": "Visitor's email (receives the QR code)",
+  "Nome de quem vai acessar": "Name of the person coming in",
+  "Unidade que irá acessar": "Unit being visited",
+  "Janela de horário (a partir de agora)": "Time window (starting now)",
+  "E-mail (opcional, para enviar o QR)": "Email (optional, to send the QR)",
+  "Gerado em": "Generated on", "QR Code de acesso": "Access QR code",
+  "janela": "window", "válido até": "valid until", "Enviar por e-mail": "Send by email",
+  "Ou digite/cole o código do QR…": "Or type/paste the QR code…", "Validar": "Validate",
+  "ACESSO PERMITIDO": "ACCESS GRANTED", "ACESSO NEGADO": "ACCESS DENIED",
+  "Janela de validade": "Validity window",
+  "Entrada registrada na movimentação de hoje.": "Entry logged in today's activity.",
+  "Ler outro": "Scan another", "Confirmar entrada": "Confirm entry",
+  "Ex.: Portão da garagem aberto": "E.g.: Garage gate left open",
+  "Descrição do fato": "Description of what happened",
+  "Data e hora do ocorrido": "Date and time it happened", "Registro feito em": "Logged on",
+  "Nome do morador": "Resident's name", "Unidade correspondente": "Matching unit",
+  "Data e hora da entrega": "Delivery date and time", "Observação (opcional)": "Note (optional)",
+  "Ex.: caixa dos Correios, retirada na portaria": "E.g.: postal box, pick-up at the front desk",
+
+  /* portal do morador */
+  "Pagamento confirmado — obrigado!": "Payment confirmed — thank you!",
+  "O pagamento ainda não foi confirmado — assim que a Stripe confirmar, a cobrança é baixada automaticamente.": "The payment hasn't been confirmed yet — as soon as Stripe confirms it, the charge is settled automatically.",
+  "prazo de defesa até": "appeal deadline", "Chamada de manutenção": "Maintenance ticket",
+  "em andamento": "in progress", "aberta": "open", "Comunicado": "Announcement",
+  "Anexe o comprovante da transferência.": "Attach the transfer receipt.",
+  "Comprovante enviado. O valor informado difere da cobrança — a administração vai revisar antes da baixa.": "Receipt sent. The reported amount differs from the charge — the office will review it before settling.",
+  "Comprovante enviado — aguardando a confirmação da administração.": "Receipt sent — awaiting the office's confirmation.",
+  "Cole o hash da transação.": "Paste the transaction hash.",
+  "Pagamento confirmado na blockchain — a cobrança foi baixada automaticamente!": "Payment confirmed on the blockchain — the charge was settled automatically!",
+  "Transação encontrada na rede — aguardando a confirmação da administração.": "Transaction found on the network — awaiting the office's confirmation.",
+  "NOTIFICAÇÕES": "NOTIFICATIONS", "Nenhuma notificação — tudo em dia!": "No notifications — all up to date!",
+  "MULTAS DA UNIDADE": "UNIT FINES", "CHAMADA DE MANUTENÇÕES": "MAINTENANCE TICKETS",
+  "aberto em": "opened on",
+  "Confirmando seu pagamento com a Stripe…": "Confirming your payment with Stripe…",
+  "Baixar comprovante": "Download receipt", "Meios de pagamento": "Payment methods",
+  "Ainda não tem a carteira?": "Don't have the wallet yet?",
+  "Baixe a Verum Wallet e crie a sua": "Download Verum Wallet and create yours",
+  "Copiar chave": "Copy key", "Copiar dados": "Copy details",
+  "Pagamento em dinheiro": "Cash payment",
+  "Pague presencialmente na administração do condomínio e peça o recibo.": "Pay in person at the condominium office and ask for the receipt.",
+  "Após pagar por um destes meios, envie o comprovante à administração para baixa da cobrança.": "After paying by one of these methods, send the receipt to the office so the charge can be settled.",
+  "Entregas da unidade": "Unit deliveries",
+  "Nenhuma entrega registrada para a sua unidade ainda.": "No deliveries logged for your unit yet.",
+  "Entregas são registradas pela portaria — retire a sua apresentando um documento.": "Deliveries are logged by the front desk — collect yours by showing an ID.",
+  "Registrar": "Log",
+  "Nenhuma ocorrência registrada ainda. Toque em Registrar para relatar algo à administração.": "No incidents logged yet. Tap Log to report something to the office.",
+  "As ocorrências registradas ficam visíveis para a administração e a portaria.": "Logged incidents are visible to the office and the front desk.",
+  "Endereço não cadastrado": "Address not on file",
+  "Use o botão abaixo para copiar o endereço e compartilhar com visitas e entregas.": "Use the button below to copy the address and share it with visitors and deliveries.",
+  "Copiado!": "Copied!", "Copiar endereço": "Copy address",
+  "Pagamento informado — aguardando a confirmação da administração. Nenhuma nova ação é necessária.": "Payment reported — awaiting the office's confirmation. Nothing else is needed from you.",
+  "Escolha como deseja pagar:": "Choose how you'd like to pay:",
+  "O condomínio ainda não cadastrou meios de pagamento. Fale com a administração.": "The condominium hasn't set up payment methods yet. Talk to the office.",
+  "Abrindo pagamento…": "Opening payment…",
+  "Baixa automática da cobrança": "Charge settled automatically",
+  "taxa de processamento somada no checkout": "processing fee added at checkout",
+  "Escaneie com a": "Scan with",
+  "para pagar — o QR já contém a carteira do condomínio e o valor desta cobrança.": "to pay — the QR already holds the condominium's wallet and this charge's amount.",
+  "Voltar": "Back",
+  "Já pagou? Cole o hash da transação — o sistema confere direto na blockchain:": "Already paid? Paste the transaction hash — the system checks it straight on the blockchain:",
+  "Verificando na rede…": "Checking on the network…", "Já paguei — verificar": "I've paid — check",
+  "Pague em dinheiro presencialmente na administração do condomínio, dentro do horário de atendimento. Exija o recibo no ato do pagamento — ele é o seu comprovante para a baixa da cobrança.": "Pay in cash in person at the condominium office during opening hours. Ask for the receipt as you pay — it's your proof for settling the charge.",
+  "Concluir": "Done", "Envie o valor para a carteira": "Send the amount to the wallet",
+  "do condomínio:": "of the condominium:",
+  "Transfira o valor usando os dados abaixo:": "Transfer the amount using the details below:",
+  "Copiar": "Copy",
+  "Já pagou? Envie o comprovante — a administração confirma e a cobrança é baixada:": "Already paid? Send the receipt — the office confirms it and the charge is settled:",
+  "Anexar comprovante (PDF/JPG/PNG, até 4 MB)": "Attach receipt (PDF/JPG/PNG, up to 4 MB)",
+  "Valor pago": "Amount paid", "Data do pagamento": "Payment date",
+  "Enviar comprovante": "Send receipt", "Chamada de manutenções": "Maintenance tickets",
+  "Nenhuma chamada de manutenção registrada para a sua unidade.": "No maintenance tickets logged for your unit.",
+  "A abertura de chamados é feita pela administração — procure a portaria ou o síndico para registrar uma solicitação.": "Tickets are opened by the office — speak to the front desk or the building manager to file a request.",
+  "Ex.: Barulho na área da piscina": "E.g.: Noise by the pool",
+  "Descreva o que aconteceu": "Describe what happened",
+
+  /* licença e planos */
+  "Trocar o plano de": "Change the plan from", "para": "to", "ano": "year", "mês": "month",
+  "O checkout do novo valor será aberto em seguida.": "Checkout for the new amount opens next.",
+  "Troca de plano agendada — o novo plano vale a partir de": "Plan change scheduled — the new plan starts on",
+  "Troca de plano aplicada na assinatura atual — sem novo checkout; a anterior foi substituída automaticamente.": "Plan change applied to the current subscription — no new checkout; the previous one was replaced automatically.",
+  "Carregando planos…": "Loading plans…", "Gerenciar pagamento": "Manage payment",
+  "Verificar pagamento": "Check payment", "renova em": "renews on",
+  "A licença ainda não está ativa — escolha o ciclo abaixo e conclua o pagamento do plano contratado.": "The licence isn't active yet — pick a billing cycle below and complete the payment for the contracted plan.",
+  "Ciclo de pagamento:": "Billing cycle:", "Cobrança em reais (BRL)": "Billed in Brazilian reais (BRL)",
+  "Plano atual": "Current plan", "Até": "Up to", "Unidades ilimitadas": "Unlimited units",
+  "Contratado": "Contracted", "Pagar agora": "Pay now",
+  "Fazer upgrade": "Upgrade", "Fazer downgrade": "Downgrade",
+  "Na troca de plano, a assinatura atual é atualizada automaticamente na Stripe (a diferença é cobrada ou creditada com rateio) — sem cobrança dupla. Após pagar, use \"Verificar pagamento\" para sincronizar o status.": "When you change plans, the current subscription is updated automatically in Stripe (the difference is charged or credited pro rata) — never billed twice. After paying, use \"Check payment\" to sync the status.",
+  "A Stripe ainda não confirmou este pagamento. Aguarde alguns instantes e use \"Já paguei — verificar\".": "Stripe hasn't confirmed this payment yet. Wait a moment and use \"I've paid — check\".",
+  "Código aplicado — assinatura ativada. A fatura chega por e-mail para pagamento manual; liberando o acesso…": "Code applied — subscription activated. The invoice arrives by email for manual payment; unlocking access…",
+  "Confirmando seu pagamento…": "Confirming your payment…",
+  "Estamos verificando a confirmação com a Stripe. Isso costuma levar poucos segundos — você entrará no painel automaticamente.": "We're checking the confirmation with Stripe. This usually takes a few seconds — you'll be taken to the dashboard automatically.",
+  "Assinatura pendente": "Subscription pending", "Acesso indisponível": "Access unavailable",
+  "O acesso ao condomínio está temporariamente indisponível. Procure a administração do condomínio.": "Access to the condominium is temporarily unavailable. Please contact the condominium office.",
+  "Gerando checkout…": "Creating checkout…", "Pagar assinatura": "Pay subscription",
+  "A Stripe ainda não confirmou este pagamento. Aguarde alguns instantes e verifique de novo.": "Stripe hasn't confirmed this payment yet. Wait a moment and check again.",
+  "O acesso ainda não foi liberado. Tente novamente mais tarde.": "Access hasn't been unlocked yet. Please try again later.",
+  "O pagamento abre em uma nova aba, em ambiente seguro. A liberação é automática após a confirmação.": "Payment opens in a new tab, in a secure environment. Access is unlocked automatically once confirmed.",
+
+  /* notificações do sino */
+  "multa(s)/advertência(s) aguardando decisão do síndico": "fine(s)/warning(s) awaiting the building manager's decision",
+  "penalidade(s) aprovada(s) aguardando envio ao responsável": "approved penalty(ies) awaiting delivery to the responsible person",
+  "pagamento(s) informado(s) pelo morador aguardando confirmação": "payment(s) reported by residents awaiting confirmation",
+  "pagamento(s) informado(s) com divergência para revisar": "reported payment(s) with a mismatch to review",
+  "lançamento(s) aguardando aprovação": "entry(ies) awaiting approval",
+  "chamado(s) abertos sem responsável designado": "open ticket(s) with no owner assigned",
 };
 
 const ES = {
@@ -435,6 +774,308 @@ const ES = {
 
   "Não foi possível carregar os dados": "No fue posible cargar los datos",
   "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "Verifique la conexión e intente de nuevo. Si el problema continúa, contacte al soporte.",
+
+  /* entrada e cadastro da conta */
+  "Ocultar senha": "Ocultar contraseña", "Mostrar senha": "Mostrar contraseña",
+  "QR Code de pagamento (ilustrativo)": "Código QR de pago (ilustrativo)",
+  "A senha deve ter pelo menos 8 caracteres.": "La contraseña debe tener al menos 8 caracteres.",
+  "Não foi possível concluir o cadastro agora.": "No fue posible completar el registro ahora.",
+  "Nome ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Acessos.": "Nombre o contraseña incorrectos. Pida al director que revise su acceso en Gestionar Accesos.",
+  "Mínimo 8 caracteres": "Mínimo 8 caracteres", "Salvando cadastro…": "Guardando…",
+  "Plano da licença *": "Plan de la licencia *",
+  "Senha protegida por criptografia": "Contraseña protegida con cifrado",
+  "Sair da conta": "Cerrar sesión",
+
+  /* rótulos de botão que chegam por trKids (texto solto dentro de <Btn>);
+     "Confirmar" é igual em espanhol, mas precisa da chave — sem ela o
+     fallback cairia no inglês */
+  "Descartar alterações": "Descartar cambios", "Confirmar": "Confirmar",
+  "Ocorrências": "Incidencias", "Plano contratado": "Plan contratado",
+
+  /* cadastro do condomínio */
+  "Excluir o logo do condomínio? O portal e os documentos voltam a usar as iniciais.": "¿Eliminar el logo del condominio? El portal y los documentos vuelven a usar las iniciales.",
+  "Excluir o logo do menu? O cabeçalho volta a mostrar a marca CondoMaster.": "¿Eliminar el logo del menú? El encabezado vuelve a mostrar la marca CondoMaster.",
+  "Carregando cadastro do condomínio…": "Cargando los datos del condominio…",
+  "Somente leitura — alterações no cadastro do condomínio são feitas pelo diretor.": "Solo lectura — los cambios en los datos del condominio los hace el director.",
+  "CNPJ / ID fiscal": "RUC / ID fiscal",
+  "Registro fiscal conforme o país do condomínio": "Registro fiscal según el país del condominio",
+  "Ex.: 2 torres (A, B)": "Ej.: 2 torres (A, B)",
+  "Ex.: 96 unidades · 148 vagas": "Ej.: 96 unidades · 148 cocheras",
+  "Moeda de gestão": "Moneda de gestión",
+  "Plano contratado (somente visualização)": "Plan contratado (solo lectura)",
+  "Sem assinatura registrada": "Sin suscripción registrada",
+  "Definido pela assinatura da licença — o plano acompanha o pagamento feito no checkout.": "Lo define la suscripción de la licencia — el plan acompaña el pago hecho en el checkout.",
+  "Ex.: 22h — 8h": "Ej.: 22 h — 8 h",
+  "Ex.: Seg–Sáb, 8h–17h, com agendamento": "Ej.: Lun–Sáb, 8–17 h, con reserva previa",
+  "Ex.: Seg–Sex, 8h–17h": "Ej.: Lun–Vie, 8–17 h",
+  "Ex.: Pré-autorização pelo portal": "Ej.: Autorización previa por el portal",
+  "Ex.: Permitidos com coleira nas áreas comuns": "Ej.: Permitidos con correa en las áreas comunes",
+  "Ex.: Reserva com 48h de antecedência": "Ej.: Reserva con 48 h de anticipación",
+  "Dados do edifício": "Datos del edificio",
+
+  /* meios de pagamento e conta Stripe */
+  "Pagamento online": "Pago en línea",
+  "Consultando a conta de recebimento…": "Consultando la cuenta de cobro…",
+  "Receba as cobranças online direto na conta bancária do condomínio, com baixa automática no sistema (no Brasil por Pix e cartão; nos demais países, cartão e métodos locais). O cadastro é feito em ambiente seguro da Stripe (ID fiscal e conta bancária do condomínio).": "Reciba los cobros en línea directo en la cuenta bancaria del condominio, con conciliación automática en el sistema (en Brasil por Pix y tarjeta; en los demás países, tarjeta y métodos locales). El registro se hace en el entorno seguro de Stripe (ID fiscal y cuenta bancaria del condominio).",
+  "Ativar recebimento online": "Activar cobro en línea",
+  "O país define a moeda de recebimento": "El país define la moneda de cobro",
+  "e não pode ser alterado depois. A moeda de gestão (Dados gerais) precisa ser a mesma. Países fora da lista não são atendidos pela Stripe — use os meios manuais abaixo.": "y no puede cambiarse después. La moneda de gestión (Datos generales) tiene que ser la misma. Los países fuera de la lista no son atendidos por Stripe — use los medios manuales de abajo.",
+  "Cadastro iniciado — a Stripe ainda precisa de informações para liberar os recebimentos.": "Registro iniciado — Stripe todavía necesita información para habilitar los cobros.",
+  "Pendências": "Pendientes", "Retomar cadastro": "Retomar el registro",
+  "Recebimento online ativo — os moradores podem pagar as cobranças por Pix e cartão pelo portal.": "Cobro en línea activo — los residentes pueden pagar por Pix y tarjeta desde el portal.",
+  "Recebimento online ativo — os moradores podem pagar as cobranças pelo portal (cartão e métodos locais, em": "Cobro en línea activo — los residentes pueden pagar desde el portal (tarjeta y métodos locales, en",
+  "(repasses bancários ainda em liberação pela Stripe)": "(las transferencias bancarias aún están siendo habilitadas por Stripe)",
+  "A plataforma retém 1% da cobrança, limitado a": "La plataforma retiene el 1 % del cobro, con un tope de",
+  ", por pagamento online.": ", por pago en línea.",
+  "Gerencie recebimentos e repasses em": "Gestione cobros y transferencias en",
+  "O pagamento online exige a moeda de gestão igual à da conta de recebimento": "El pago en línea exige que la moneda de gestión sea igual a la de la cuenta de cobro",
+  "ajuste em Dados gerais. Os meios manuais abaixo continuam valendo.": "ajústela en Datos generales. Los medios manuales de abajo siguen vigentes.",
+  "Repassar a taxa do pagamento online ao morador": "Trasladar la comisión del pago en línea al residente",
+  "Ativado: a taxa de processamento é somada no checkout e o condomínio recebe o valor cheio. Desativado: o condomínio absorve a taxa.": "Activado: la comisión de procesamiento se suma en el checkout y el condominio recibe el importe completo. Desactivado: el condominio absorbe la comisión.",
+  "Cripto ativos": "Criptoactivos",
+  "Chave pública da carteira Verum Wallet": "Clave pública de la billetera Verum Wallet",
+  "Cole aqui a chave pública (endereço de recebimento) da carteira": "Pegue aquí la clave pública (dirección de cobro) de la billetera",
+  "Ainda não tem uma carteira?": "¿Todavía no tiene una billetera?",
+  "clique para baixar o app e criar a sua.": "toque para descargar la app y crear la suya.",
+  "Dinheiro": "Efectivo", "Aceitar pagamento em dinheiro": "Aceptar pago en efectivo",
+  "O morador paga presencialmente na administração do condomínio.": "El residente paga presencialmente en la administración del condominio.",
+  "Transferência bancária": "Transferencia bancaria", "Titular da conta": "Titular de la cuenta",
+  "Nome ou razão social do condomínio": "Nombre o razón social del condominio",
+  "Banco": "Banco", "Nome da instituição financeira": "Nombre de la institución financiera",
+  "País da conta": "País de la cuenta",
+  "Ex.: Brasil, Estados Unidos, Paraguai…": "Ej.: Brasil, Estados Unidos, Paraguay…",
+  "IBAN": "IBAN", "Conta internacional (quando houver)": "Cuenta internacional (si corresponde)",
+  "SWIFT / BIC": "SWIFT / BIC", "Código internacional do banco": "Código internacional del banco",
+  "Número da conta": "Número de cuenta", "Conta corrente / account number": "Cuenta corriente / account number",
+  "Agência / código de roteamento": "Sucursal / código de ruteo",
+  "Agência, routing number ou sort code": "Sucursal, routing number o sort code",
+  "Observações": "Observaciones", "Ex.: enviar comprovante à administração": "Ej.: enviar el comprobante a la administración",
+  "Estes dados são exibidos ao morador como opções para pagamento das cobranças. Preencha só o que se aplica ao seu país — IBAN e SWIFT/BIC tornam a conta acessível internacionalmente.": "Estos datos se muestran al residente como opciones para pagar los cobros. Complete solo lo que aplica a su país — IBAN y SWIFT/BIC hacen que la cuenta sea accesible internacionalmente.",
+
+  /* identidade visual */
+  "Sem logo cadastrado": "Sin logo cargado",
+  "Recomendado: imagem quadrada de 512×512 px (PNG com fundo transparente), até 1 MB.": "Recomendado: imagen cuadrada de 512×512 px (PNG con fondo transparente), hasta 1 MB.",
+  "Excluir logo": "Eliminar logo", "Logo do menu (retangular)": "Logo del menú (rectangular)",
+  "Trocar logo": "Cambiar logo", "Clique para enviar (salva na hora)": "Toque para subir (se guarda al instante)",
+  "Recomendado: imagem retangular de 600×200 px (PNG com fundo transparente), até 1 MB. Substitui a marca CondoMaster no topo do menu.": "Recomendado: imagen rectangular de 600×200 px (PNG con fondo transparente), hasta 1 MB. Reemplaza la marca CondoMaster en la parte superior del menú.",
+  "A identidade acima é aplicada aos documentos timbrados, ao portal do morador e ao cabeçalho do menu.": "La identidad de arriba se aplica a los documentos membretados, al portal del residente y al encabezado del menú.",
+
+  /* unidades */
+  "Excluir a unidade": "Eliminar la unidad", "Bloco": "Bloque",
+  "O histórico de cobranças e multas é preservado, mas a unidade sai do rateio e das listagens.": "El historial de cobros y multas se conserva, pero la unidad sale del prorrateo y de los listados.",
+  "— sem responsável —": "— sin responsable —",
+  "Fração ideal (calculada)": "Coeficiente de copropiedad (calculado)",
+  "Área privativa da unidade ÷ área total do edifício": "Área privativa de la unidad ÷ área total del edificio",
+  "Somente o diretor pode alterar a área privativa": "Solo el director puede cambiar el área privativa",
+  "Alterar a área privativa recalcula a fração ideal de todas as unidades — é ela que define a proporção de cada unidade no rateio das despesas comuns.": "Cambiar el área privativa recalcula el coeficiente de todas las unidades — es lo que define la proporción de cada unidad en el prorrateo de los gastos comunes.",
+  "A área privativa define a fração ideal do rateio e só pode ser alterada pelo diretor. O responsável financeiro pode ser alterado acima.": "El área privativa define el coeficiente del prorrateo y solo el director puede cambiarla. El responsable financiero se puede cambiar arriba.",
+  "Nada consta": "Sin registros",
+  "nenhuma cobrança registrada para esta unidade.": "ningún cobro registrado para esta unidad.",
+  "venc.": "vence", "nenhuma multa ou advertência para esta unidade.": "ninguna multa o advertencia para esta unidad.",
+  "advertência": "advertencia",
+  "nenhum morador ou responsável vinculado a esta unidade.": "ningún residente o responsable vinculado a esta unidad.",
+  "Bloco / torre (opcional)": "Bloque / torre (opcional)",
+  "Ex.: B — vazio usa o bloco A": "Ej.: B — vacío usa el bloque A",
+  "Andar (ou início do intervalo)": "Piso (o inicio del rango)", "Ex.: 1": "Ej.: 1",
+  "Até o andar (opcional)": "Hasta el piso (opcional)",
+  "Ex.: 12 — vazio usa um só andar": "Ej.: 12 — vacío usa un solo piso",
+  "A fração ideal é calculada automaticamente: área privativa da unidade ÷ área total do edifício. Ela define a proporção de cada unidade no rateio das despesas comuns e é refeita para o prédio inteiro a cada unidade criada ou alterada.": "El coeficiente se calcula automáticamente: área privativa de la unidad ÷ área total del edificio. Define la proporción de cada unidad en el prorrateo de los gastos comunes y se rehace para todo el edificio cada vez que se crea o modifica una unidad.",
+  "Preencha \"Até o número\" para criar várias unidades de uma vez: 1 até 100 cria 1, 2… 100; 1D até 4D cria 1D, 2D, 3D e 4D. Números que já existem no bloco são pulados. Tipo, status e área valem para todas.": "Complete \"Hasta el número\" para crear varias unidades de una vez: 1 hasta 100 crea 1, 2… 100; 1D hasta 4D crea 1D, 2D, 3D y 4D. Los números que ya existen en el bloque se omiten. Tipo, estado y área valen para todas.",
+  "Preencha também \"Até o andar\" para criar por andares: andares 1 até 12 com unidades 1 até 4 criam 101–104, 201–204 … 1201–1204 — o andar de cada unidade é preenchido automaticamente.": "Complete también \"Hasta el piso\" para crear por pisos: pisos 1 hasta 12 con unidades 1 hasta 4 crean 101–104, 201–204 … 1201–1204 — el piso de cada unidad se completa automáticamente.",
+
+  /* pessoas */
+  "Excluir o cadastro de": "Eliminar el registro de", "Esta ação não pode ser desfeita.": "Esta acción no se puede deshacer.",
+  "Carteira de identificação (CI)": "Cédula de identidad (CI)", "RG, CPF ou CI": "DNI, RUT o CI",
+  "Trocar documento (mantém o atual se vazio)": "Cambiar documento (mantiene el actual si se deja vacío)",
+
+  /* financeiro */
+  "Registrar recebimento em DINHEIRO desta cobrança. Justificativa (auditoria):": "Registrar cobro en EFECTIVO de este importe. Justificación (auditoría):",
+  "Recebimento em dinheiro na administração": "Cobro en efectivo en la administración",
+  "Nada para exportar — nenhum lançamento na lista.": "Nada para exportar — ningún asiento en la lista.",
+  "Nada consta — nenhum lançamento aguardando aprovação": "Sin registros — ningún asiento esperando aprobación",
+  "Receitas lançadas no financeiro (parcelas, fundos, taxas extras, multas e outras entradas).": "Ingresos registrados en finanzas (cuotas, fondos, tasas extras, multas y otras entradas).",
+  "Total:": "Total:", "Nenhuma receita lançada ainda": "Ningún ingreso registrado todavía",
+  "Despesas lançadas e ainda não pagas.": "Gastos registrados y todavía no pagados.",
+  "Total em aberto:": "Total pendiente:", "Nada consta — nenhuma conta a pagar": "Sin registros — ninguna cuenta por pagar",
+  "Despesas que já receberam baixa de pagamento.": "Gastos que ya fueron conciliados como pagados.",
+  "Total pago:": "Total pagado:", "Nenhuma conta paga ainda": "Ninguna cuenta pagada todavía",
+  "Cobranças emitidas e ainda não pagas pelas unidades.": "Cobros emitidos y todavía no pagados por las unidades.",
+  "Nada consta — nenhuma cobrança em aberto": "Sin registros — ningún cobro pendiente",
+  "Registrar recebimento em dinheiro (baixa + Entrada no caixa)": "Registrar cobro en efectivo (concilia + entrada en caja)",
+  "Receber": "Cobrar",
+  "Proporção de cada unidade nas despesas comuns, pela fração ideal (área privativa ÷ área total).": "Proporción de cada unidad en los gastos comunes, según el coeficiente (área privativa ÷ área total).",
+  "Despesas da competência atual:": "Gastos del período actual:",
+  "A emissão das cobranças é feita na tela Cobranças QR.": "Los cobros se emiten en la pantalla Cobros QR.",
+  "Nada consta — nenhuma despesa lançada nesta competência; as cotas abaixo estão zeradas.": "Sin registros — ningún gasto registrado en este período; las cuotas de abajo están en cero.",
+  "Nenhuma unidade cadastrada": "Ninguna unidad registrada", "Escolha a unidade…": "Elija la unidad…",
+  "Pago:": "Pagado:", "Em aberto:": "Pendiente:", "Escolha uma unidade": "Elija una unidad",
+  "Nada consta para esta unidade": "Sin registros para esta unidad",
+
+  /* cobranças */
+  "Cobrança do condomínio": "Cobro del condominio", "competência": "período", "valor": "importe",
+  "vencimento": "vencimiento",
+  "Você pode pagar pelo QR Code no portal do morador.": "Puede pagar con el código QR en el portal del residente.",
+  "Motivo da rejeição (a cobrança volta a ficar em aberto e o morador pode informar de novo):": "Motivo del rechazo (el cobro vuelve a quedar pendiente y el residente puede informarlo de nuevo):",
+  "Conferir o pagamento informado pelo morador": "Revisar el pago informado por el residente",
+  "Registrar recebimento em dinheiro": "Registrar cobro en efectivo",
+  "Reenvia a cobrança por WhatsApp": "Reenvía el cobro por WhatsApp",
+  "Transação": "Transacción", "baixa automática confirmada": "conciliación automática confirmada",
+  "QR ilustrativo — o morador paga pelo portal (Pix/cartão online ou meios cadastrados do condomínio).": "QR ilustrativo — el residente paga por el portal (Pix/tarjeta en línea o los medios cargados por el condominio).",
+  "Confirmar pagamento informado": "Confirmar pago informado", "valor da cobrança": "importe del cobro",
+  "Informado pelo morador": "Informado por el residente", "Cripto": "Cripto", "em": "en",
+  "Abrir comprovante anexado": "Abrir el comprobante adjunto",
+  "Valor recebido": "Importe recibido", "Data do recebimento": "Fecha de cobro",
+  "Justificativa (fica na auditoria do pagamento)": "Justificación (queda en la auditoría del pago)",
+  "Transação cripto conferida pelo gestor": "Transacción cripto verificada por el gestor",
+  "Comprovante de transferência conferido": "Comprobante de transferencia verificado",
+  "Ao confirmar: a cobrança é baixada, o pagamento entra na auditoria e a receita cai no caixa como Entrada — tudo em uma única transação.": "Al confirmar: el cobro se concilia, el pago entra en la auditoría y el ingreso cae en la caja como Entrada — todo en una sola transacción.",
+  "Rejeitar": "Rechazar", "Confirmando…": "Confirmando…", "Confirmar baixa": "Confirmar conciliación",
+  "Valor da cobrança": "Importe del cobro", "Valor por unidade": "Importe por unidad",
+  "Valor total a ratear": "Importe total a prorratear",
+  "Rateio por fração ideal (proporcional à área)": "Prorrateo por coeficiente (proporcional al área)",
+  "Dividir igual por unidade": "Dividir en partes iguales por unidad",
+  "Cobrar igual todas as unidades": "Cobrar lo mismo a todas las unidades",
+  "cobranças (unidades com responsável financeiro)": "cobros (unidades con responsable financiero)",
+  "mesmo valor cobrado de cada unidade": "el mismo importe cobrado a cada unidad",
+  "valor dividido em partes iguais entre as unidades": "importe dividido en partes iguales entre las unidades",
+  "rateadas pela fração ideal de cada unidade": "prorrateadas por el coeficiente de cada unidad",
+
+  /* multas e comunicados */
+  "Libere pop-ups do site para imprimir o documento.": "Habilite las ventanas emergentes del sitio para imprimir el documento.",
+  "Enviar ao responsável (emite a cobrança)": "Enviar al responsable (emite el cobro)",
+  "Entregue ao responsável em": "Entregado al responsable el",
+  "Cancelar advertência": "Cancelar advertencia", "Ver comunicado": "Ver comunicado",
+  "Este comunicado foi publicado sem a versão em PDF. Os novos são arquivados automaticamente no módulo Documentos.": "Este comunicado se publicó sin la versión en PDF. Los nuevos se archivan automáticamente en el módulo Documentos.",
+  "Todas as unidades": "Todas las unidades", "Somente inadimplentes": "Solo morosos",
+  "Unidade específica (opcional)": "Unidad específica (opcional)",
+  "Todas as unidades deste tipo": "Todas las unidades de este tipo", "Todos os anos": "Todos los años",
+  "Morador cadastrado:": "Residente registrado:",
+  "nenhum morador vinculado a esta unidade": "ningún residente vinculado a esta unidad",
+  "Ex.: Autorização de mudança": "Ej.: Autorización de mudanza",
+  "Descrição adicional (opcional)": "Descripción adicional (opcional)",
+  "Algo a mais que queira acrescentar ao modelo…": "Algo más que quiera agregar al modelo…",
+  "PRÉVIA COM PAPEL TIMBRADO — MODELO + DADOS PREENCHIDOS": "VISTA PREVIA MEMBRETADA — MODELO + DATOS COMPLETADOS",
+  "(sem título)": "(sin título)",
+
+  /* manutenção */
+  "Vídeo": "Video", "Foto": "Foto", "Fechado em": "Cerrado el", "Aberto em": "Abierto el",
+  "Responsável atual": "Responsable actual", "Custo realizado": "Costo real",
+  "DESCRIÇÃO DO PROBLEMA": "DESCRIPCIÓN DEL PROBLEMA", "CHAMADO CONCLUÍDO": "TICKET FINALIZADO",
+  "GERENCIAR CHAMADO": "GESTIONAR TICKET",
+  "Este chamado foi concluído e ficou registrado no histórico — não pode mais ser editado.": "Este ticket fue finalizado y quedó registrado en el historial — ya no se puede editar.",
+  "Designar depois": "Asignar después", "Custo realizado ($)": "Costo real ($)",
+  "Nenhum funcionário ou prestador cadastrado — cadastre na tela Pessoas para poder designar um responsável.": "Ningún empleado o proveedor registrado — regístrelo en la pantalla Personas para poder asignar un responsable.",
+
+  /* portaria */
+  "Este navegador não tem leitor nativo de QR — aponte por outro dispositivo ou digite o código abaixo.": "Este navegador no tiene lector de QR integrado — escanee desde otro dispositivo o escriba el código de abajo.",
+  "Câmera indisponível — digite o código abaixo.": "Cámara no disponible — escriba el código de abajo.",
+  "Ler QR de acesso": "Leer QR de acceso", "Registrar entrega": "Registrar entrega",
+  "E-mail do visitante (recebe o QR Code)": "Correo del visitante (recibe el código QR)",
+  "Nome de quem vai acessar": "Nombre de quien va a ingresar",
+  "Unidade que irá acessar": "Unidad a la que va a ingresar",
+  "Janela de horário (a partir de agora)": "Franja horaria (a partir de ahora)",
+  "E-mail (opcional, para enviar o QR)": "Correo (opcional, para enviar el QR)",
+  "Gerado em": "Generado el", "QR Code de acesso": "Código QR de acceso",
+  "janela": "franja", "válido até": "válido hasta", "Enviar por e-mail": "Enviar por correo",
+  "Ou digite/cole o código do QR…": "O escriba/pegue el código del QR…", "Validar": "Validar",
+  "ACESSO PERMITIDO": "ACCESO PERMITIDO", "ACESSO NEGADO": "ACCESO DENEGADO",
+  "Janela de validade": "Franja de validez",
+  "Entrada registrada na movimentação de hoje.": "Ingreso registrado en el movimiento de hoy.",
+  "Ler outro": "Leer otro", "Confirmar entrada": "Confirmar ingreso",
+  "Ex.: Portão da garagem aberto": "Ej.: Portón de la cochera abierto",
+  "Descrição do fato": "Descripción del hecho",
+  "Data e hora do ocorrido": "Fecha y hora del hecho", "Registro feito em": "Registrado el",
+  "Nome do morador": "Nombre del residente", "Unidade correspondente": "Unidad correspondiente",
+  "Data e hora da entrega": "Fecha y hora de la entrega", "Observação (opcional)": "Observación (opcional)",
+  "Ex.: caixa dos Correios, retirada na portaria": "Ej.: caja del correo, retiro en portería",
+
+  /* portal do morador */
+  "Pagamento confirmado — obrigado!": "¡Pago confirmado — gracias!",
+  "O pagamento ainda não foi confirmado — assim que a Stripe confirmar, a cobrança é baixada automaticamente.": "El pago todavía no fue confirmado — apenas Stripe lo confirme, el cobro se concilia automáticamente.",
+  "prazo de defesa até": "plazo de defensa hasta", "Chamada de manutenção": "Ticket de mantenimiento",
+  "em andamento": "en curso", "aberta": "abierta", "Comunicado": "Comunicado",
+  "Anexe o comprovante da transferência.": "Adjunte el comprobante de la transferencia.",
+  "Comprovante enviado. O valor informado difere da cobrança — a administração vai revisar antes da baixa.": "Comprobante enviado. El importe informado difiere del cobro — la administración lo revisará antes de conciliar.",
+  "Comprovante enviado — aguardando a confirmação da administração.": "Comprobante enviado — esperando la confirmación de la administración.",
+  "Cole o hash da transação.": "Pegue el hash de la transacción.",
+  "Pagamento confirmado na blockchain — a cobrança foi baixada automaticamente!": "¡Pago confirmado en la blockchain — el cobro se concilió automáticamente!",
+  "Transação encontrada na rede — aguardando a confirmação da administração.": "Transacción encontrada en la red — esperando la confirmación de la administración.",
+  "NOTIFICAÇÕES": "NOTIFICACIONES", "Nenhuma notificação — tudo em dia!": "Ninguna notificación — ¡todo al día!",
+  "MULTAS DA UNIDADE": "MULTAS DE LA UNIDAD", "CHAMADA DE MANUTENÇÕES": "TICKETS DE MANTENIMIENTO",
+  "aberto em": "abierto el",
+  "Confirmando seu pagamento com a Stripe…": "Confirmando su pago con Stripe…",
+  "Baixar comprovante": "Descargar comprobante", "Meios de pagamento": "Medios de pago",
+  "Ainda não tem a carteira?": "¿Todavía no tiene la billetera?",
+  "Baixe a Verum Wallet e crie a sua": "Descargue Verum Wallet y cree la suya",
+  "Copiar chave": "Copiar clave", "Copiar dados": "Copiar datos",
+  "Pagamento em dinheiro": "Pago en efectivo",
+  "Pague presencialmente na administração do condomínio e peça o recibo.": "Pague presencialmente en la administración del condominio y pida el recibo.",
+  "Após pagar por um destes meios, envie o comprovante à administração para baixa da cobrança.": "Después de pagar por uno de estos medios, envíe el comprobante a la administración para conciliar el cobro.",
+  "Entregas da unidade": "Entregas de la unidad",
+  "Nenhuma entrega registrada para a sua unidade ainda.": "Todavía no hay entregas registradas para su unidad.",
+  "Entregas são registradas pela portaria — retire a sua apresentando um documento.": "Las entregas las registra la portería — retire la suya presentando un documento.",
+  "Registrar": "Registrar",
+  "Nenhuma ocorrência registrada ainda. Toque em Registrar para relatar algo à administração.": "Todavía no hay incidencias registradas. Toque Registrar para informar algo a la administración.",
+  "As ocorrências registradas ficam visíveis para a administração e a portaria.": "Las incidencias registradas quedan visibles para la administración y la portería.",
+  "Endereço não cadastrado": "Dirección no registrada",
+  "Use o botão abaixo para copiar o endereço e compartilhar com visitas e entregas.": "Use el botón de abajo para copiar la dirección y compartirla con visitas y entregas.",
+  "Copiado!": "¡Copiado!", "Copiar endereço": "Copiar dirección",
+  "Pagamento informado — aguardando a confirmação da administração. Nenhuma nova ação é necessária.": "Pago informado — esperando la confirmación de la administración. No hace falta ninguna acción más.",
+  "Escolha como deseja pagar:": "Elija cómo quiere pagar:",
+  "O condomínio ainda não cadastrou meios de pagamento. Fale com a administração.": "El condominio todavía no cargó medios de pago. Hable con la administración.",
+  "Abrindo pagamento…": "Abriendo el pago…",
+  "Baixa automática da cobrança": "Conciliación automática del cobro",
+  "taxa de processamento somada no checkout": "comisión de procesamiento sumada en el checkout",
+  "Escaneie com a": "Escanee con",
+  "para pagar — o QR já contém a carteira do condomínio e o valor desta cobrança.": "para pagar — el QR ya contiene la billetera del condominio y el importe de este cobro.",
+  "Voltar": "Volver",
+  "Já pagou? Cole o hash da transação — o sistema confere direto na blockchain:": "¿Ya pagó? Pegue el hash de la transacción — el sistema lo verifica directo en la blockchain:",
+  "Verificando na rede…": "Verificando en la red…", "Já paguei — verificar": "Ya pagué — verificar",
+  "Pague em dinheiro presencialmente na administração do condomínio, dentro do horário de atendimento. Exija o recibo no ato do pagamento — ele é o seu comprovante para a baixa da cobrança.": "Pague en efectivo presencialmente en la administración del condominio, dentro del horario de atención. Exija el recibo en el momento del pago — es su comprobante para la conciliación del cobro.",
+  "Concluir": "Finalizar", "Envie o valor para a carteira": "Envíe el importe a la billetera",
+  "do condomínio:": "del condominio:",
+  "Transfira o valor usando os dados abaixo:": "Transfiera el importe usando los datos de abajo:",
+  "Copiar": "Copiar",
+  "Já pagou? Envie o comprovante — a administração confirma e a cobrança é baixada:": "¿Ya pagó? Envíe el comprobante — la administración lo confirma y el cobro se concilia:",
+  "Anexar comprovante (PDF/JPG/PNG, até 4 MB)": "Adjuntar comprobante (PDF/JPG/PNG, hasta 4 MB)",
+  "Valor pago": "Importe pagado", "Data do pagamento": "Fecha del pago",
+  "Enviar comprovante": "Enviar comprobante", "Chamada de manutenções": "Tickets de mantenimiento",
+  "Nenhuma chamada de manutenção registrada para a sua unidade.": "Ningún ticket de mantenimiento registrado para su unidad.",
+  "A abertura de chamados é feita pela administração — procure a portaria ou o síndico para registrar uma solicitação.": "Los tickets los abre la administración — acuda a la portería o al administrador para registrar una solicitud.",
+  "Ex.: Barulho na área da piscina": "Ej.: Ruido en el área de la piscina",
+  "Descreva o que aconteceu": "Describa lo que pasó",
+
+  /* licença e planos */
+  "Trocar o plano de": "Cambiar el plan de", "para": "a", "ano": "año", "mês": "mes",
+  "O checkout do novo valor será aberto em seguida.": "El checkout del nuevo importe se abrirá a continuación.",
+  "Troca de plano agendada — o novo plano vale a partir de": "Cambio de plan programado — el nuevo plan rige a partir del",
+  "Troca de plano aplicada na assinatura atual — sem novo checkout; a anterior foi substituída automaticamente.": "Cambio de plan aplicado en la suscripción actual — sin nuevo checkout; la anterior fue reemplazada automáticamente.",
+  "Carregando planos…": "Cargando planes…", "Gerenciar pagamento": "Gestionar el pago",
+  "Verificar pagamento": "Verificar pago", "renova em": "se renueva el",
+  "A licença ainda não está ativa — escolha o ciclo abaixo e conclua o pagamento do plano contratado.": "La licencia todavía no está activa — elija el ciclo de abajo y complete el pago del plan contratado.",
+  "Ciclo de pagamento:": "Ciclo de pago:", "Cobrança em reais (BRL)": "Cobro en reales (BRL)",
+  "Plano atual": "Plan actual", "Até": "Hasta", "Unidades ilimitadas": "Unidades ilimitadas",
+  "Contratado": "Contratado", "Pagar agora": "Pagar ahora",
+  "Fazer upgrade": "Mejorar el plan", "Fazer downgrade": "Bajar de plan",
+  "Na troca de plano, a assinatura atual é atualizada automaticamente na Stripe (a diferença é cobrada ou creditada com rateio) — sem cobrança dupla. Após pagar, use \"Verificar pagamento\" para sincronizar o status.": "Al cambiar de plan, la suscripción actual se actualiza automáticamente en Stripe (la diferencia se cobra o se acredita a prorrata) — sin cobro doble. Después de pagar, use \"Verificar pago\" para sincronizar el estado.",
+  "A Stripe ainda não confirmou este pagamento. Aguarde alguns instantes e use \"Já paguei — verificar\".": "Stripe todavía no confirmó este pago. Espere unos instantes y use \"Ya pagué — verificar\".",
+  "Código aplicado — assinatura ativada. A fatura chega por e-mail para pagamento manual; liberando o acesso…": "Código aplicado — suscripción activada. La factura llega por correo para el pago manual; habilitando el acceso…",
+  "Confirmando seu pagamento…": "Confirmando su pago…",
+  "Estamos verificando a confirmação com a Stripe. Isso costuma levar poucos segundos — você entrará no painel automaticamente.": "Estamos verificando la confirmación con Stripe. Suele tardar pocos segundos — entrará al panel automáticamente.",
+  "Assinatura pendente": "Suscripción pendiente", "Acesso indisponível": "Acceso no disponible",
+  "O acesso ao condomínio está temporariamente indisponível. Procure a administração do condomínio.": "El acceso al condominio está temporalmente no disponible. Contacte a la administración del condominio.",
+  "Gerando checkout…": "Generando el checkout…", "Pagar assinatura": "Pagar la suscripción",
+  "A Stripe ainda não confirmou este pagamento. Aguarde alguns instantes e verifique de novo.": "Stripe todavía no confirmó este pago. Espere unos instantes y verifique de nuevo.",
+  "O acesso ainda não foi liberado. Tente novamente mais tarde.": "El acceso todavía no fue habilitado. Intente de nuevo más tarde.",
+  "O pagamento abre em uma nova aba, em ambiente seguro. A liberação é automática após a confirmação.": "El pago se abre en una pestaña nueva, en un entorno seguro. La habilitación es automática tras la confirmación.",
+
+  /* notificações do sino */
+  "multa(s)/advertência(s) aguardando decisão do síndico": "multa(s)/advertencia(s) esperando la decisión del administrador",
+  "penalidade(s) aprovada(s) aguardando envio ao responsável": "sanción(es) aprobada(s) esperando el envío al responsable",
+  "pagamento(s) informado(s) pelo morador aguardando confirmação": "pago(s) informado(s) por el residente esperando confirmación",
+  "pagamento(s) informado(s) com divergência para revisar": "pago(s) informado(s) con diferencia para revisar",
+  "lançamento(s) aguardando aprovação": "asiento(s) esperando aprobación",
+  "chamado(s) abertos sem responsável designado": "ticket(s) abiertos sin responsable asignado",
 };
 
 const DICTS = { en: EN, es: ES, fr: FR, de: DE, it: IT, zh: ZH, ja: JA, ko: KO, ru: RU, ar: AR, hi: HI, tr: TR, id: ID, bn: BN };

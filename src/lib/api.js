@@ -508,6 +508,11 @@ export async function registrarDiretor({ nome, email, senha }) {
   return { ...r.conta, token: r.token };
 }
 
+/* Preferências pessoais da conta logada (hoje só o idioma da interface).
+   Ficam em usuarios.preferencias, que o navegador não enxerga — a leitura
+   vem junto do login e a escrita passa por aqui. */
+export const salvarPreferencias = (p) => chamarAuth("preferencias", p);
+
 /* ─────────── acessos (Gerenciar Acessos) — agora 100% via /api/auth/acessos ───────────
    Saíram do navegador por segurança: senha_hash e usuario_perfis não são
    mais graváveis/legíveis pelo client (supabase-seguranca.sql) — o backend

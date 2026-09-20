@@ -24,9 +24,11 @@ import {
   obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
+  salvarPreferencias,
 } from "./src/lib/api.js";
 
-import { L, LANG, LANGS, setLang } from "./src/lib/i18n.js";
+import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
+import { geoCache } from "./src/lib/geo.js";
 
 /* Traduz os filhos de texto de um componente, preservando ícones e espaços */
 const trKids = (children) => React.Children.map(children, (c) => {
@@ -65,7 +67,27 @@ const THEMES = {
    quando o cadastro do condomínio traz outra moeda salva nas configurações.
    Qualquer moeda ISO vale; o mapa de locales só escolhe a formatação
    preferida (fora dele, formata no locale en-US com a própria moeda). */
-const LOCALE_MOEDA = { BRL: "pt-BR", USD: "en-US", EUR: "de-DE", GBP: "en-GB", ARS: "es-AR", PYG: "es-PY", MXN: "es-MX", JPY: "ja-JP", CHF: "de-CH" };
+const LOCALE_MOEDA = {
+  BRL: "pt-BR", USD: "en-US", EUR: "de-DE", GBP: "en-GB", ARS: "es-AR", PYG: "es-PY",
+  MXN: "es-MX", JPY: "ja-JP", CHF: "de-CH", CAD: "en-CA", AUD: "en-AU", NZD: "en-NZ",
+  SGD: "en-SG", HKD: "zh-HK", MYR: "ms-MY", THB: "th-TH", DKK: "da-DK", SEK: "sv-SE",
+  NOK: "nb-NO", PLN: "pl-PL", CZK: "cs-CZ", HUF: "hu-HU", RON: "ro-RO", BGN: "bg-BG",
+};
+/* Moedas do seletor de "Moeda de gestão" — precisa cobrir TODAS as moedas que
+   MOEDA_POR_PAIS (api/_lib/geo.js) pode semear na criação do condomínio. Um
+   <select> com defaultValue sem <option> correspondente não dá erro: ele
+   seleciona a primeira opção e o formulário salva ela no lugar. */
+const MOEDAS = [
+  ["USD", "Dólar (US$)"], ["BRL", "Real (R$)"], ["EUR", "Euro (€)"], ["GBP", "Libra (£)"],
+  ["MXN", "Peso mexicano ($)"], ["CAD", "Dólar canadense ($)"], ["CHF", "Franco suíço (Fr)"],
+  ["JPY", "Iene (¥)"], ["AUD", "Dólar australiano ($)"], ["NZD", "Dólar neozelandês ($)"],
+  ["SGD", "Dólar de Singapura ($)"], ["HKD", "Dólar de Hong Kong ($)"],
+  ["MYR", "Ringgit (RM)"], ["THB", "Baht (฿)"], ["AED", "Dirham (د.إ)"],
+  ["DKK", "Coroa dinamarquesa (kr)"], ["SEK", "Coroa sueca (kr)"], ["NOK", "Coroa norueguesa (kr)"],
+  ["PLN", "Zloty (zł)"], ["CZK", "Coroa tcheca (Kč)"], ["HUF", "Forint (Ft)"],
+  ["RON", "Leu (lei)"], ["BGN", "Lev (лв)"],
+  ["ARS", "Peso argentino ($)"], ["PYG", "Guarani (₲)"],
+];
 let MOEDA = "USD";
 const setMoeda = (m) => {
   try { (0).toLocaleString("en-US", { style: "currency", currency: m }); MOEDA = m; }
@@ -463,6 +485,15 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
   const [jaCadastrado, setJaCadastrado] = useState(false); // pula o cadastro quando o prédio já existe
   const [verificando, setVerificando] = useState(false);
 
+  /* Entrou: o idioma guardado na conta passa a valer neste aparelho. Quem
+     acabou de trocar no seletor aqui na tela de login não perde a escolha —
+     ela é que sobe para o servidor. Conta nova (sem preferência) recebe o
+     idioma atual, para reencontrá-lo em outro aparelho. */
+  const aplicarIdiomaDaConta = (conta) => {
+    const aSalvar = conciliarIdiomaDaConta(conta?.idioma);
+    if (aSalvar) salvarPreferencias({ idioma: aSalvar }).catch(() => { /* preferência é conforto, não bloqueia a entrada */ });
+  };
+
   /* primeiro acesso: cria a conta que dará acesso ao perfil Diretor —
      gravada na tabela usuarios do Supabase — e já entra logado direto na
      tela de boas-vindas (cadastro do condomínio) */
@@ -475,7 +506,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     setVerificando(true);
     try {
       const nova = await registrarDiretor(conta);
-      setDiretor(nova); setErro("");
+      setDiretor(nova); setErro(""); aplicarIdiomaDaConta(nova);
       return onEnter("diretor", null, nova, nova.condominioId || null, nova.token);
     } catch (err) {
       setErro(err.message || L("Não foi possível concluir o cadastro agora."));
@@ -491,7 +522,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
       setVerificando(true);
       try {
         const conta = await loginUsuario("morador", { nome, senha: f.senha });
-        if (conta) { setErro(""); return onEnter(role, { nome: conta.nome, unidade: conta.unidade || null }, null, conta.condominioId, conta.token); }
+        if (conta) { setErro(""); aplicarIdiomaDaConta(conta); return onEnter(role, { nome: conta.nome, unidade: conta.unidade || null }, null, conta.condominioId, conta.token); }
         setErro(L("Nome ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Acessos."));
       } catch (err) {
         setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -500,12 +531,12 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     }
     const email = f.email.trim().toLowerCase();
     if (role === "diretor") {
-      if (diretor && email === diretor.email && f.senha === diretor.senha) { setErro(""); return onEnter(role, null, diretor, diretor.condominioId || null, diretor.token); }
+      if (diretor && email === diretor.email && f.senha === diretor.senha) { setErro(""); aplicarIdiomaDaConta(diretor); return onEnter(role, null, diretor, diretor.condominioId || null, diretor.token); }
       /* confere e-mail e senha na tabela usuarios */
       setVerificando(true);
       try {
         const conta = await loginDiretor(email, f.senha);
-        if (conta) { setDiretor(conta); setErro(""); return onEnter(role, null, conta, conta.condominioId || null, conta.token); }
+        if (conta) { setDiretor(conta); setErro(""); aplicarIdiomaDaConta(conta); return onEnter(role, null, conta, conta.condominioId || null, conta.token); }
         setErro(L("E-mail ou senha incorretos."));
       } catch (err) {
         setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -515,7 +546,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     setVerificando(true);
     try {
       const conta = await loginUsuario(role, { email, senha: f.senha });
-      if (conta) { setErro(""); return onEnter(role, null, null, conta.condominioId, conta.token); }
+      if (conta) { setErro(""); aplicarIdiomaDaConta(conta); return onEnter(role, null, null, conta.condominioId, conta.token); }
       setErro(L("E-mail ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Acessos."));
     } catch (err) {
       setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -840,7 +871,9 @@ function Condominio({ t, role }) {
   /* conta de recebimento Stripe (Connect) — onboarding e status são do diretor */
   const [stripeInfo, setStripeInfo] = useState(null); // null = consultando
   const [abrindoStripe, setAbrindoStripe] = useState(false);
-  const [paisConta, setPaisConta] = useState("BR"); // seletor do onboarding (imutável após criar)
+  /* seletor do onboarding (o país é imutável depois que a conta existe, então
+     isto só pré-seleciona pelo país do IP — o diretor confirma antes de abrir) */
+  const [paisConta, setPaisConta] = useState(() => geoCache()?.paisStripe || "BR");
   const consultarStripe = useCallback(() => {
     if (role !== "diretor") return;
     statusStripeConnect().then(setStripeInfo).catch(() => setStripeInfo({ online: false, configurado: false }));
@@ -932,7 +965,7 @@ function Condominio({ t, role }) {
             <Field t={t} label="Unidades / vagas"><input name="resumo" defaultValue={cond.resumo} placeholder={L("Ex.: 96 unidades · 148 vagas")} style={inputStyle(t)} /></Field>
             <Field t={t} label="Moeda de gestão">
               <select name="moeda" defaultValue={cond.moeda} style={inputStyle(t)}>
-                {[["USD","Dólar (US$)"],["BRL","Real ($)"],["EUR","Euro (€)"],["GBP","Libra (£)"],["MXN","Peso mexicano ($)"],["CAD","Dólar canadense ($)"],["CHF","Franco suíço (Fr)"],["JPY","Iene (¥)"],["AUD","Dólar australiano ($)"],["SGD","Dólar de Singapura ($)"],["ARS","Peso argentino ($)"],["PYG","Guarani (₲)"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                {MOEDAS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select></Field>
           </div>
           <Field t={t} label="Endereço completo"><input name="endereco" defaultValue={cond.endereco} style={inputStyle(t)} /></Field>
@@ -2696,7 +2729,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
     ...minhasMultasLista.filter((m) => m.status === "pendente").map((m) => ({ txt: `${m.valor > 0 ? L("Multa") : L("Advertência")} ${m.num} — ${L("prazo de defesa até")} ${m.prazo}`, c: "warn", go: () => setMulta(m) })),
     ...meusChamadosLista.filter((c) => c.status === "aberto" || c.status === "andamento").map((c) => ({ txt: `${L("Chamada de manutenção")} ${c.num} ${c.status === "andamento" ? L("em andamento") : L("aberta")} — ${c.desc}`, c: "info" })),
     ...db.comunic.slice(0, 2).map((c) => ({ txt: `${L("Comunicado")}: ${c.titulo}`, c: "info", go: () => setAviso(c) })),
-  ], [boletos, minhasMultasLista, meusChamadosLista, db.comunic]); // eslint-disable-line react-hooks/exhaustive-deps
+  ], [boletos, minhasMultasLista, meusChamadosLista, db.comunic, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   const textoEndereco = [db.cond?.nome, db.cond?.endereco, `${morador?.nome || L("Morador")} — ${L("Unidade")} ${unidade}`].filter(Boolean).join("\n");
   const copiarEndereco = async () => {
     try { await navigator.clipboard.writeText(textoEndereco); }
@@ -3625,7 +3658,13 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
 export default function App() {
   const [dark, setDark] = useState(true);
   const [lang, setLangState] = useState(LANG);
-  const onLang = useCallback((l) => { setLang(l); setLangState(l); }, []);
+  /* o idioma também muda de fora do React (detecção pelo IP que chega depois
+     do primeiro render, preferência vinda do banco no login) */
+  useEffect(() => aoTrocarIdioma(setLangState), []);
+  const onLang = useCallback((l) => {
+    setLang(l); setLangState(l);
+    if (lerSessao()?.token) salvarPreferencias({ idioma: l }).catch(() => { /* preferência é conforto, não bloqueia */ });
+  }, []);
   const [role, setRole] = useState(() => lerSessao()?.role || null);
   const [morador, setMorador] = useState(() => lerSessao()?.morador || null); // { nome, unidade } do morador logado
   const [diretorConta, setDiretorConta] = useState(() => lerSessao()?.diretor || null); // conta do diretor logado (para o 1º acesso)
@@ -3702,7 +3741,7 @@ export default function App() {
     const semResp = (db.chamados || []).filter((c) => c.status === "aberto" && c.resp === "—");
     if (semResp.length) n.push({ txt: `${semResp.length} ${L("chamado(s) abertos sem responsável designado")}`, c: "warn", s: "chamados" });
     return n.filter((x) => NAV.some((nv) => nv.id === x.s && nv.roles.includes(role)));
-  }, [db, role]);
+  }, [db, role, lang]); // lang: os textos passam por L(), então trocar o idioma precisa recalcular
 
   const globalStyle = (
     <style>{`

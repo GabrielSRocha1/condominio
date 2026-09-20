@@ -221,11 +221,18 @@ create table usuarios (
   email           varchar(160) not null unique,
   senha_hash      varchar(255) not null,
   totp_secret     varchar(64),
+  preferencias    jsonb not null default '{}'::jsonb,   -- preferências pessoais da conta: { idioma: "es" }
   ultimo_login_em timestamptz,
   bloqueado_em    timestamptz,
   criado_em       timestamptz not null default now(),
   atualizado_em   timestamptz not null default now()
 );
+
+-- Instalação JÁ existente: rode SÓ a linha abaixo (é no-op em banco novo).
+-- O navegador nunca enxerga esta coluna — supabase-seguranca.sql restringe o
+-- grant de select de usuarios a (id, email, pessoa_id, criado_em) —, então a
+-- preferência só entra por /api/auth/preferencias e só sai no login.
+alter table usuarios add column if not exists preferencias jsonb not null default '{}'::jsonb;
 
 -- 10 · perfis — Perfis de acesso
 create table perfis (

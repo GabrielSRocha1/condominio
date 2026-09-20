@@ -22,6 +22,12 @@ const PERFIS = ["diretor", "sindico", "tesouraria", "morador", "administradora"]
 const LOCK = { janelaSeg: 15 * 60, max: 5, bloqueioSeg: 15 * 60 };       // por conta
 const LOCK_IP = { janelaSeg: 15 * 60, max: 30, bloqueioSeg: 15 * 60 };   // por IP (várias contas)
 
+/* usuarios.preferencias (idioma da interface) entra pelo alter que acompanha
+   o supabase-schema.sql. Enquanto esse alter não roda, a consulta é refeita
+   sem a coluna: entrar no sistema nunca pode depender de uma preferência. */
+const semColunaPreferencias = (e) =>
+  !!e && /preferencias/i.test(e.message || "") && /does not exist|schema cache|column/i.test(e.message || "");
+
 /* bloqueio vigente? (leitura pura — não incrementa nada) */
 async function bloqueado(supabase, chave) {
   const { data } = await supabase.from("auth_protecao")
@@ -74,9 +80,11 @@ export default async function handler(req, res) {
 
     /* morador entra pelo nome cadastrado em Gerenciar Acessos */
     if (f.perfil === "morador") {
-      const { data: rows, error } = await supabase.from("usuarios")
-        .select("id, senha_hash, pessoas!inner(nome, pessoa_vinculos(papel, unidades(numero, blocos(nome)))), usuario_perfis(condominio_id, perfis(nome))")
+      const buscar = (pref) => supabase.from("usuarios")
+        .select(`id, senha_hash, ${pref}pessoas!inner(nome, pessoa_vinculos(papel, unidades(numero, blocos(nome)))), usuario_perfis(condominio_id, perfis(nome))`)
         .ilike("pessoas.nome", f.nome || "");
+      let { data: rows, error } = await buscar("preferencias, ");
+      if (semColunaPreferencias(error)) ({ data: rows, error } = await buscar(""));
       if (error) throw new Error(error.message);
       let conta = null, resultado = null;
       for (const r of rows || []) {
@@ -99,14 +107,17 @@ export default async function handler(req, res) {
       return res.status(200).json({ token, conta: {
         nome: conta.pessoas.nome, condominioId,
         unidade: vincUnidade?.unidades ? `${vincUnidade.unidades.numero}-${vincUnidade.unidades.blocos?.nome || "?"}` : null,
+        idioma: conta.preferencias?.idioma || null, // idioma da interface guardado nesta conta
       } });
     }
 
     /* demais perfis entram pelo e-mail */
     if (!f.email) return res.status(400).json({ error: "Informe as credenciais." });
-    const { data, error } = await supabase.from("usuarios")
-      .select("id, email, senha_hash, pessoas(nome), usuario_perfis(condominio_id, perfis(nome))")
+    const buscarPorEmail = (pref) => supabase.from("usuarios")
+      .select(`id, email, senha_hash, ${pref}pessoas(nome), usuario_perfis(condominio_id, perfis(nome))`)
       .eq("email", f.email).maybeSingle();
+    let { data, error } = await buscarPorEmail("preferencias, ");
+    if (semColunaPreferencias(error)) ({ data, error } = await buscarPorEmail(""));
     if (error) throw new Error(error.message);
     const resultado = data ? verificarSenha(f.senha, data.senha_hash) : { ok: false };
     if (!data || !resultado.ok) return nega();
@@ -125,7 +136,10 @@ export default async function handler(req, res) {
     const token = assinarToken({ sub: data.id, email: f.email, nome, perfil: f.perfil,
       condominio_id: condominioId }, secret);
     await emitirRefresh(supabase, res, { usuarioId: data.id, perfil: f.perfil, condominioId });
-    return res.status(200).json({ token, conta: { nome, email: f.email, condominioId } });
+    return res.status(200).json({ token, conta: {
+      nome, email: f.email, condominioId,
+      idioma: data.preferencias?.idioma || null, // idioma da interface guardado nesta conta
+    } });
   } catch (e) {
     logSeguro("[auth/login]", e);
     return res.status(500).json({ error: "Erro ao entrar." });

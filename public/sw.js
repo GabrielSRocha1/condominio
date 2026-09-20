@@ -2,8 +2,10 @@
    Estratégia:
    - Navegação (HTML): rede primeiro, com fallback ao cache para abrir offline.
    - Assets da mesma origem (JS/CSS/ícones, com hash no nome): cache primeiro.
-   - Supabase e outras origens externas: sempre rede — dados nunca são cacheados. */
-const VERSION = "1.2.1";
+   - /api/*, Supabase e outras origens externas: sempre rede — dados nunca são
+     cacheados (a resposta de /api/geo depende do IP de quem pede; cachear
+     congelaria o país do primeiro acesso). */
+const VERSION = "1.3.0";
 const CACHE = `condomaster-v${VERSION}`;
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/favicon-cm.png", "/logo-menu.png"];
 
@@ -22,6 +24,7 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith("/api/")) return; // dados da API nunca são cacheados
 
   if (e.request.mode === "navigate") {
     e.respondWith(
