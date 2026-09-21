@@ -177,4 +177,25 @@ export default {
 
   "Não foi possível carregar os dados": "تعذّر تحميل البيانات",
   "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "تحقق من الاتصال وحاول مجدداً. إذا استمرت المشكلة فتواصل مع الدعم.",
+
+  /* recuperação de senha por código */
+  "Esqueci minha senha": "نسيت كلمة المرور",
+  "Recuperar senha": "استعادة كلمة المرور",
+  "Código de recuperação": "رمز الاستعادة",
+  "Nova senha": "كلمة المرور الجديدة",
+  "Confirmar nova senha": "تأكيد كلمة المرور الجديدة",
+  "Redefinir senha": "إعادة تعيين كلمة المرور",
+  "Redefinindo…": "جارٍ إعادة التعيين…",
+  "Senha redefinida. Entre com a nova senha.": "تمت إعادة تعيين كلمة المرور. سجّل الدخول بكلمة المرور الجديدة.",
+  "Código de recuperação inválido ou expirado.": "رمز الاستعادة غير صالح أو منتهي الصلاحية.",
+  "Gerar código": "إنشاء رمز",
+  "Meu código de recuperação": "رمز الاستعادة الخاص بي",
+  "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.": "سلّم هذا الرمز للشخص المعني: به يعيد تعيين كلمة مروره بنفسه في شاشة الدخول ضمن «نسيت كلمة المرور». صالح لمدة 24 ساعة، يُعرض مرة واحدة فقط ويحل محل الرمز السابق.",
+  "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior.": "بهذا الرمز تعيد تعيين كلمة مرورك في شاشة الدخول ضمن «نسيت كلمة المرور». احفظه في مكان آمن — يُعرض مرة واحدة فقط ويحل محل الرمز السابق.",
+  "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.": "استخدم رمز الاستعادة الخاص بك — إن لم يكن لديك واحد، اطلبه من المدير في «إدارة الحسابات».",
+  "Use seu código de recuperação permanente.": "استخدم رمز الاستعادة الدائم الخاص بك.",
+  "Guarde seu código de recuperação": "احفظ رمز الاستعادة الخاص بك",
+  "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "به تعيد تعيين كلمة مرورك بنفسك في «نسيت كلمة المرور» دون الاعتماد على المدير. يُعرض مرة واحدة فقط — احفظه في مكان آمن.",
+  "Agora não": "ليس الآن",
+  "Continuar": "متابعة",
 };

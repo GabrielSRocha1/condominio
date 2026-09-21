@@ -177,4 +177,25 @@ export default {
 
   "Não foi possível carregar os dados": "데이터를 불러올 수 없습니다",
   "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "연결을 확인하고 다시 시도하세요. 문제가 계속되면 지원팀에 문의하세요.",
+
+  /* recuperação de senha por código */
+  "Esqueci minha senha": "비밀번호를 잊었어요",
+  "Recuperar senha": "비밀번호 복구",
+  "Código de recuperação": "복구 코드",
+  "Nova senha": "새 비밀번호",
+  "Confirmar nova senha": "새 비밀번호 확인",
+  "Redefinir senha": "비밀번호 재설정",
+  "Redefinindo…": "재설정 중…",
+  "Senha redefinida. Entre com a nova senha.": "비밀번호가 재설정되었습니다. 새 비밀번호로 로그인하세요.",
+  "Código de recuperação inválido ou expirado.": "복구 코드가 유효하지 않거나 만료되었습니다.",
+  "Gerar código": "코드 생성",
+  "Meu código de recuperação": "내 복구 코드",
+  "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.": "이 코드를 본인에게 전달하세요. 로그인 화면의 '비밀번호를 잊었어요'에서 이 코드로 스스로 비밀번호를 재설정합니다. 24시간 동안 유효하며, 한 번만 표시되고 이전 코드를 대체합니다.",
+  "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior.": "이 코드로 로그인 화면의 '비밀번호를 잊었어요'에서 비밀번호를 재설정할 수 있습니다. 안전한 곳에 보관하세요 — 한 번만 표시되며 이전 코드를 대체합니다.",
+  "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.": "자신의 복구 코드를 사용하세요. 없다면 이사장에게 '접근 관리'에서 요청하세요.",
+  "Use seu código de recuperação permanente.": "자신의 영구 복구 코드를 사용하세요.",
+  "Guarde seu código de recuperação": "복구 코드를 보관하세요",
+  "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "이 코드가 있으면 '비밀번호를 잊었어요'에서 이사장 없이 스스로 비밀번호를 재설정할 수 있습니다. 한 번만 표시되니 안전한 곳에 보관하세요.",
+  "Agora não": "나중에",
+  "Continuar": "계속",
 };

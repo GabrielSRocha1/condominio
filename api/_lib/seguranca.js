@@ -73,10 +73,42 @@ export async function migrarSenhaSeLegada(supabase, usuarioId, senha, resultado)
     .eq("id", usuarioId).then(() => {}, (e) => console.error("[seguranca] migração de hash falhou:", e?.message));
 }
 
+/* sha256 hex — usado para refresh tokens e códigos de recuperação (o valor
+   puro nunca vai ao banco, só o hash) */
+export const sha256Hex = (t) => createHash("sha256").update(t).digest("hex");
+
+/* ── Etapa 4: código de recuperação de senha ──
+   16 símbolos legíveis sem ambíguos (0/O, 1/I) em grupos de 4 — ~80 bits.
+   Gerado em /api/auth/codigo (a própria conta, permanente) e em
+   /api/auth/acessos acao "codigo" (diretor para os acessos, 24h);
+   consumido em /api/auth/recuperar. Só o sha256 vai à auth_recuperacao. */
+const ALFABETO_CODIGO = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 32 símbolos = 5 bits cada
+export const gerarCodigoRecuperacao = () => {
+  const b = randomBytes(16);
+  let s = "";
+  for (let i = 0; i < 16; i++) s += ALFABETO_CODIGO[b[i] % 32];
+  return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8, 12)}-${s.slice(12, 16)}`;
+};
+
+/* grava o código (hash) da conta substituindo o anterior não usado — um
+   código ativo por conta. expiraEm null = permanente. Devolve o erro cru
+   para o handler decidir (tabela ausente → 503 degrada aberto). */
+export async function guardarCodigoRecuperacao(supabase, { usuarioId, criadoPor, expiraEm, codigo }) {
+  const { error: eDel } = await supabase.from("auth_recuperacao")
+    .delete().eq("usuario_id", usuarioId).is("usado_em", null);
+  if (eDel) return eDel;
+  const { error: eIns } = await supabase.from("auth_recuperacao").insert({
+    usuario_id: usuarioId, codigo_hash: sha256Hex(codigo.replace(/-/g, "")),
+    criado_por: criadoPor, expira_em: expiraEm,
+  });
+  return eIns || null;
+}
+export const erroSemTabela = (e) => !!e && /does not exist|schema cache/i.test(e.message || "");
+
 /* ── refresh token (cookie HttpOnly + rotação na tabela auth_sessoes) ── */
 export const REFRESH_TTL_SEG = 60 * 60 * 24 * 30; // 30 dias
 const COOKIE = "cm_refresh";
-const hashToken = (t) => createHash("sha256").update(t).digest("hex");
+const hashToken = sha256Hex;
 
 const cookieRefresh = (valor, maxAgeSeg) =>
   `${COOKIE}=${valor}; Max-Age=${maxAgeSeg}; Path=/api/auth; HttpOnly; Secure; SameSite=Strict`;

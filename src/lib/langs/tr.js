@@ -177,4 +177,25 @@ export default {
 
   "Não foi possível carregar os dados": "Veriler yüklenemedi",
   "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "Bağlantıyı kontrol edip tekrar deneyin. Sorun devam ederse destekle iletişime geçin.",
+
+  /* recuperação de senha por código */
+  "Esqueci minha senha": "Şifremi unuttum",
+  "Recuperar senha": "Şifre kurtarma",
+  "Código de recuperação": "Kurtarma kodu",
+  "Nova senha": "Yeni şifre",
+  "Confirmar nova senha": "Yeni şifreyi onayla",
+  "Redefinir senha": "Şifreyi sıfırla",
+  "Redefinindo…": "Sıfırlanıyor…",
+  "Senha redefinida. Entre com a nova senha.": "Şifre sıfırlandı. Yeni şifrenizle giriş yapın.",
+  "Código de recuperação inválido ou expirado.": "Kurtarma kodu geçersiz veya süresi dolmuş.",
+  "Gerar código": "Kod oluştur",
+  "Meu código de recuperação": "Kurtarma kodum",
+  "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.": "Bu kodu ilgili kişiye verin: kişi giriş ekranındaki \"Şifremi unuttum\" bölümünde bu kodla kendi şifresini sıfırlar. 24 saat geçerlidir, yalnızca bir kez gösterilir ve önceki kodun yerine geçer.",
+  "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior.": "Bu kodla giriş ekranındaki \"Şifremi unuttum\" bölümünde şifrenizi sıfırlarsınız. Güvenli bir yerde saklayın — yalnızca bir kez gösterilir ve öncekinin yerine geçer.",
+  "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.": "Kendi kurtarma kodunuzu kullanın — yoksa direktörden \"Erişim Yönetimi\"nde isteyin.",
+  "Use seu código de recuperação permanente.": "Kalıcı kurtarma kodunuzu kullanın.",
+  "Guarde seu código de recuperação": "Kurtarma kodunuzu saklayın",
+  "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "Bu kodla \"Şifremi unuttum\" bölümünde direktöre bağlı kalmadan şifrenizi kendiniz sıfırlarsınız. Yalnızca bir kez gösterilir — güvenli bir yerde saklayın.",
+  "Agora não": "Şimdi değil",
+  "Continuar": "Devam",
 };

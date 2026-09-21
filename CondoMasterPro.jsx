@@ -19,7 +19,7 @@ import {
   assinarLicenca, verificarLicenca, cancelarAssinatura, abrirPortalCobranca, listarPlanos, trocarPlanoLicenca, registrarDiretor,
   iniciarOnboardingStripe, statusStripeConnect, pagarCobrancaOnline, verificarCobranca,
   informarPagamentoCobranca, confirmarPagamentoManual, rejeitarPagamentoInformado,
-  criarAcesso, listarAcessos, removerAcesso, loginUsuario, setAuthToken, encerrarSessaoServidor,
+  criarAcesso, listarAcessos, removerAcesso, gerarCodigoRecuperacao, gerarMeuCodigoRecuperacao, recuperarSenha, loginUsuario, setAuthToken, encerrarSessaoServidor,
   salvarLogoCondominio, removerLogoCondominio, salvarLogoMenuCondominio, removerLogoMenuCondominio,
   obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
@@ -485,6 +485,10 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
   const [erro, setErro] = useState("");
   const [jaCadastrado, setJaCadastrado] = useState(false); // pula o cadastro quando o prédio já existe
   const [verificando, setVerificando] = useState(false);
+  const [recuperando, setRecuperando] = useState(false); // "Esqueci minha senha" aberto
+  const [sucesso, setSucesso] = useState(""); // senha redefinida — avisa no form de entrada
+  const [posLogin, setPosLogin] = useState(null); // { args, codigo } — sugestão de código após entrar
+  const [copiadoCod, setCopiadoCod] = useState(false);
 
   /* Entrou: o idioma guardado na conta passa a valer neste aparelho. Quem
      acabou de trocar no seletor aqui na tela de login não perde a escolha —
@@ -514,8 +518,57 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     } finally { setVerificando(false); }
   };
 
+  /* Autonomia: quem entra sem código de recuperação permanente é convidado
+     a gerar o seu antes de seguir — com ele, "Esqueci minha senha" funciona
+     sem depender do diretor. "Agora não" segue direto (sugere de novo no
+     próximo login, já que a conta continua sem código). */
+  const entrarNoApp = (conta, args) => {
+    if (conta && conta.temCodigoRecuperacao === false) { setPosLogin({ args, codigo: null }); return; }
+    return onEnter(...args);
+  };
+  const gerarMeuCodigo = async () => {
+    setErro(""); setVerificando(true);
+    try {
+      const r = await gerarMeuCodigoRecuperacao();
+      setCopiadoCod(false);
+      setPosLogin((p) => ({ ...p, codigo: r.codigo }));
+      setDiretor((d) => (d ? { ...d, temCodigoRecuperacao: true } : d));
+    } catch (err) { setErro(err.message); }
+    finally { setVerificando(false); }
+  };
+  const continuarPosLogin = () => {
+    const args = posLogin.args;
+    setPosLogin(null); setErro("");
+    onEnter(...args);
+  };
+
+  /* "Esqueci minha senha": troca a senha com o código de recuperação — o
+     que a própria conta gerou ao entrar (permanente) ou, se ela o perdeu,
+     um de 24h que o diretor gera em Gerenciar Acessos */
+  const redefinir = async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.currentTarget));
+    if (f.senha.length < 8) return setErro(L("A senha deve ter pelo menos 8 caracteres."));
+    if (f.senha !== f.confirma) return setErro(L("As senhas não conferem."));
+    setVerificando(true);
+    try {
+      await recuperarSenha({
+        perfil: role, codigo: f.codigo, senha: f.senha,
+        ...(role === "morador" ? { nome: (f.nome || "").trim() } : { email: f.email.trim().toLowerCase() }),
+      });
+      if (role === "diretor") setDiretor(null); // a senha guardada em memória não vale mais
+      setRecuperando(false); setErro("");
+      setSucesso(L("Senha redefinida. Entre com a nova senha."));
+    } catch (err) {
+      setErro(err.status === 401
+        ? L("Código de recuperação inválido ou expirado.")
+        : (err.message || L("Não foi possível verificar sua conta agora.")));
+    } finally { setVerificando(false); }
+  };
+
   const entrar = async (e) => {
     e.preventDefault();
+    setSucesso("");
     const f = Object.fromEntries(new FormData(e.currentTarget));
     if (role === "morador") {
       /* morador entra com o nome cadastrado pelo diretor em Gerenciar Acessos */
@@ -523,7 +576,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
       setVerificando(true);
       try {
         const conta = await loginUsuario("morador", { nome, senha: f.senha });
-        if (conta) { setErro(""); aplicarIdiomaDaConta(conta); return onEnter(role, { nome: conta.nome, unidade: conta.unidade || null }, null, conta.condominioId, conta.token); }
+        if (conta) { setErro(""); aplicarIdiomaDaConta(conta); return entrarNoApp(conta, [role, { nome: conta.nome, unidade: conta.unidade || null }, null, conta.condominioId, conta.token]); }
         setErro(L("Nome ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Acessos."));
       } catch (err) {
         setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -532,12 +585,12 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     }
     const email = f.email.trim().toLowerCase();
     if (role === "diretor") {
-      if (diretor && email === diretor.email && f.senha === diretor.senha) { setErro(""); aplicarIdiomaDaConta(diretor); return onEnter(role, null, diretor, diretor.condominioId || null, diretor.token); }
+      if (diretor && email === diretor.email && f.senha === diretor.senha) { setErro(""); aplicarIdiomaDaConta(diretor); return entrarNoApp(diretor, [role, null, diretor, diretor.condominioId || null, diretor.token]); }
       /* confere e-mail e senha na tabela usuarios */
       setVerificando(true);
       try {
         const conta = await loginDiretor(email, f.senha);
-        if (conta) { setDiretor(conta); setErro(""); aplicarIdiomaDaConta(conta); return onEnter(role, null, conta, conta.condominioId || null, conta.token); }
+        if (conta) { setDiretor(conta); setErro(""); aplicarIdiomaDaConta(conta); return entrarNoApp(conta, [role, null, conta, conta.condominioId || null, conta.token]); }
         setErro(L("E-mail ou senha incorretos."));
       } catch (err) {
         setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -547,7 +600,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     setVerificando(true);
     try {
       const conta = await loginUsuario(role, { email, senha: f.senha });
-      if (conta) { setErro(""); aplicarIdiomaDaConta(conta); return onEnter(role, null, null, conta.condominioId, conta.token); }
+      if (conta) { setErro(""); aplicarIdiomaDaConta(conta); return entrarNoApp(conta, [role, null, null, conta.condominioId, conta.token]); }
       setErro(L("E-mail ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Acessos."));
     } catch (err) {
       setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -569,7 +622,38 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
           <p className="mt-1 text-xs" style={{ color: t.dim }}>{L("Gestão condominial premium · powered by Serve Now Global")}</p>
         </div>
         <Card t={t} className="p-5">
-          {!diretor && !jaCadastrado ? (
+          {posLogin ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <KeyRound size={18} color={t.gold} />
+                <span className="text-sm font-semibold">{L("Guarde seu código de recuperação")}</span>
+              </div>
+              <div className="text-xs" style={{ color: t.dim }}>
+                {L("Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.")}</div>
+              {posLogin.codigo ? (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-3"
+                    style={{ borderColor: t.border, background: t.goldSoft }}>
+                    <div className="font-mono text-base font-bold tracking-wider" style={{ color: t.gold }}>{posLogin.codigo}</div>
+                    <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs"
+                      onClick={() => { try { navigator.clipboard.writeText(posLogin.codigo); setCopiadoCod(true); } catch { /* sem clipboard */ } }}>
+                      <Copy size={13} /> {copiadoCod ? "Copiado!" : "Copiar"}</Btn>
+                  </div>
+                  <Btn t={t} kind="primary" className="w-full" onClick={continuarPosLogin}><Check size={15} /> Continuar</Btn>
+                </>
+              ) : (
+                <>
+                  {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
+                  <Btn t={t} kind="primary" className="w-full" onClick={gerarMeuCodigo} disabled={verificando}>
+                    <KeyRound size={15} /> {verificando ? L("Gerando…") : L("Gerar código")}</Btn>
+                  <div className="pt-1 text-center">
+                    <button type="button" onClick={continuarPosLogin} className="text-xs font-semibold" style={{ color: t.dim }}>
+                      {L("Agora não")}</button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : !diretor && !jaCadastrado ? (
             <form onSubmit={registrar} className="space-y-3">
               <div className="text-sm font-semibold">{L("Criar acesso do diretor")}</div>
               <div className="text-xs" style={{ color: t.dim }}>
@@ -611,12 +695,34 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
             </>
           ) : (
             <>
-              <button onClick={() => { setRole(null); setErro(""); }} className="mb-3 flex items-center gap-1 text-xs" style={{ color: t.dim }}>
-                <ChevronLeft size={14} /> {L("Trocar perfil")}</button>
+              <button onClick={() => { if (recuperando) { setRecuperando(false); } else { setRole(null); setSucesso(""); } setErro(""); }}
+                className="mb-3 flex items-center gap-1 text-xs" style={{ color: t.dim }}>
+                <ChevronLeft size={14} /> {L(recuperando ? "Voltar" : "Trocar perfil")}</button>
               <div className="mb-4 flex items-center gap-2">
                 {React.createElement(PROFILES[role].icon, { size: 18, color: t.gold })}
                 <span className="text-sm font-semibold">{L(PROFILES[role].label)}</span>
+                {recuperando && <span className="text-xs" style={{ color: t.dim }}>· {L("Recuperar senha")}</span>}
               </div>
+              {recuperando ? (
+                <form onSubmit={redefinir} className="space-y-3">
+                  <div className="text-xs" style={{ color: t.dim }}>
+                    {L(role === "diretor"
+                      ? "Use seu código de recuperação permanente."
+                      : "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.")}</div>
+                  {role === "morador" ? (
+                    <Field t={t} label="Nome completo"><input name="nome" required placeholder={L("Seu nome")} style={inputStyle(t)} /></Field>
+                  ) : (
+                    <Field t={t} label="E-mail"><input name="email" type="email" required placeholder={L("voce@exemplo.com")} style={inputStyle(t)} /></Field>
+                  )}
+                  <Field t={t} label="Código de recuperação">
+                    <input name="codigo" required placeholder="XXXX-XXXX-XXXX-XXXX" autoComplete="off" style={inputStyle(t)} /></Field>
+                  <Field t={t} label="Nova senha"><PasswordInput t={t} name="senha" required placeholder={L("Mínimo 8 caracteres")} /></Field>
+                  <Field t={t} label="Confirmar nova senha"><PasswordInput t={t} name="confirma" required placeholder={L("Repita a senha")} /></Field>
+                  {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
+                  <Btn t={t} kind="primary" type="submit" disabled={verificando} className="w-full">
+                    <KeyRound size={15} /> {L(verificando ? "Redefinindo…" : "Redefinir senha")}</Btn>
+                </form>
+              ) : (
               <form onSubmit={entrar} className="space-y-3">
                 {role === "morador" ? (
                   <Field t={t} label="Nome completo"><input name="nome" required placeholder={L("Seu nome")} style={inputStyle(t)} /></Field>
@@ -624,12 +730,19 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
                   <Field t={t} label="E-mail"><input name="email" type="email" required placeholder={L("voce@exemplo.com")} style={inputStyle(t)} /></Field>
                 )}
                 <Field t={t} label="Senha"><PasswordInput t={t} name="senha" required placeholder="••••••••" /></Field>
+                {sucesso && <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.ok + "55", background: t.ok + "12", color: t.ok }}>{sucesso}</div>}
                 {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
                 {!temAcesso && <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
                   {L("Nenhum acesso de")} {L(PROFILES[role].label)} {L("foi criado ainda. Peça ao diretor para cadastrá-lo em Gerenciar Acessos.")}</div>}
                 <Btn t={t} kind="primary" type="submit" disabled={verificando} className="w-full">
                   <KeyRound size={15} /> {verificando ? "Verificando conta..." : "Entrar"}</Btn>
+                <div className="pt-1 text-center">
+                  <button type="button" onClick={() => { setRecuperando(true); setErro(""); setSucesso(""); }}
+                    className="text-xs font-semibold" style={{ color: t.gold }}>
+                    {L("Esqueci minha senha")}</button>
+                </div>
               </form>
+              )}
             </>
           )}
         </Card>
@@ -2684,6 +2797,9 @@ function GerenciarEmails({ t }) {
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [perfil, setPerfil] = useState("sindico");
+  const [codigoGerado, setCodigoGerado] = useState(null); // { codigo, nome, permanente } — mostrado UMA vez
+  const [gerando, setGerando] = useState(false);
+  const [copiado, setCopiado] = useState(false);
   const perfis = ["sindico", "tesouraria", "morador"];
 
   const recarregar = useCallback(
@@ -2711,6 +2827,22 @@ function GerenciarEmails({ t }) {
     catch (err) { setErro(err.message); }
   };
 
+  /* código de recuperação de senha: com u = acesso da lista (vale 24h);
+     sem u = o do PRÓPRIO diretor (permanente). Só o hash vai ao banco —
+     o código aparece uma única vez, neste modal. */
+  const gerarCodigo = async (u) => {
+    setErro(""); setGerando(true);
+    try {
+      const r = await gerarCodigoRecuperacao(u?.id);
+      setCopiado(false);
+      setCodigoGerado({ codigo: r.codigo, nome: u ? (u.nome || u.email) : null, permanente: !u });
+    } catch (err) { setErro(err.message); }
+    finally { setGerando(false); }
+  };
+  const copiarCodigo = () => {
+    try { navigator.clipboard.writeText(codigoGerado.codigo); setCopiado(true); } catch { /* sem clipboard */ }
+  };
+
   return (
     <div className="vfade space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -2721,7 +2853,10 @@ function GerenciarEmails({ t }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-xs" style={{ color: t.dim }}>
           Os acessos criados aqui são o que cada pessoa usará na tela de entrada. Síndico e tesouraria entram com e-mail; o morador entra com o nome cadastrado.</div>
-        <Btn t={t} kind="primary" onClick={() => { setErro(""); setNovo(true); }}><Plus size={15} /> Adicionar acesso</Btn>
+        <div className="flex flex-wrap gap-2">
+          <Btn t={t} onClick={() => gerarCodigo(null)} disabled={gerando}><KeyRound size={15} /> Meu código de recuperação</Btn>
+          <Btn t={t} kind="primary" onClick={() => { setErro(""); setNovo(true); }}><Plus size={15} /> Adicionar acesso</Btn>
+        </div>
       </div>
       {usuarios === null ? (
         <Skeleton t={t} />
@@ -2736,6 +2871,7 @@ function GerenciarEmails({ t }) {
                   <div className="text-xs" style={{ color: t.dim }}>{u.unidade ? `${L("Unidade")} ${u.unidade}` : (u.email && u.nome ? u.email : L("Senha protegida por criptografia"))}</div>
                 </div>
                 <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.goldSoft, color: t.gold }}>{PROFILES[u.role]?.label || u.role}</span>
+                <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" onClick={() => gerarCodigo(u)} disabled={gerando}><KeyRound size={13} /> Gerar código</Btn>
                 <Btn t={t} kind="danger" className="!px-2 !py-1 text-xs" onClick={() => remover(u)}><Trash2 size={13} /> Remover</Btn>
               </div>
             </Card>))}
@@ -2778,6 +2914,24 @@ function GerenciarEmails({ t }) {
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovo(false)}>Cancelar</Btn>
               <Btn t={t} kind="primary" type="submit" disabled={salvando}><Check size={14} /> {salvando ? "Salvando…" : "Criar acesso"}</Btn></div>
           </form>
+        </Modal>)}
+      {codigoGerado && (
+        <Modal t={t} onClose={() => setCodigoGerado(null)}>
+          <ModalHeader t={t} title="Código de recuperação" onClose={() => setCodigoGerado(null)} />
+          <div className="space-y-3">
+            {codigoGerado.nome && <div className="text-sm font-semibold">{codigoGerado.nome}</div>}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-3"
+              style={{ borderColor: t.border, background: t.goldSoft }}>
+              <div className="font-mono text-base font-bold tracking-wider" style={{ color: t.gold }}>{codigoGerado.codigo}</div>
+              <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" onClick={copiarCodigo}>
+                <Copy size={13} /> {copiado ? "Copiado!" : "Copiar"}</Btn>
+            </div>
+            <div className="text-xs" style={{ color: t.dim }}>
+              {L(codigoGerado.permanente
+                ? "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior."
+                : "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.")}</div>
+          </div>
+          <div className="mt-5 flex justify-end"><Btn t={t} onClick={() => setCodigoGerado(null)}>Fechar</Btn></div>
         </Modal>)}
     </div>
   );

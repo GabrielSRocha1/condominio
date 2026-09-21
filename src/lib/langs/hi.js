@@ -177,4 +177,25 @@ export default {
 
   "Não foi possível carregar os dados": "डेटा लोड नहीं हो सका",
   "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "कनेक्शन जाँचकर फिर कोशिश करें। समस्या बनी रहे तो सहायता से संपर्क करें।",
+
+  /* recuperação de senha por código */
+  "Esqueci minha senha": "मैं पासवर्ड भूल गया",
+  "Recuperar senha": "पासवर्ड पुनर्प्राप्ति",
+  "Código de recuperação": "रिकवरी कोड",
+  "Nova senha": "नया पासवर्ड",
+  "Confirmar nova senha": "नए पासवर्ड की पुष्टि करें",
+  "Redefinir senha": "पासवर्ड रीसेट करें",
+  "Redefinindo…": "रीसेट हो रहा है…",
+  "Senha redefinida. Entre com a nova senha.": "पासवर्ड रीसेट हो गया। नए पासवर्ड से साइन इन करें।",
+  "Código de recuperação inválido ou expirado.": "रिकवरी कोड अमान्य है या समाप्त हो गया है।",
+  "Gerar código": "कोड बनाएं",
+  "Meu código de recuperação": "मेरा रिकवरी कोड",
+  "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.": "यह कोड उस व्यक्ति को दें: इससे वह साइन-इन स्क्रीन पर \"मैं पासवर्ड भूल गया\" में अपना पासवर्ड स्वयं रीसेट करेगा। यह 24 घंटे मान्य है, केवल एक बार दिखाया जाता है और पिछले कोड की जगह लेता है।",
+  "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior.": "इस कोड से आप साइन-इन स्क्रीन पर \"मैं पासवर्ड भूल गया\" में अपना पासवर्ड रीसेट करते हैं। इसे सुरक्षित जगह रखें — यह केवल एक बार दिखाया जाता है और पिछले कोड की जगह लेता है।",
+  "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.": "अपने रिकवरी कोड का उपयोग करें — यदि नहीं है, तो निदेशक से \"एक्सेस प्रबंधन\" में मांगें।",
+  "Use seu código de recuperação permanente.": "अपने स्थायी रिकवरी कोड का उपयोग करें।",
+  "Guarde seu código de recuperação": "अपना रिकवरी कोड संभालकर रखें",
+  "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "इससे आप \"मैं पासवर्ड भूल गया\" में निदेशक पर निर्भर हुए बिना खुद अपना पासवर्ड रीसेट करते हैं। यह केवल एक बार दिखाया जाता है — इसे सुरक्षित जगह रखें।",
+  "Agora não": "अभी नहीं",
+  "Continuar": "जारी रखें",
 };

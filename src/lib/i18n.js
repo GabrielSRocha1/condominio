@@ -146,6 +146,24 @@ const EN = {
   "Não foi possível verificar sua conta agora.": "We couldn't verify your account right now.",
 
   "As senhas não conferem.": "The passwords don't match.",
+
+  /* recuperação de senha por código */
+  "Esqueci minha senha": "I forgot my password",
+  "Recuperar senha": "Recover password",
+  "Código de recuperação": "Recovery code",
+  "Nova senha": "New password", "Confirmar nova senha": "Confirm new password",
+  "Redefinir senha": "Reset password", "Redefinindo…": "Resetting…",
+  "Senha redefinida. Entre com a nova senha.": "Password reset. Sign in with your new password.",
+  "Código de recuperação inválido ou expirado.": "Invalid or expired recovery code.",
+  "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.": "Use your recovery code — if you don't have one, ask the director in Manage Access.",
+  "Use seu código de recuperação permanente.": "Use your permanent recovery code.",
+  "Guarde seu código de recuperação": "Save your recovery code",
+  "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "With it you reset your password on your own under \"I forgot my password\", without depending on the director. It is shown only once — keep it somewhere safe.",
+  "Agora não": "Not now", "Continuar": "Continue",
+  "Gerar código": "Generate code", "Meu código de recuperação": "My recovery code",
+  "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.": "Give this code to the person: with it, they reset their own password on the sign-in screen under \"I forgot my password\". It is valid for 24 hours, shown only once and replaces the previous code.",
+  "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior.": "With this code you reset your password on the sign-in screen under \"I forgot my password\". Keep it somewhere safe — it is shown only once and replaces the previous one.",
+
   "Nenhum acesso de": "No access for",
   "foi criado ainda. Peça ao diretor para cadastrá-lo em Gerenciar Acessos.": "has been created yet. Ask the director to register it in Manage Access.",
   "Tema claro": "Light theme", "Tema escuro": "Dark theme",
@@ -693,6 +711,23 @@ const ES = {
   "Não foi possível verificar sua conta agora.": "No fue posible verificar su cuenta ahora.",
 
   "As senhas não conferem.": "Las contraseñas no coinciden.",
+
+  /* recuperação de senha por código */
+  "Esqueci minha senha": "Olvidé mi contraseña",
+  "Recuperar senha": "Recuperar contraseña",
+  "Código de recuperação": "Código de recuperación",
+  "Nova senha": "Nueva contraseña", "Confirmar nova senha": "Confirmar nueva contraseña",
+  "Redefinir senha": "Restablecer contraseña", "Redefinindo…": "Restableciendo…",
+  "Senha redefinida. Entre com a nova senha.": "Contraseña restablecida. Entre con la nueva contraseña.",
+  "Código de recuperação inválido ou expirado.": "Código de recuperación inválido o vencido.",
+  "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.": "Use su código de recuperación — si no tiene uno, pídalo al director en Gestionar Accesos.",
+  "Use seu código de recuperação permanente.": "Use su código de recuperación permanente.",
+  "Guarde seu código de recuperação": "Guarde su código de recuperación",
+  "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "Con él usted restablece su contraseña por su cuenta en \"Olvidé mi contraseña\", sin depender del director. Se muestra una única vez — guárdelo en un lugar seguro.",
+  "Agora não": "Ahora no", "Continuar": "Continuar",
+  "Gerar código": "Generar código", "Meu código de recuperação": "Mi código de recuperación",
+  "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.": "Entregue este código a la persona: con él, ella restablece su propia contraseña en la pantalla de entrada, en \"Olvidé mi contraseña\". Vale por 24 horas, se muestra una única vez y reemplaza el código anterior.",
+  "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior.": "Con este código usted restablece su contraseña en la pantalla de entrada, en \"Olvidé mi contraseña\". Guárdelo en un lugar seguro — se muestra una única vez y reemplaza el anterior.",
   "Nenhum acesso de": "Ningún acceso de",
   "foi criado ainda. Peça ao diretor para cadastrá-lo em Gerenciar Acessos.": "fue creado todavía. Pida al director que lo registre en Gestionar Accesos.",
   "Tema claro": "Tema claro", "Tema escuro": "Tema oscuro",

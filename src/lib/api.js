@@ -543,6 +543,26 @@ export async function removerAcesso(usuarioId) {
   await chamarAuth("acessos", { acao: "remover", usuarioId });
 }
 
+/* Código de recuperação de senha (só o diretor gera): sem usuarioId é o do
+   próprio diretor (permanente); com usuarioId, vale 24h para o acesso
+   escolhido. O código aparece UMA vez — o banco só guarda o hash. */
+export async function gerarCodigoRecuperacao(usuarioId) {
+  return chamarAuth("acessos", { acao: "codigo", ...(usuarioId ? { usuarioId } : {}) });
+}
+
+/* "Esqueci minha senha" da tela de entrada: troca a senha usando o código
+   de recuperação. Morador se identifica pelo nome; os demais, pelo e-mail. */
+export async function recuperarSenha({ perfil, email, nome, codigo, senha }) {
+  return chamarAuth("recuperar", { perfil, email, nome, codigo, senha });
+}
+
+/* A PRÓPRIA conta logada gera seu código de recuperação permanente —
+   sugerido logo após o login quando ela ainda não tem um (autonomia:
+   ninguém precisa do diretor para se recuperar). Mostrado UMA vez. */
+export async function gerarMeuCodigoRecuperacao() {
+  return chamarAuth("codigo", {});
+}
+
 /* Login dos demais perfis. Morador entra pelo nome; os outros, pelo e-mail.
    Retorna null quando não confere. */
 export async function loginUsuario(role, { email, nome, senha }) {

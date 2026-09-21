@@ -177,4 +177,25 @@ export default {
 
   "Não foi possível carregar os dados": "ডেটা লোড করা যায়নি",
   "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "সংযোগ পরীক্ষা করে আবার চেষ্টা করুন। সমস্যা থাকলে সহায়তা দলের সাথে যোগাযোগ করুন।",
+
+  /* recuperação de senha por código */
+  "Esqueci minha senha": "পাসওয়ার্ড ভুলে গেছি",
+  "Recuperar senha": "পাসওয়ার্ড পুনরুদ্ধার",
+  "Código de recuperação": "রিকভারি কোড",
+  "Nova senha": "নতুন পাসওয়ার্ড",
+  "Confirmar nova senha": "নতুন পাসওয়ার্ড নিশ্চিত করুন",
+  "Redefinir senha": "পাসওয়ার্ড রিসেট করুন",
+  "Redefinindo…": "রিসেট হচ্ছে…",
+  "Senha redefinida. Entre com a nova senha.": "পাসওয়ার্ড রিসেট হয়েছে। নতুন পাসওয়ার্ড দিয়ে সাইন ইন করুন।",
+  "Código de recuperação inválido ou expirado.": "রিকভারি কোড অবৈধ বা মেয়াদোত্তীর্ণ।",
+  "Gerar código": "কোড তৈরি করুন",
+  "Meu código de recuperação": "আমার রিকভারি কোড",
+  "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.": "এই কোডটি সংশ্লিষ্ট ব্যক্তিকে দিন: সাইন-ইন স্ক্রিনের \"পাসওয়ার্ড ভুলে গেছি\"-তে এটি দিয়ে তিনি নিজের পাসওয়ার্ড রিসেট করবেন। এটি ২৪ ঘণ্টা বৈধ, শুধুমাত্র একবার দেখানো হয় এবং আগের কোডটি প্রতিস্থাপন করে।",
+  "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior.": "এই কোড দিয়ে আপনি সাইন-ইন স্ক্রিনের \"পাসওয়ার্ড ভুলে গেছি\"-তে আপনার পাসওয়ার্ড রিসেট করবেন। নিরাপদ স্থানে রাখুন — এটি শুধুমাত্র একবার দেখানো হয় এবং আগেরটি প্রতিস্থাপন করে।",
+  "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.": "আপনার রিকভারি কোড ব্যবহার করুন — না থাকলে পরিচালকের কাছে \"অ্যাক্সেস ব্যবস্থাপনা\"-তে চান।",
+  "Use seu código de recuperação permanente.": "আপনার স্থায়ী রিকভারি কোড ব্যবহার করুন।",
+  "Guarde seu código de recuperação": "আপনার রিকভারি কোড সংরক্ষণ করুন",
+  "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "এটি দিয়ে আপনি \"পাসওয়ার্ড ভুলে গেছি\"-তে পরিচালকের উপর নির্ভর না করে নিজেই পাসওয়ার্ড রিসেট করবেন। এটি শুধুমাত্র একবার দেখানো হয় — নিরাপদ স্থানে রাখুন।",
+  "Agora não": "এখন নয়",
+  "Continuar": "চালিয়ে যান",
 };

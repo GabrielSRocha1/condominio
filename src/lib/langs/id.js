@@ -177,4 +177,25 @@ export default {
 
   "Não foi possível carregar os dados": "Data tidak dapat dimuat",
   "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "Periksa koneksi dan coba lagi. Jika masalah berlanjut, hubungi dukungan.",
+
+  /* recuperação de senha por código */
+  "Esqueci minha senha": "Lupa kata sandi",
+  "Recuperar senha": "Pulihkan kata sandi",
+  "Código de recuperação": "Kode pemulihan",
+  "Nova senha": "Kata sandi baru",
+  "Confirmar nova senha": "Konfirmasi kata sandi baru",
+  "Redefinir senha": "Atur ulang kata sandi",
+  "Redefinindo…": "Mengatur ulang…",
+  "Senha redefinida. Entre com a nova senha.": "Kata sandi berhasil diatur ulang. Masuk dengan kata sandi baru.",
+  "Código de recuperação inválido ou expirado.": "Kode pemulihan tidak valid atau kedaluwarsa.",
+  "Gerar código": "Buat kode",
+  "Meu código de recuperação": "Kode pemulihan saya",
+  "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.": "Serahkan kode ini kepada orangnya: dengan kode ini ia mengatur ulang kata sandinya sendiri di layar masuk, pada \"Lupa kata sandi\". Berlaku 24 jam, hanya ditampilkan sekali, dan menggantikan kode sebelumnya.",
+  "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior.": "Dengan kode ini Anda mengatur ulang kata sandi di layar masuk, pada \"Lupa kata sandi\". Simpan di tempat aman — hanya ditampilkan sekali dan menggantikan kode sebelumnya.",
+  "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.": "Gunakan kode pemulihan Anda — jika belum punya, minta kepada direktur di Kelola Akses.",
+  "Use seu código de recuperação permanente.": "Gunakan kode pemulihan permanen Anda.",
+  "Guarde seu código de recuperação": "Simpan kode pemulihan Anda",
+  "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "Dengan kode ini Anda mengatur ulang kata sandi sendiri di \"Lupa kata sandi\", tanpa bergantung pada direktur. Hanya ditampilkan sekali — simpan di tempat aman.",
+  "Agora não": "Nanti saja",
+  "Continuar": "Lanjutkan",
 };

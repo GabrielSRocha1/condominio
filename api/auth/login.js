@@ -28,6 +28,17 @@ const LOCK_IP = { janelaSeg: 15 * 60, max: 30, bloqueioSeg: 15 * 60 };   // por 
 const semColunaPreferencias = (e) =>
   !!e && /preferencias/i.test(e.message || "") && /does not exist|schema cache|column/i.test(e.message || "");
 
+/* a conta tem código de recuperação PERMANENTE ativo? O app usa isso para
+   sugerir gerar um logo após o login (autonomia: a pessoa se recupera sem
+   o diretor). Sem a tabela (supabase-seguranca4.sql não rodado), responde
+   true — não sugere nada e nada quebra. */
+async function temCodigoPermanente(supabase, usuarioId) {
+  const { data, error } = await supabase.from("auth_recuperacao")
+    .select("id").eq("usuario_id", usuarioId).is("usado_em", null).is("expira_em", null).limit(1);
+  if (error) return true;
+  return (data || []).length > 0;
+}
+
 /* bloqueio vigente? (leitura pura — não incrementa nada) */
 async function bloqueado(supabase, chave) {
   const { data } = await supabase.from("auth_protecao")
@@ -108,6 +119,7 @@ export default async function handler(req, res) {
         nome: conta.pessoas.nome, condominioId,
         unidade: vincUnidade?.unidades ? `${vincUnidade.unidades.numero}-${vincUnidade.unidades.blocos?.nome || "?"}` : null,
         idioma: conta.preferencias?.idioma || null, // idioma da interface guardado nesta conta
+        temCodigoRecuperacao: await temCodigoPermanente(supabase, conta.id),
       } });
     }
 
@@ -139,6 +151,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ token, conta: {
       nome, email: f.email, condominioId,
       idioma: data.preferencias?.idioma || null, // idioma da interface guardado nesta conta
+      temCodigoRecuperacao: await temCodigoPermanente(supabase, data.id),
     } });
   } catch (e) {
     logSeguro("[auth/login]", e);

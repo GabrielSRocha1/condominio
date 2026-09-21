@@ -177,4 +177,25 @@ export default {
 
   "Não foi possível carregar os dados": "无法加载数据",
   "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "请检查网络后重试。若问题持续，请联系客服。",
+
+  /* recuperação de senha por código */
+  "Esqueci minha senha": "忘记密码",
+  "Recuperar senha": "找回密码",
+  "Código de recuperação": "恢复码",
+  "Nova senha": "新密码",
+  "Confirmar nova senha": "确认新密码",
+  "Redefinir senha": "重置密码",
+  "Redefinindo…": "正在重置…",
+  "Senha redefinida. Entre com a nova senha.": "密码已重置。请用新密码登录。",
+  "Código de recuperação inválido ou expirado.": "恢复码无效或已过期。",
+  "Gerar código": "生成恢复码",
+  "Meu código de recuperação": "我的恢复码",
+  "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.": "请将此恢复码交给本人：TA 可在登录页的“忘记密码”中用它重设自己的密码。有效期 24 小时，仅显示一次，并会替换之前的恢复码。",
+  "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior.": "您可在登录页的“忘记密码”中用此恢复码重设密码。请妥善保管——它仅显示一次，并会替换之前的恢复码。",
+  "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.": "请使用您的恢复码——如果没有，请向董事在“访问管理”中索取。",
+  "Use seu código de recuperação permanente.": "请使用您的永久恢复码。",
+  "Guarde seu código de recuperação": "请保存您的恢复码",
+  "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "有了它，您可以在“忘记密码”中自行重设密码，无需依赖董事。它仅显示一次——请妥善保管。",
+  "Agora não": "暂不",
+  "Continuar": "继续",
 };

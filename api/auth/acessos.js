@@ -3,6 +3,10 @@
      { acao: "criar",   perfil, nome?, email?, senha, unidadeId? }
      { acao: "listar" }
      { acao: "remover", usuarioId }
+     { acao: "codigo",  usuarioId? }  → código de recuperação de senha
+       (sem usuarioId = o do PRÓPRIO diretor, permanente; com usuarioId =
+       24h para síndico/tesouraria/morador do condomínio — a pessoa o usa
+       em "Esqueci minha senha" na tela de entrada, /api/auth/recuperar)
 
    Por que saiu do navegador: com escrita client-side em usuarios e
    usuario_perfis, qualquer perfil de gestão conseguia se promover a diretor
@@ -11,10 +15,14 @@
    criável é whitelist (nunca "diretor") e a senha nasce em scrypt+salt. */
 import { createClient } from "@supabase/supabase-js";
 import { corpoValidado } from "../_lib/validar.js";
-import { lerClaimsReq, gerarHashSenha, origemBloqueada, prepararIdempotencia, logSeguro, auditar, ipDoRequest } from "../_lib/seguranca.js";
+import {
+  lerClaimsReq, gerarHashSenha, gerarCodigoRecuperacao, guardarCodigoRecuperacao, erroSemTabela,
+  origemBloqueada, prepararIdempotencia, logSeguro, auditar, ipDoRequest,
+} from "../_lib/seguranca.js";
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
 const PERFIS_CRIAVEIS = ["sindico", "tesouraria", "morador"];
+const CODIGO_TTL_MS = 24 * 3600 * 1000; // código gerado para outra pessoa vale 24h
 
 /* e-mail sintético do morador (entra pelo nome) — mesmo formato do frontend */
 const emailMorador = (nome, condominioId) =>
@@ -35,7 +43,7 @@ export default async function handler(req, res) {
 
   try {
     const f = corpoValidado(res, typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {}), {
-      acao:      { tipo: "enum", valores: ["criar", "listar", "remover"], obrigatorio: true },
+      acao:      { tipo: "enum", valores: ["criar", "listar", "remover", "codigo"], obrigatorio: true },
       perfil:    { tipo: "enum", valores: PERFIS_CRIAVEIS },
       nome:      { tipo: "texto", max: 120 },
       email:     { tipo: "email" },
@@ -45,8 +53,11 @@ export default async function handler(req, res) {
     });
     if (!f) return;
 
-    /* mutações (criar/remover) com retry de rede não podem duplicar */
-    if (f.acao !== "listar") {
+    /* mutações (criar/remover) com retry de rede não podem duplicar.
+       "codigo" fica de fora: o replay gravaria o código PURO no corpo da
+       api_idempotencia — e gerar de novo já substitui o anterior, então o
+       retry é inofensivo por natureza. */
+    if (f.acao !== "listar" && f.acao !== "codigo") {
       const idem = await prepararIdempotencia(supabase, req, res,
         { usuarioId: claims.sub, rota: `auth/acessos:${f.acao}` });
       if (idem.repetida) return;
@@ -95,6 +106,33 @@ export default async function handler(req, res) {
       await auditar(supabase, { evento: "acesso_removido", severidade: "aviso", usuarioId: claims.sub,
         condominioId, ip: ipDoRequest(req), detalhe: { usuario_alvo: f.usuarioId } });
       return res.status(200).json({ ok: true });
+    }
+
+    /* ── codigo: gera código de recuperação de senha (uso único) ── */
+    if (f.acao === "codigo") {
+      const alvoId = f.usuarioId || claims.sub;   // sem usuarioId = o próprio diretor
+      const proprio = alvoId === claims.sub;
+      if (!proprio) {
+        /* o alvo precisa pertencer AO MEU condomínio e nunca ser um diretor */
+        const { data: alvo } = await supabase.from("usuario_perfis")
+          .select("id, perfis(nome)").eq("usuario_id", alvoId).eq("condominio_id", condominioId);
+        if (!alvo?.length) return res.status(404).json({ error: "Acesso não encontrado." });
+        if (alvo.some((a) => a.perfis?.nome === "diretor"))
+          return res.status(403).json({ error: "Cada diretor gera o próprio código de recuperação." });
+      }
+
+      const codigo = gerarCodigoRecuperacao();
+      const expiraEm = proprio ? null : new Date(Date.now() + CODIGO_TTL_MS).toISOString();
+      const eCod = await guardarCodigoRecuperacao(supabase,
+        { usuarioId: alvoId, criadoPor: claims.sub, expiraEm, codigo });
+      if (erroSemTabela(eCod))
+        return res.status(503).json({ error: "Recuperação de senha ainda não habilitada — rode o supabase-seguranca4.sql." });
+      if (eCod) throw new Error(eCod.message);
+
+      await auditar(supabase, { evento: "codigo_recuperacao_gerado", severidade: "aviso",
+        usuarioId: claims.sub, condominioId, ip: ipDoRequest(req),
+        detalhe: { usuario_alvo: alvoId, permanente: proprio } });
+      return res.status(200).json({ codigo, expiraEm });
     }
 
     /* ── criar ── */

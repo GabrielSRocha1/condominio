@@ -18,9 +18,10 @@ ficam inertes (com aviso no log do servidor).
 | CSP/headers | `vercel.json` | `default-src 'self'`, frame-ancestors none, HSTS, nosniff; câmera liberada só para o QR da portaria |
 | OpSec | `logSeguro()` | 500 genérico; JWT/chaves/cookies/senhas redigidos de qualquer log |
 | Auditoria | `auditoria_eventos` (append-only) | trilha imutável: logins, bloqueios, reuso de sessão, acessos, pagamentos e informes (triggers pegam até RPC do navegador) |
+| Recuperação de senha | `auth_recuperacao` + `/api/auth/codigo` + `/api/auth/recuperar` | sem e-mail: cada conta gera o próprio código permanente após o login (autonomia); diretor gera código de 24h como plano B; só o sha256 no banco, lockout próprio, uso revoga todas as sessões da conta |
 
 SQLs (rodar no SQL Editor, nesta ordem, todos idempotentes):
-`supabase-rls.sql` → `supabase-seguranca.sql` → `supabase-seguranca2.sql` → `supabase-seguranca3.sql`.
+`supabase-rls.sql` → `supabase-seguranca.sql` → `supabase-seguranca2.sql` → `supabase-seguranca3.sql` → `supabase-seguranca4.sql`.
 (Instalação do zero: antes deles vêm `supabase-schema.sql` e
 `supabase-storage.sql` — ordem completa no `README.md`. Se re-rodar o
 `supabase-rls.sql` depois das etapas, re-rode as três em seguida — ele derruba
@@ -33,6 +34,7 @@ todas as policies antes de recriar as suas.)
 | `scripts/testar-seguranca.mjs` | sondas da Etapa 1 (23): auth, lockout, refresh, RLS |
 | `scripts/testar-seguranca2.mjs` | sondas da Etapa 2 (14): origem, idempotência, redação |
 | `scripts/testar-seguranca3.mjs` | pentest: isolamento entre condomínios, fuzzing, auditoria |
+| `scripts/testar-recuperacao.mjs` | sondas da Etapa 4: recuperação de senha por código |
 | `scripts/relatorio-seguranca.mjs [horas]` | resumo da trilha: falhas de login por IP, eventos ALTA, financeiro |
 | `scripts/emergencia-sessoes.mjs` | revogação em massa (`--todas` / `--usuario` / `--condominio`) |
 | `scripts/verificar-segredos-bundle.mjs` | após `vite build`: nenhum segredo do `.env` no `dist/` |

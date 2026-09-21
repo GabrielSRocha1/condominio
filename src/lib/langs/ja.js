@@ -177,4 +177,25 @@ export default {
 
   "Não foi possível carregar os dados": "データを読み込めませんでした",
   "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "接続を確認して再試行してください。問題が続く場合はサポートにご連絡ください。",
+
+  /* recuperação de senha por código */
+  "Esqueci minha senha": "パスワードを忘れた方",
+  "Recuperar senha": "パスワードの再設定",
+  "Código de recuperação": "リカバリーコード",
+  "Nova senha": "新しいパスワード",
+  "Confirmar nova senha": "新しいパスワード（確認）",
+  "Redefinir senha": "パスワードを再設定",
+  "Redefinindo…": "再設定中…",
+  "Senha redefinida. Entre com a nova senha.": "パスワードを再設定しました。新しいパスワードでログインしてください。",
+  "Código de recuperação inválido ou expirado.": "リカバリーコードが無効か期限切れです。",
+  "Gerar código": "コードを生成",
+  "Meu código de recuperação": "自分のリカバリーコード",
+  "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.": "このコードを本人に渡してください。ログイン画面の「パスワードを忘れた方」から、本人が自分でパスワードを再設定できます。有効期間は24時間、表示は一度だけで、以前のコードは無効になります。",
+  "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior.": "このコードで、ログイン画面の「パスワードを忘れた方」から自分のパスワードを再設定できます。安全な場所に保管してください。表示は一度だけで、以前のコードは無効になります。",
+  "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.": "自分のリカバリーコードを使用してください。持っていない場合は、理事長に「アクセス管理」での発行を依頼してください。",
+  "Use seu código de recuperação permanente.": "自分の永久リカバリーコードを使用してください。",
+  "Guarde seu código de recuperação": "リカバリーコードを保管してください",
+  "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "このコードがあれば、「パスワードを忘れた方」から理事長に頼らず自分でパスワードを再設定できます。表示は一度だけです。安全な場所に保管してください。",
+  "Agora não": "今はしない",
+  "Continuar": "続行",
 };

@@ -177,4 +177,25 @@ export default {
 
   "Não foi possível carregar os dados": "Daten konnten nicht geladen werden",
   "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "Prüfen Sie die Verbindung und versuchen Sie es erneut. Bei anhaltenden Problemen kontaktieren Sie den Support.",
+
+  /* recuperação de senha por código */
+  "Esqueci minha senha": "Passwort vergessen",
+  "Recuperar senha": "Passwort wiederherstellen",
+  "Código de recuperação": "Wiederherstellungscode",
+  "Nova senha": "Neues Passwort",
+  "Confirmar nova senha": "Neues Passwort bestätigen",
+  "Redefinir senha": "Passwort zurücksetzen",
+  "Redefinindo…": "Wird zurückgesetzt…",
+  "Senha redefinida. Entre com a nova senha.": "Passwort zurückgesetzt. Melden Sie sich mit dem neuen Passwort an.",
+  "Código de recuperação inválido ou expirado.": "Wiederherstellungscode ungültig oder abgelaufen.",
+  "Gerar código": "Code erzeugen",
+  "Meu código de recuperação": "Mein Wiederherstellungscode",
+  "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.": "Geben Sie dieser Person den Code: Damit setzt sie ihr eigenes Passwort auf dem Anmeldebildschirm unter „Passwort vergessen“ zurück. Er gilt 24 Stunden, wird nur einmal angezeigt und ersetzt den vorherigen Code.",
+  "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior.": "Mit diesem Code setzen Sie Ihr Passwort auf dem Anmeldebildschirm unter „Passwort vergessen“ zurück. Bewahren Sie ihn sicher auf — er wird nur einmal angezeigt und ersetzt den vorherigen.",
+  "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.": "Verwenden Sie Ihren Wiederherstellungscode — wenn Sie keinen haben, bitten Sie den Direktor unter „Zugänge verwalten“ um einen.",
+  "Use seu código de recuperação permanente.": "Verwenden Sie Ihren permanenten Wiederherstellungscode.",
+  "Guarde seu código de recuperação": "Bewahren Sie Ihren Wiederherstellungscode auf",
+  "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "Damit setzen Sie Ihr Passwort unter „Passwort vergessen“ selbst zurück, ohne auf den Direktor angewiesen zu sein. Er wird nur einmal angezeigt — bewahren Sie ihn sicher auf.",
+  "Agora não": "Jetzt nicht",
+  "Continuar": "Weiter",
 };

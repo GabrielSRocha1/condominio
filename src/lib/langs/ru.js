@@ -177,4 +177,25 @@ export default {
 
   "Não foi possível carregar os dados": "Не удалось загрузить данные",
   "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "Проверьте соединение и повторите попытку. Если проблема сохраняется, обратитесь в поддержку.",
+
+  /* recuperação de senha por código */
+  "Esqueci minha senha": "Забыли пароль",
+  "Recuperar senha": "Восстановление пароля",
+  "Código de recuperação": "Код восстановления",
+  "Nova senha": "Новый пароль",
+  "Confirmar nova senha": "Подтвердите новый пароль",
+  "Redefinir senha": "Сбросить пароль",
+  "Redefinindo…": "Сброс…",
+  "Senha redefinida. Entre com a nova senha.": "Пароль изменён. Войдите с новым паролем.",
+  "Código de recuperação inválido ou expirado.": "Код восстановления недействителен или истёк.",
+  "Gerar código": "Создать код",
+  "Meu código de recuperação": "Мой код восстановления",
+  "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.": "Передайте этот код человеку: с его помощью он сам сбросит свой пароль на экране входа в разделе «Забыли пароль». Код действует 24 часа, показывается только один раз и заменяет предыдущий.",
+  "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior.": "С этим кодом вы сбросите свой пароль на экране входа в разделе «Забыли пароль». Храните его в надёжном месте — он показывается только один раз и заменяет предыдущий.",
+  "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.": "Используйте свой код восстановления — если у вас его нет, попросите у директора в «Управлении доступами».",
+  "Use seu código de recuperação permanente.": "Используйте свой постоянный код восстановления.",
+  "Guarde seu código de recuperação": "Сохраните свой код восстановления",
+  "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "С ним вы сами сбросите пароль в разделе «Забыли пароль», не завися от директора. Он показывается только один раз — храните его в надёжном месте.",
+  "Agora não": "Не сейчас",
+  "Continuar": "Продолжить",
 };

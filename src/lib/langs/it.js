@@ -177,4 +177,25 @@ export default {
 
   "Não foi possível carregar os dados": "Impossibile caricare i dati",
   "Verifique a conexão e tente novamente. Se o problema continuar, contate o suporte.": "Verifica la connessione e riprova. Se il problema persiste, contatta l'assistenza.",
+
+  /* recuperação de senha por código */
+  "Esqueci minha senha": "Ho dimenticato la password",
+  "Recuperar senha": "Recupera password",
+  "Código de recuperação": "Codice di recupero",
+  "Nova senha": "Nuova password",
+  "Confirmar nova senha": "Conferma nuova password",
+  "Redefinir senha": "Reimposta password",
+  "Redefinindo…": "Reimpostazione…",
+  "Senha redefinida. Entre com a nova senha.": "Password reimpostata. Accedi con la nuova password.",
+  "Código de recuperação inválido ou expirado.": "Codice di recupero non valido o scaduto.",
+  "Gerar código": "Genera codice",
+  "Meu código de recuperação": "Il mio codice di recupero",
+  "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.": "Consegna questo codice alla persona: con esso reimposta la propria password nella schermata di accesso, in \"Ho dimenticato la password\". Vale 24 ore, viene mostrato una sola volta e sostituisce il codice precedente.",
+  "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior.": "Con questo codice reimposti la tua password nella schermata di accesso, in \"Ho dimenticato la password\". Conservalo in un luogo sicuro — viene mostrato una sola volta e sostituisce il precedente.",
+  "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.": "Usa il tuo codice di recupero — se non ne hai uno, chiedilo al direttore in Gestisci accessi.",
+  "Use seu código de recuperação permanente.": "Usa il tuo codice di recupero permanente.",
+  "Guarde seu código de recuperação": "Conserva il tuo codice di recupero",
+  "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "Con esso reimposti la password da solo in \"Ho dimenticato la password\", senza dipendere dal direttore. Viene mostrato una sola volta — conservalo in un luogo sicuro.",
+  "Agora não": "Non ora",
+  "Continuar": "Continua",
 };
