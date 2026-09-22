@@ -1,5 +1,6 @@
 /* Camada de dados: lê e grava no Supabase e converte para o formato das telas. */
 import { supabase, setAuthToken, getAuthToken, encerrarSessaoServidor, sessaoPronta } from "./supabase";
+import { telExibicao } from "./telefone.js";
 import { jsPDF } from "jspdf";
 
 /* POST com Idempotency-Key + retry único de rede: cada chamada ganha uma
@@ -170,6 +171,8 @@ export async function loadAll(condominioId) {
     cor: condRow.identidade_visual?.cor_primaria || null,
     sindico: condRow.regras_internas?.gestao?.sindico || "",
     moeda: condRow.regras_internas?.moeda || "USD",
+    pais: condRow.regras_internas?.pais || "", // ISO-2 — DDI e máscara dos telefones
+
     pagamentos: (() => {
       const pg = condRow.regras_internas?.pagamentos || {};
       return {
@@ -210,7 +213,7 @@ export async function loadAll(condominioId) {
     return {
       id: p.id, nome: p.nome, papel: v ? PAPEL_LABEL[v.papel] : "—",
       unidade: v?.unidade_id ? uLabel(unidadeById[v.unidade_id]) : "—", unidadeId: v?.unidade_id || null,
-      doc: maskDoc(p.cpf_cnpj), tel: p.telefone || "—", status: "ativo",
+      doc: maskDoc(p.cpf_cnpj), tel: telExibicao(p.telefone, cond.pais), status: "ativo",
       documentoUrl: p.documento_url || null,
       /* valores crus para o formulário de edição */
       docRaw: p.cpf_cnpj, telRaw: p.telefone || "", email: p.email || "",
@@ -444,7 +447,7 @@ export async function loadAll(condominioId) {
 
   /* contexto para escritas */
   const ctx = {
-    condominioId: cid, condominioNome: principal.nome_fantasia, moeda: cond.moeda,
+    condominioId: cid, condominioNome: principal.nome_fantasia, moeda: cond.moeda, pais: cond.pais,
     usuarioId: usuarios[0]?.usuario_id || null,
     blocos, categorias,
     unidades: unidadesRaw.map((u) => {
@@ -922,7 +925,7 @@ export async function criarPessoa(ctx, f) {
   const [p] = await q(supabase.from("pessoas").insert({
     condominio_id: ctx.condominioId, nome: f.nome,
     tipo_pessoa: String(f.doc || "").replace(/\D/g, "").length > 11 ? "juridica" : "fisica",
-    cpf_cnpj: f.doc, telefone: f.tel || null, email: f.email || null,
+    cpf_cnpj: f.doc, telefone: String(f.tel || "").slice(0, 20) || null, email: f.email || null,
     documento_url: documentoUrl,
   }).select(), "pessoas");
   await q(supabase.from("pessoa_vinculos").insert({
@@ -955,7 +958,7 @@ export async function importarPessoas(ctx, linhas) {
   const criadas = await q(supabase.from("pessoas").insert(novas.map((l) => ({
     condominio_id: ctx.condominioId, nome: l.nome,
     tipo_pessoa: String(l.doc).replace(/\D/g, "").length > 11 ? "juridica" : "fisica",
-    cpf_cnpj: l.doc, telefone: l.tel || null, email: l.email || null,
+    cpf_cnpj: l.doc, telefone: String(l.tel || "").slice(0, 20) || null, email: l.email || null,
   }))).select("id, cpf_cnpj"), "pessoas");
   const idPorDoc = Object.fromEntries(criadas.map((p) => [p.cpf_cnpj, p.id]));
 
@@ -993,7 +996,7 @@ export async function atualizarPessoa(ctx, pessoa, f) {
   const [doc] = await uploadArquivos(ctx, f.arquivo, "pessoas");
   const upd = {
     nome: f.nome, tipo_pessoa: String(f.doc || "").replace(/\D/g, "").length > 11 ? "juridica" : "fisica",
-    cpf_cnpj: f.doc, telefone: f.tel || null, email: f.email || null,
+    cpf_cnpj: f.doc, telefone: String(f.tel || "").slice(0, 20) || null, email: f.email || null,
   };
   if (doc) upd.documento_url = doc.url;
   await q(supabase.from("pessoas").update(upd).eq("id", pessoa.id).select(), "pessoas");
@@ -1289,6 +1292,7 @@ export async function obterCondominio(ctx) {
     silencio: r.silencio || "", mudancas: r.mudancas || "", obras: r.obras || "",
     visitantes: r.visitantes || "", animais: r.animais || "", areas: r.areas_comuns || "",
     moeda: r.moeda || "USD",
+    pais: r.pais || "", // ISO-2 — DDI e máscara dos telefones (semeado pelo IP na criação)
     verumWallet: pg.verum_wallet || pg.cripto || "",
     dinheiro: pg.dinheiro !== false, // padrão: aceita dinheiro
     stripeRepasse: pg.stripe_repasse === true, // taxa do pagamento online repassada ao morador
@@ -1314,6 +1318,7 @@ export async function salvarCondominio(ctx, f) {
       silencio: f.silencio || "", mudancas: f.mudancas || "", obras: f.obras || "",
       visitantes: f.visitantes || "", animais: f.animais || "", areas_comuns: f.areas || "",
       moeda: f.moeda || "USD",
+      pais: f.pais || "", // ISO-2 do seletor "País do condomínio" (Dados gerais)
       /* meios de pagamento das cobranças: carteira Verum Wallet + dados bancários
          em campos separados (IBAN/SWIFT) para funcionar em qualquer país */
       pagamentos: {

@@ -49,15 +49,16 @@ export default async function handler(req, res) {
       .select("id, email, pessoa_id").eq("id", claims.sub).maybeSingle();
     if (eU || !usuario) return res.status(401).json({ error: "Conta não encontrada — entre de novo." });
 
-    /* moeda de gestão inicial pelo país do IP de quem está cadastrando — é só
-       a semente do campo em Dados gerais, que o diretor confere e pode trocar.
-       Daqui em diante quem manda é o valor salvo: nada aqui sobrescreve um
-       condomínio existente, porque só existe no insert. */
-    const moedaInicial = resolverGeo(req).moeda || "USD";
+    /* moeda de gestão e país iniciais pelo IP de quem está cadastrando — são
+       só a semente dos campos em Dados gerais, que o diretor confere e pode
+       trocar (o país define o DDI e a máscara dos telefones). Daqui em diante
+       quem manda é o valor salvo: nada aqui sobrescreve um condomínio
+       existente, porque só existe no insert. */
+    const geo = resolverGeo(req);
     const { data: cond, error: e1 } = await supabase.from("condominios").insert({
       nome_fantasia: f.nome, razao_social: f.razao || f.nome, cnpj: f.cnpj,
       endereco: { texto: f.endereco }, tipo: TIPO[f.tipo] || "residencial", porte: PORTE[f.porte] || "medio",
-      regras_internas: { moeda: moedaInicial },
+      regras_internas: { moeda: geo.moeda || "USD", pais: geo.pais || "" },
     }).select().single();
     if (e1) throw new Error(e1.message);
 

@@ -3,6 +3,7 @@
    preenchida (.xlsx ou .csv) linha a linha. A escrita no banco fica em
    api.js (importarPessoas) — aqui é só arquivo e validação. */
 import { L, traducoesDe } from "./i18n.js";
+import { separarTel, validarTel, normalizarTel } from "./telefone.js";
 
 /* exceljs (~250 KB gz) só carrega quando o modal de importação é usado —
    dynamic import mantém o chunk fora do bundle principal */
@@ -81,6 +82,7 @@ export async function gerarModeloPessoas(ctx) {
     "• " + L("Campos obrigatórios: Nome completo e Documento."),
     "• " + L("Papel e Unidade têm lista de seleção — clique na célula e escolha um valor."),
     "• " + L("Data de entrada: use o formato DD/MM/AAAA. Se ficar vazia, vale a data da importação."),
+    "• " + L("Telefone: informe com DDD/código de área; número de outro país começa com + e o DDI (ex.: +595 981 123456)."),
     "• " + L("Não mude os cabeçalhos nem a ordem das colunas."),
     "• " + L("Até 500 pessoas por importação."),
     "• " + L("Depois, volte ao app e envie este arquivo em Pessoas → Importar."),
@@ -299,7 +301,16 @@ export async function lerPlanilhaPessoas(file, ctx, pessoasExistentes) {
     const rUnidade = resolverUnidade(unidadeTxt, ctx);
     if (rUnidade.erro) erros.push(`${L("Unidade não encontrada — use um valor da lista do modelo")} ("${unidadeTxt}")`);
 
+    /* telefone: dentro do padrão do país (do condomínio, ou do DDI se vier com
+       "+") é gravado normalizado em E.164; fora do padrão vira só aviso — a
+       planilha nunca trava por telefone, exceto acima do varchar(20) */
+    let telNorm = tel;
     if (tel.length > 20) erros.push(L("Telefone: use até 20 caracteres"));
+    else if (tel) {
+      const st = separarTel(tel, ctx.pais || "BR");
+      if (st.digitos && validarTel(st.digitos, st.pais)) telNorm = normalizarTel(st.digitos, st.pais);
+      else avisos.push(L("Telefone fora do padrão do país — confira o DDI e a quantidade de dígitos"));
+    }
     if (email && (email.length > 160 || !RE_EMAIL.test(email))) erros.push(L("E-mail: formato inválido"));
 
     const rData = paraISO(pega("inicio"));
@@ -310,7 +321,7 @@ export async function lerPlanilhaPessoas(file, ctx, pessoasExistentes) {
 
     return {
       id: n, n, nome, doc, papel: rPapel.papel || "Morador",
-      unidadeId: rUnidade.id || null, unidadeTxt, tel, email, inicio: rData.iso || "",
+      unidadeId: rUnidade.id || null, unidadeTxt, tel: telNorm, email, inicio: rData.iso || "",
       erros, avisos, status: erros.length ? "erro" : duplicada ? "duplicada" : "ok",
     };
   });

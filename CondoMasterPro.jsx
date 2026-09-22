@@ -7,7 +7,8 @@ import {
   Download, Bell, Menu, Eye, Send, Printer, RefreshCw, TrendingUp,
   TrendingDown, CircleDot, User, KeyRound, Car, Package, DoorOpen, Star,
   ListChecks, Ban,
-  Mail, EyeOff, Trash2, UserPlus, Upload, Copy, MapPin, Banknote, CreditCard
+  Mail, EyeOff, Trash2, UserPlus, Upload, Copy, MapPin, Banknote, CreditCard,
+  ChevronDown,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -28,6 +29,7 @@ import {
   salvarPreferencias, importarPessoas,
 } from "./src/lib/api.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
+import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
 import { geoCache } from "./src/lib/geo.js";
@@ -52,14 +54,14 @@ const LangSel = ({ t, lang, onLang }) => (
 const THEMES = {
   dark: {
     bg: "#0A0E1A", surface: "#111827", surface2: "#18213A", sidebar: "#0D1220",
-    border: "rgba(212,175,55,0.16)", borderSoft: "rgba(255,255,255,0.07)",
+    border: "rgba(212,175,55,0.16)", borderSoft: "rgba(255,255,255,0.07)", scroll: "rgba(255,255,255,0.30)",
     text: "#ECEFF7", dim: "#8C94A9", gold: "#D4AF37", goldSoft: "rgba(212,175,55,0.12)",
     glass: "rgba(13,18,32,0.85)", shadow: "0 8px 30px rgba(0,0,0,0.45)",
     ok: "#22C55E", warn: "#EAB308", danger: "#EF4444", info: "#3B82F6", purple: "#A855F7",
   },
   light: {
     bg: "#F5F4EF", surface: "#FFFFFF", surface2: "#F0EEE6", sidebar: "#FFFFFF",
-    border: "rgba(158,124,20,0.30)", borderSoft: "rgba(20,25,40,0.10)",
+    border: "rgba(158,124,20,0.30)", borderSoft: "rgba(20,25,40,0.10)", scroll: "rgba(20,25,40,0.32)",
     text: "#171E2E", dim: "#68708A", gold: "#9E7C14", goldSoft: "rgba(158,124,20,0.10)",
     glass: "rgba(255,255,255,0.9)", shadow: "0 8px 24px rgba(23,30,46,0.10)",
     ok: "#16A34A", warn: "#CA8A04", danger: "#DC2626", info: "#2563EB", purple: "#9333EA",
@@ -204,6 +206,49 @@ function AreaInput({ t, name, required, defaultValue = null, inputRef }) {
       onChange={(e) => { const dig = e.target.value.replace(/\D/g, "").slice(0, 9); setCents(dig ? parseInt(dig, 10) : null); }}
       style={inputStyle(t)} />
     <input type="hidden" name={name} ref={inputRef} value={cents == null ? "" : (cents / 100).toFixed(2).replace(".", ",")} readOnly />
+  </>);
+}
+
+/* Campo de telefone com mini-seletor de DDI: o país do condomínio (Dados
+   gerais) pré-seleciona o DDI e a máscara; número de outro país é só trocar
+   no seletor. O valor submetido (input oculto) sai como "+5511912345678"
+   (E.164, o formato que telExibicao e telParaWhats entendem); vazio sai "".
+   Colar um número que começa com "+" troca o país sozinho. */
+function PhoneInput({ t, name, defaultValue = "", paisPadrao = "BR" }) {
+  const [ini] = useState(() => separarTel(defaultValue, paisPadrao));
+  const [pais, setPais] = useState(ini.pais);
+  const [dig, setDig] = useState(ini.digitos);
+  const info = telInfo(pais);
+  const foraDoPadrao = !!dig && !validarTel(dig, pais);
+  const aoDigitar = (e) => {
+    const v = e.target.value.trim();
+    if (v.startsWith("+")) { const s = separarTel(v, pais); setPais(s.pais); setDig(s.digitos.slice(0, telInfo(s.pais).max)); return; }
+    setDig(v.replace(/\D/g, "").slice(0, info.max));
+  };
+  return (<>
+    <div className="flex gap-2">
+      <div className="relative shrink-0">
+        <div className="flex h-full items-center gap-1" style={{ ...inputStyle(t), width: "auto" }}>
+          <span>+{info.ddi}</span><ChevronDown size={12} style={{ color: t.dim }} />
+        </div>
+        {/* select invisível por cima: fechado mostra só o DDI, aberto lista os países.
+           background/color valem para a LISTA nativa (a opacity-0 só esconde o
+           controle fechado) — sem eles o popup sai branco com texto do tema */}
+        <select value={pais} title={L("País do telefone (DDI)")} aria-label={L("País do telefone (DDI)")}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          style={{ background: t.surface2, color: t.text }}
+          onChange={(e) => { setPais(e.target.value); setDig((d) => d.slice(0, telInfo(e.target.value).max)); }}>
+          {PAISES_TEL.map(([c, nome, ddi]) => <option key={c} value={c}>{nome} (+{ddi})</option>)}
+        </select>
+      </div>
+      <input type="text" inputMode="tel" autoComplete="tel-national" placeholder={exemploTel(pais)}
+        value={formatarTelNacional(dig, pais)} onChange={aoDigitar}
+        style={{ ...inputStyle(t), ...(foraDoPadrao ? { borderColor: t.warn } : {}) }} />
+      <input type="hidden" name={name} value={dig ? normalizarTel(dig, pais) : ""} />
+    </div>
+    {foraDoPadrao && (
+      <div className="mt-1 text-[11px]" style={{ color: t.warn }}>
+        {L("Número fora do padrão do país selecionado")} ({info.min === info.max ? info.min : `${info.min}–${info.max}`} {L("dígitos")})</div>)}
   </>);
 }
 
@@ -1229,6 +1274,14 @@ function Condominio({ t, role }) {
               <select name="moeda" defaultValue={cond.moeda} style={inputStyle(t)}>
                 {MOEDAS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select></Field>
+            <Field t={t} label="País do condomínio">
+              {/* semeado pelo IP na criação (api/auth/condominio.js); geoCache cobre condomínios anteriores à coluna */}
+              <select name="pais" defaultValue={cond.pais || geoCache()?.pais || ""} style={inputStyle(t)}>
+                <option value="">—</option>
+                {PAISES_TEL.map(([c, nome, ddi]) => <option key={c} value={c}>{nome} (+{ddi})</option>)}
+              </select>
+              <div className="mt-1 text-[11px]" style={{ color: t.dim }}>{L("Define o DDI e a máscara dos telefones cadastrados e do envio por WhatsApp.")}</div>
+            </Field>
           </div>
           <Field t={t} label="Endereço completo"><input name="endereco" defaultValue={cond.endereco} style={inputStyle(t)} /></Field>
         </div>
@@ -1644,7 +1697,7 @@ function Pessoas({ t }) {
               <Field t={t} label="Carteira de identificação (CI)"><input name="doc" required defaultValue={edit?.docRaw || ""} placeholder={L("RG, CPF ou CI")} style={inputStyle(t)} /></Field>
               <Field t={t} label="Papel no condomínio"><select name="papel" defaultValue={papeis.includes(edit?.papel) ? edit.papel : "Morador"} style={inputStyle(t)}>{papeis.map((p)=><option key={p}>{p}</option>)}</select></Field>
               <Field t={t} label="Unidade vinculada"><select name="unidade" defaultValue={edit?.unidadeId || ""} style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.labelResp}</option>)}</select></Field>
-              <Field t={t} label="Telefone"><input name="tel" defaultValue={edit?.telRaw || ""} style={inputStyle(t)} /></Field>
+              <Field t={t} label="Telefone"><PhoneInput t={t} name="tel" defaultValue={edit?.telRaw || ""} paisPadrao={db.cond?.pais || geoCache()?.pais || "BR"} /></Field>
               <Field t={t} label="E-mail"><input name="email" type="email" defaultValue={edit?.email || ""} style={inputStyle(t)} /></Field>
               <Field t={t} label="Data de entrada"><input name="inicio" type="date" defaultValue={edit?.inicio || ""} style={inputStyle(t)} /></Field>
               <Field t={t} label="Documento (upload)"><FileField t={t} name="arquivo" accept="image/*,application/pdf"
@@ -2099,12 +2152,12 @@ function Cobrancas({ t }) {
     await gerarCobrancas(db.ctx, f); await reload(); setNova(false); setDestino("");
   });
   const rows = db.cobr.filter((c) => (st === "todos" || c.status === st) && (c.unidade + c.resp).toLowerCase().includes(q.toLowerCase()));
-  /* envio por WhatsApp: usa o telefone do responsável (ou de alguém vinculado à unidade) */
+  /* envio por WhatsApp: usa o telefone do responsável (ou de alguém vinculado à unidade);
+     o DDI vem do próprio número (+…) ou do país do condomínio para valores legados */
   const telDe = (c) => {
     const p = db.pessoas.find((x) => x.id === c.respId && x.telRaw)
       || db.pessoas.find((x) => x.unidadeId === c.unidadeId && x.telRaw);
-    const tel = (p?.telRaw || "").replace(/\D/g, "");
-    return tel && tel.length <= 11 ? `55${tel}` : tel; // sem DDI, assume Brasil
+    return telParaWhats(p?.telRaw || "", db.cond?.pais || geoCache()?.pais || "BR");
   };
   const enviarWhats = (c) => {
     const msg = `Olá${c.resp && c.resp !== "—" ? `, ${c.resp}` : ""}! ${L("Cobrança do condomínio")} ${db.cond?.nome || ""} — ${L("competência")} ${c.comp}, ${L("valor")} ${BRL(c.valor)}, ${L("vencimento")} ${c.vencFull}. ${L("Você pode pagar pelo QR Code no portal do morador.")}`;
@@ -4202,7 +4255,8 @@ export default function App() {
   const globalStyle = (
     <style>{`
       @import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
-      *::-webkit-scrollbar{width:8px;height:8px} *::-webkit-scrollbar-thumb{background:${t.borderSoft};border-radius:8px}
+      *::-webkit-scrollbar{width:8px;height:8px} *::-webkit-scrollbar-thumb{background:${t.scroll};border-radius:8px}
+      *::-webkit-scrollbar-thumb:hover{background:${t.dim}} *{scrollbar-color:${t.scroll} transparent}
       .vfade{animation:vfade .3s cubic-bezier(.4,0,.2,1)} @keyframes vfade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
       .vpulse{animation:vpulse 1.4s ease infinite} @keyframes vpulse{0%,100%{opacity:.35}50%{opacity:.7}}
       .vspin{animation:vspin 1s linear infinite} @keyframes vspin{to{transform:rotate(360deg)}}
