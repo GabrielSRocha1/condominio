@@ -198,4 +198,15 @@ export default {
   "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "このコードがあれば、「パスワードを忘れた方」から理事長に頼らず自分でパスワードを再設定できます。表示は一度だけです。安全な場所に保管してください。",
   "Agora não": "今はしない",
   "Continuar": "続行",
+
+  /* legal e aviso de cookies */
+  "Usamos cookies e o armazenamento do navegador apenas para o funcionamento do app: sessão e preferências.": "アプリの動作のためだけに Cookie とブラウザのストレージを使用します：セッションと設定。",
+  "Política de Privacidade": "プライバシーポリシー",
+  "Entendi": "了解しました",
+  "Aviso de cookies": "Cookie のお知らせ",
+  "Termos": "規約",
+  "Privacidade": "プライバシー",
+  "Ao criar o condomínio, você concorda com os": "マンションを作成すると、次に同意したことになります：",
+  "Termos de Serviço": "サービス利用規約",
+  "e a": "および",
 };

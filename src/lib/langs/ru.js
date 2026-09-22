@@ -198,4 +198,15 @@ export default {
   "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "С ним вы сами сбросите пароль в разделе «Забыли пароль», не завися от директора. Он показывается только один раз — храните его в надёжном месте.",
   "Agora não": "Не сейчас",
   "Continuar": "Продолжить",
+
+  /* legal e aviso de cookies */
+  "Usamos cookies e o armazenamento do navegador apenas para o funcionamento do app: sessão e preferências.": "Мы используем cookie и хранилище браузера только для работы приложения: сессия и настройки.",
+  "Política de Privacidade": "Политика конфиденциальности",
+  "Entendi": "Понятно",
+  "Aviso de cookies": "Уведомление о cookie",
+  "Termos": "Условия",
+  "Privacidade": "Конфиденциальность",
+  "Ao criar o condomínio, você concorda com os": "Создавая кондоминиум, вы принимаете",
+  "Termos de Serviço": "Условия обслуживания",
+  "e a": "и",
 };

@@ -198,4 +198,15 @@ export default {
   "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "Con esso reimposti la password da solo in \"Ho dimenticato la password\", senza dipendere dal direttore. Viene mostrato una sola volta — conservalo in un luogo sicuro.",
   "Agora não": "Non ora",
   "Continuar": "Continua",
+
+  /* legal e aviso de cookies */
+  "Usamos cookies e o armazenamento do navegador apenas para o funcionamento do app: sessão e preferências.": "Usiamo i cookie e l'archiviazione del browser solo per il funzionamento dell'app: sessione e preferenze.",
+  "Política de Privacidade": "Politica sulla privacy",
+  "Entendi": "Ho capito",
+  "Aviso de cookies": "Avviso sui cookie",
+  "Termos": "Termini",
+  "Privacidade": "Privacy",
+  "Ao criar o condomínio, você concorda com os": "Creando il condominio accetti i",
+  "Termos de Serviço": "Termini di Servizio",
+  "e a": "e la",
 };

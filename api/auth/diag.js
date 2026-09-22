@@ -28,5 +28,10 @@ export default function handler(req, res) {
     STRIPE_SECRET_KEY: estado("STRIPE_SECRET_KEY"),
     STRIPE_WEBHOOK_SECRET: estado("STRIPE_WEBHOOK_SECRET"),
     STRIPE_CONNECT_WEBHOOK_SECRET: estado("STRIPE_CONNECT_WEBHOOK_SECRET"),
+    SMTP_HOST: estado("SMTP_HOST"),
+    SMTP_PORT: estado("SMTP_PORT"),
+    SMTP_USER: estado("SMTP_USER"),
+    SMTP_PASS: estado("SMTP_PASS"),
+    EMAIL_REMETENTE: estado("EMAIL_REMETENTE"),
   });
 }

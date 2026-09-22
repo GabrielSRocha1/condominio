@@ -641,6 +641,28 @@ const EN = {
   "pessoa(s) pulada(s) — já cadastradas": "person(s) skipped — already registered",
   "unidade(s) ganharam responsável financeiro": "unit(s) got a financial responsible",
   "Avisos:": "Warnings:",
+
+  /* legal e aviso de cookies */
+  "Usamos cookies e o armazenamento do navegador apenas para o funcionamento do app: sessão e preferências.": "We use cookies and browser storage only to run the app: session and preferences.",
+  "Política de Privacidade": "Privacy Policy",
+  "Entendi": "Got it",
+  "Aviso de cookies": "Cookie notice",
+  "Termos": "Terms",
+  "Privacidade": "Privacy",
+  "Ao criar o condomínio, você concorda com os": "By creating the condominium, you agree to the",
+  "Termos de Serviço": "Terms of Service",
+  "e a": "and the",
+
+  /* recuperação por link de e-mail (diretor/síndico) */
+  "Enviar link de redefinição": "Send reset link",
+  "Enviando link…": "Sending link…",
+  "Informe o e-mail da sua conta. Se ele estiver cadastrado, você receberá um link para criar uma senha nova. O link vale por 60 minutos.": "Enter your account email. If it is registered, you will receive a link to create a new password. The link is valid for 60 minutes.",
+  "Se este e-mail tiver uma conta, enviamos um link de redefinição — confira a caixa de entrada e o spam. O link vale por 60 minutos.": "If this email has an account, we sent a reset link — check your inbox and spam folder. The link is valid for 60 minutes.",
+  "Link de redefinição inválido ou expirado — solicite um novo.": "Invalid or expired reset link — request a new one.",
+  "Este link de redefinição não é válido. Solicite um novo em \"Esqueci minha senha\".": "This reset link is not valid. Request a new one under \"I forgot my password\".",
+  "Ir para a tela de entrada": "Go to the sign-in screen",
+  "Crie uma senha nova para a sua conta.": "Create a new password for your account.",
+  "Síndico redefine a senha por link enviado ao e-mail, em \"Esqueci minha senha\" na tela de entrada. Os códigos valem só para tesouraria e morador.": "The manager resets the password via a link sent by email, under \"I forgot my password\" on the sign-in screen. Codes apply only to treasury and residents.",
 };
 
 const ES = {
@@ -1207,6 +1229,28 @@ const ES = {
   "pessoa(s) pulada(s) — já cadastradas": "persona(s) omitida(s) — ya registradas",
   "unidade(s) ganharam responsável financeiro": "unidad(es) recibieron responsable financiero",
   "Avisos:": "Avisos:",
+
+  /* legal e aviso de cookies */
+  "Usamos cookies e o armazenamento do navegador apenas para o funcionamento do app: sessão e preferências.": "Usamos cookies y el almacenamiento del navegador solo para el funcionamiento de la app: sesión y preferencias.",
+  "Política de Privacidade": "Política de Privacidad",
+  "Entendi": "Entendido",
+  "Aviso de cookies": "Aviso de cookies",
+  "Termos": "Términos",
+  "Privacidade": "Privacidad",
+  "Ao criar o condomínio, você concorda com os": "Al crear el condominio, aceptas los",
+  "Termos de Serviço": "Términos de Servicio",
+  "e a": "y la",
+
+  /* recuperação por link de e-mail (diretor/síndico) */
+  "Enviar link de redefinição": "Enviar enlace de restablecimiento",
+  "Enviando link…": "Enviando enlace…",
+  "Informe o e-mail da sua conta. Se ele estiver cadastrado, você receberá um link para criar uma senha nova. O link vale por 60 minutos.": "Informe el correo de su cuenta. Si está registrado, recibirá un enlace para crear una contraseña nueva. El enlace vale por 60 minutos.",
+  "Se este e-mail tiver uma conta, enviamos um link de redefinição — confira a caixa de entrada e o spam. O link vale por 60 minutos.": "Si este correo tiene una cuenta, enviamos un enlace de restablecimiento — revise la bandeja de entrada y el spam. El enlace vale por 60 minutos.",
+  "Link de redefinição inválido ou expirado — solicite um novo.": "Enlace de restablecimiento inválido o vencido — solicite uno nuevo.",
+  "Este link de redefinição não é válido. Solicite um novo em \"Esqueci minha senha\".": "Este enlace de restablecimiento no es válido. Solicite uno nuevo en \"Olvidé mi contraseña\".",
+  "Ir para a tela de entrada": "Ir a la pantalla de entrada",
+  "Crie uma senha nova para a sua conta.": "Cree una contraseña nueva para su cuenta.",
+  "Síndico redefine a senha por link enviado ao e-mail, em \"Esqueci minha senha\" na tela de entrada. Os códigos valem só para tesouraria e morador.": "El administrador restablece la contraseña por un enlace enviado al correo, en \"Olvidé mi contraseña\" en la pantalla de entrada. Los códigos valen solo para tesorería y residentes.",
 };
 
 const DICTS = { en: EN, es: ES, fr: FR, de: DE, it: IT, zh: ZH, ja: JA, ko: KO, ru: RU, ar: AR, hi: HI, tr: TR, id: ID, bn: BN };

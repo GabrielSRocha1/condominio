@@ -198,4 +198,15 @@ export default {
   "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "इससे आप \"मैं पासवर्ड भूल गया\" में निदेशक पर निर्भर हुए बिना खुद अपना पासवर्ड रीसेट करते हैं। यह केवल एक बार दिखाया जाता है — इसे सुरक्षित जगह रखें।",
   "Agora não": "अभी नहीं",
   "Continuar": "जारी रखें",
+
+  /* legal e aviso de cookies */
+  "Usamos cookies e o armazenamento do navegador apenas para o funcionamento do app: sessão e preferências.": "हम केवल ऐप के संचालन के लिए कुकीज़ और ब्राउज़र स्टोरेज का उपयोग करते हैं: सत्र और प्राथमिकताएँ।",
+  "Política de Privacidade": "गोपनीयता नीति",
+  "Entendi": "समझ गया",
+  "Aviso de cookies": "कुकी सूचना",
+  "Termos": "शर्तें",
+  "Privacidade": "गोपनीयता",
+  "Ao criar o condomínio, você concorda com os": "कॉन्डोमिनियम बनाकर आप सहमत होते हैं:",
+  "Termos de Serviço": "सेवा की शर्तें",
+  "e a": "और",
 };

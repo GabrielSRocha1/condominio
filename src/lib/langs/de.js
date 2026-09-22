@@ -198,4 +198,15 @@ export default {
   "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "Damit setzen Sie Ihr Passwort unter „Passwort vergessen“ selbst zurück, ohne auf den Direktor angewiesen zu sein. Er wird nur einmal angezeigt — bewahren Sie ihn sicher auf.",
   "Agora não": "Jetzt nicht",
   "Continuar": "Weiter",
+
+  /* legal e aviso de cookies */
+  "Usamos cookies e o armazenamento do navegador apenas para o funcionamento do app: sessão e preferências.": "Wir verwenden Cookies und den Browser-Speicher nur für den Betrieb der App: Sitzung und Einstellungen.",
+  "Política de Privacidade": "Datenschutzerklärung",
+  "Entendi": "Verstanden",
+  "Aviso de cookies": "Cookie-Hinweis",
+  "Termos": "Bedingungen",
+  "Privacidade": "Datenschutz",
+  "Ao criar o condomínio, você concorda com os": "Mit dem Anlegen der Wohnanlage akzeptieren Sie die",
+  "Termos de Serviço": "Servicebedingungen",
+  "e a": "und die",
 };

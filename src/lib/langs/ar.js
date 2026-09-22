@@ -198,4 +198,15 @@ export default {
   "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "به تعيد تعيين كلمة مرورك بنفسك في «نسيت كلمة المرور» دون الاعتماد على المدير. يُعرض مرة واحدة فقط — احفظه في مكان آمن.",
   "Agora não": "ليس الآن",
   "Continuar": "متابعة",
+
+  /* legal e aviso de cookies */
+  "Usamos cookies e o armazenamento do navegador apenas para o funcionamento do app: sessão e preferências.": "نستخدم ملفات تعريف الارتباط وتخزين المتصفح فقط لتشغيل التطبيق: الجلسة والتفضيلات.",
+  "Política de Privacidade": "سياسة الخصوصية",
+  "Entendi": "فهمت",
+  "Aviso de cookies": "إشعار ملفات تعريف الارتباط",
+  "Termos": "الشروط",
+  "Privacidade": "الخصوصية",
+  "Ao criar o condomínio, você concorda com os": "بإنشاء المجمّع السكني فإنك توافق على",
+  "Termos de Serviço": "شروط الخدمة",
+  "e a": "و",
 };

@@ -20,6 +20,7 @@ import {
   iniciarOnboardingStripe, statusStripeConnect, pagarCobrancaOnline, verificarCobranca,
   informarPagamentoCobranca, confirmarPagamentoManual, rejeitarPagamentoInformado,
   criarAcesso, listarAcessos, removerAcesso, gerarCodigoRecuperacao, gerarMeuCodigoRecuperacao, recuperarSenha, loginUsuario, setAuthToken, encerrarSessaoServidor,
+  solicitarLinkRecuperacao, redefinirSenhaPorLink,
   salvarLogoCondominio, removerLogoCondominio, salvarLogoMenuCondominio, removerLogoMenuCondominio,
   obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
@@ -30,6 +31,7 @@ import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
 import { geoCache } from "./src/lib/geo.js";
+import LegalPage, { LEGAL_PATHS } from "./src/legal/LegalPage.jsx";
 
 /* Traduz os filhos de texto de um componente, preservando ícones e espaços */
 const trKids = (children) => React.Children.map(children, (c) => {
@@ -339,6 +341,31 @@ const ModalHeader = ({ t, title, onClose }) => (
   </div>
 );
 
+/* Aviso de cookies apenas informativo: o app usa só o cookie essencial de
+   sessão + armazenamento local, sem publicidade/rastreio — não há o que
+   optar. Sem storage, o aviso reaparece a cada visita (informar é o objetivo). */
+const K_COOKIES = "cm_cookies_ok";
+function CookieBanner({ t }) {
+  const [ok, setOk] = useState(() => { try { return localStorage.getItem(K_COOKIES) === "1"; } catch { return false; } });
+  if (ok) return null;
+  const aceitar = () => { try { localStorage.setItem(K_COOKIES, "1"); } catch { /* sem storage */ } setOk(true); };
+  return (
+    <div role="region" aria-label={L("Aviso de cookies")}
+      className="fixed inset-x-0 bottom-0 z-40 border-t px-4 py-3"
+      style={{ background: t.glass, backdropFilter: "blur(8px)", borderColor: t.border }}>
+      <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-x-4 gap-y-2 sm:justify-between">
+        <span className="text-xs" style={{ color: t.dim }}>
+          {L("Usamos cookies e o armazenamento do navegador apenas para o funcionamento do app: sessão e preferências.")}{" "}
+          <a href="/privacidade" target="_blank" rel="noopener" className="font-semibold" style={{ color: t.gold }}>
+            {L("Política de Privacidade")}</a>
+        </span>
+        <button onClick={aceitar} className="rounded-xl px-3 py-1.5 text-xs font-semibold"
+          style={{ background: t.gold, color: "#131313", border: "none" }}>{L("Entendi")}</button>
+      </div>
+    </div>
+  );
+}
+
 const EmptyState = ({ t, icon: Ic = ListChecks, title, hint, action }) => (
   <Card t={t} className="p-10 text-center">
     <Ic size={30} color={t.dim} className="mx-auto mb-3" />
@@ -489,6 +516,8 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
   const [sucesso, setSucesso] = useState(""); // senha redefinida — avisa no form de entrada
   const [posLogin, setPosLogin] = useState(null); // { args, codigo } — sugestão de código após entrar
   const [copiadoCod, setCopiadoCod] = useState(false);
+  const [linkEnviado, setLinkEnviado] = useState(false); // "Esqueci" por e-mail: pedido enviado
+  const linkPorEmail = role === "diretor" || role === "sindico"; // Etapa 5: recuperação por link no e-mail
 
   /* Entrou: o idioma guardado na conta passa a valer neste aparelho. Quem
      acabou de trocar no seletor aqui na tela de login não perde a escolha —
@@ -518,12 +547,13 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     } finally { setVerificando(false); }
   };
 
-  /* Autonomia: quem entra sem código de recuperação permanente é convidado
-     a gerar o seu antes de seguir — com ele, "Esqueci minha senha" funciona
-     sem depender do diretor. "Agora não" segue direto (sugere de novo no
-     próximo login, já que a conta continua sem código). */
+  /* Autonomia (só tesouraria/morador — diretor e síndico redefinem por link
+     no e-mail): quem entra sem código de recuperação permanente é convidado
+     a gerar o seu antes de seguir. "Agora não" segue direto (sugere de novo
+     no próximo login, já que a conta continua sem código). */
   const entrarNoApp = (conta, args) => {
-    if (conta && conta.temCodigoRecuperacao === false) { setPosLogin({ args, codigo: null }); return; }
+    if ((args[0] === "tesouraria" || args[0] === "morador")
+      && conta && conta.temCodigoRecuperacao === false) { setPosLogin({ args, codigo: null }); return; }
     return onEnter(...args);
   };
   const gerarMeuCodigo = async () => {
@@ -542,9 +572,9 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
     onEnter(...args);
   };
 
-  /* "Esqueci minha senha": troca a senha com o código de recuperação — o
-     que a própria conta gerou ao entrar (permanente) ou, se ela o perdeu,
-     um de 24h que o diretor gera em Gerenciar Acessos */
+  /* "Esqueci minha senha" por código (tesouraria/morador): troca a senha
+     com o código de recuperação — o permanente que a própria conta gerou
+     ao entrar ou um de 24h que o diretor gera em Gerenciar Acessos */
   const redefinir = async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.currentTarget));
@@ -563,6 +593,21 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
       setErro(err.status === 401
         ? L("Código de recuperação inválido ou expirado.")
         : (err.message || L("Não foi possível verificar sua conta agora.")));
+    } finally { setVerificando(false); }
+  };
+
+  /* "Esqueci minha senha" por LINK (diretor/síndico): pede o envio do link
+     de redefinição ao e-mail da conta — a resposta do servidor é sempre
+     neutra, não revela se o e-mail tem conta */
+  const enviarLink = async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.currentTarget));
+    setVerificando(true); setErro("");
+    try {
+      await solicitarLinkRecuperacao({ perfil: role, email: f.email.trim().toLowerCase() });
+      setLinkEnviado(true);
+    } catch (err) {
+      setErro(err.message || L("Não foi possível verificar sua conta agora."));
     } finally { setVerificando(false); }
   };
 
@@ -610,7 +655,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
   const temAcesso = true; // acessos agora vivem no banco — a validação é feita no envio
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4" style={{ background: t.bg, color: t.text, fontFamily: "'Inter',system-ui,sans-serif" }}>
+    <div className="flex min-h-screen items-center justify-center px-4 py-[50px]" style={{ background: t.bg, color: t.text, fontFamily: "'Inter',system-ui,sans-serif" }}>
       <div className="pointer-events-none fixed inset-0" style={{ background: `radial-gradient(600px 300px at 50% 0%, ${t.gold}14, transparent)` }} />
       <div className="vfade w-full max-w-md">
         <div className="mb-6 text-center">
@@ -695,7 +740,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
             </>
           ) : (
             <>
-              <button onClick={() => { if (recuperando) { setRecuperando(false); } else { setRole(null); setSucesso(""); } setErro(""); }}
+              <button onClick={() => { if (recuperando) { setRecuperando(false); setLinkEnviado(false); } else { setRole(null); setSucesso(""); } setErro(""); }}
                 className="mb-3 flex items-center gap-1 text-xs" style={{ color: t.dim }}>
                 <ChevronLeft size={14} /> {L(recuperando ? "Voltar" : "Trocar perfil")}</button>
               <div className="mb-4 flex items-center gap-2">
@@ -704,11 +749,29 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
                 {recuperando && <span className="text-xs" style={{ color: t.dim }}>· {L("Recuperar senha")}</span>}
               </div>
               {recuperando ? (
+                linkPorEmail ? (
+                  /* diretor/síndico: link de redefinição por e-mail (Etapa 5) */
+                  linkEnviado ? (
+                    <div className="space-y-3">
+                      <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.ok + "55", background: t.ok + "12", color: t.ok }}>
+                        {L("Se este e-mail tiver uma conta, enviamos um link de redefinição — confira a caixa de entrada e o spam. O link vale por 60 minutos.")}</div>
+                      <Btn t={t} kind="soft" className="w-full" onClick={() => { setRecuperando(false); setLinkEnviado(false); setErro(""); }}>
+                        <ChevronLeft size={14} /> Voltar</Btn>
+                    </div>
+                  ) : (
+                    <form onSubmit={enviarLink} className="space-y-3">
+                      <div className="text-xs" style={{ color: t.dim }}>
+                        {L("Informe o e-mail da sua conta. Se ele estiver cadastrado, você receberá um link para criar uma senha nova. O link vale por 60 minutos.")}</div>
+                      <Field t={t} label="E-mail"><input name="email" type="email" required placeholder={L("voce@exemplo.com")} style={inputStyle(t)} /></Field>
+                      {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
+                      <Btn t={t} kind="primary" type="submit" disabled={verificando} className="w-full">
+                        <Mail size={15} /> {L(verificando ? "Enviando link…" : "Enviar link de redefinição")}</Btn>
+                    </form>
+                  )
+                ) : (
                 <form onSubmit={redefinir} className="space-y-3">
                   <div className="text-xs" style={{ color: t.dim }}>
-                    {L(role === "diretor"
-                      ? "Use seu código de recuperação permanente."
-                      : "Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.")}</div>
+                    {L("Use seu código de recuperação — se não tiver um, peça ao diretor em Gerenciar Acessos.")}</div>
                   {role === "morador" ? (
                     <Field t={t} label="Nome completo"><input name="nome" required placeholder={L("Seu nome")} style={inputStyle(t)} /></Field>
                   ) : (
@@ -722,6 +785,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
                   <Btn t={t} kind="primary" type="submit" disabled={verificando} className="w-full">
                     <KeyRound size={15} /> {L(verificando ? "Redefinindo…" : "Redefinir senha")}</Btn>
                 </form>
+                )
               ) : (
               <form onSubmit={entrar} className="space-y-3">
                 {role === "morador" ? (
@@ -744,6 +808,84 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
               </form>
               )}
             </>
+          )}
+        </Card>
+        <div className="mt-4 flex items-center justify-center gap-3">
+          <button onClick={() => setDark(!dark)} className="text-xs" style={{ color: t.dim }}>
+            {L(dark ? "Tema claro" : "Tema escuro")}</button>
+          <LangSel t={t} lang={lang} onLang={onLang} />
+        </div>
+        <div className="mt-2 flex items-center justify-center gap-3 text-xs">
+          <a href="/termos" target="_blank" rel="noopener" style={{ color: t.dim }}>{L("Termos")}</a>
+          <a href="/privacidade" target="_blank" rel="noopener" style={{ color: t.dim }}>{L("Privacidade")}</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════ /redefinir-senha — LINK DO E-MAIL (Etapa 5) ══════════════
+   Diretor e síndico chegam aqui pelo link de "Esqueci minha senha". O token
+   vem na query (?token=…): capturado no initializer do estado e removido da
+   URL no primeiro efeito — não fica no histórico nem em prints da barra. */
+function RedefinirSenha({ t, dark, setDark, lang, onLang }) {
+  const [token] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get("token") || ""; }
+    catch { return ""; }
+  });
+  useEffect(() => {
+    try { window.history.replaceState(null, "", window.location.pathname); } catch { /* sem history */ }
+  }, []);
+  const [erro, setErro] = useState("");
+  const [feito, setFeito] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const salvar = async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.currentTarget));
+    if (f.senha.length < 8) return setErro(L("A senha deve ter pelo menos 8 caracteres."));
+    if (f.senha !== f.confirma) return setErro(L("As senhas não conferem."));
+    setSalvando(true); setErro("");
+    try { await redefinirSenhaPorLink({ token, senha: f.senha }); setFeito(true); }
+    catch (err) {
+      setErro(err.status === 401
+        ? L("Link de redefinição inválido ou expirado — solicite um novo.")
+        : (err.message || L("Não foi possível verificar sua conta agora.")));
+    } finally { setSalvando(false); }
+  };
+  return (
+    <div className="flex min-h-screen items-center justify-center px-4 py-[50px]" style={{ background: t.bg, color: t.text, fontFamily: "'Inter',system-ui,sans-serif" }}>
+      <div className="pointer-events-none fixed inset-0" style={{ background: `radial-gradient(600px 300px at 50% 0%, ${t.gold}14, transparent)` }} />
+      <div className="vfade w-full max-w-md">
+        <div className="mb-6 text-center">
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl p-1.5"
+            style={{ background: t.goldSoft, border: `1px solid ${t.border}` }}>
+            <img src="/favicon-cm.png" alt="CondoMaster" className="max-h-full max-w-full object-contain" /></div>
+          <h1 className="text-xl font-bold tracking-wide" style={{ fontFamily: "'Sora',sans-serif" }}>
+            CONDOMASTER <span style={{ color: t.gold }}>PRO</span></h1>
+          <p className="mt-1 text-xs" style={{ color: t.dim }}>{L("Redefinir senha")}</p>
+        </div>
+        <Card t={t} className="p-5">
+          {!token ? (
+            <div className="space-y-3">
+              <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
+                {L("Este link de redefinição não é válido. Solicite um novo em \"Esqueci minha senha\".")}</div>
+              <a href="/" className="block text-center text-xs font-semibold" style={{ color: t.gold }}>{L("Ir para a tela de entrada")}</a>
+            </div>
+          ) : feito ? (
+            <div className="space-y-3">
+              <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.ok + "55", background: t.ok + "12", color: t.ok }}>
+                {L("Senha redefinida. Entre com a nova senha.")}</div>
+              <a href="/" className="block text-center text-xs font-semibold" style={{ color: t.gold }}>{L("Ir para a tela de entrada")}</a>
+            </div>
+          ) : (
+            <form onSubmit={salvar} className="space-y-3">
+              <div className="text-xs" style={{ color: t.dim }}>{L("Crie uma senha nova para a sua conta.")}</div>
+              <Field t={t} label="Nova senha"><PasswordInput t={t} name="senha" required placeholder={L("Mínimo 8 caracteres")} /></Field>
+              <Field t={t} label="Confirmar nova senha"><PasswordInput t={t} name="confirma" required placeholder={L("Repita a senha")} /></Field>
+              {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
+              <Btn t={t} kind="primary" type="submit" disabled={salvando} className="w-full">
+                <KeyRound size={15} /> {L(salvando ? "Redefinindo…" : "Redefinir senha")}</Btn>
+            </form>
           )}
         </Card>
         <div className="mt-4 flex items-center justify-center gap-3">
@@ -799,6 +941,12 @@ function SetupCondominio({ t, role, diretor, onCriado, onSair, dark, setDark }) 
                 </select></Field></div>
               <div className="mt-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.gold }}>
                 Você ({diretor?.nome || "diretor"}) será registrado como diretor do condomínio. O acesso ao sistema é liberado após o pagamento da licença, no próximo passo.</div>
+              <div className="mt-2 text-center text-xs" style={{ color: t.dim }}>
+                {L("Ao criar o condomínio, você concorda com os")}{" "}
+                <a href="/termos" target="_blank" rel="noopener" style={{ color: t.gold }}>{L("Termos de Serviço")}</a>{" "}
+                {L("e a")}{" "}
+                <a href="/privacidade" target="_blank" rel="noopener" style={{ color: t.gold }}>{L("Política de Privacidade")}</a>.
+              </div>
               <div className="mt-5 flex items-center justify-between gap-2">
                 <Btn t={t} onClick={onSair}><ChevronLeft size={14} /> Sair</Btn>
                 <Btn t={t} kind="primary" type="submit" disabled={saving}><Check size={15} /> {saving ? "Criando…" : "Criar condomínio e ir para o pagamento"}</Btn>
@@ -2827,15 +2975,15 @@ function GerenciarEmails({ t }) {
     catch (err) { setErro(err.message); }
   };
 
-  /* código de recuperação de senha: com u = acesso da lista (vale 24h);
-     sem u = o do PRÓPRIO diretor (permanente). Só o hash vai ao banco —
-     o código aparece uma única vez, neste modal. */
+  /* código de recuperação de 24h para um acesso de TESOURARIA ou MORADOR.
+     Diretor e síndico redefinem a senha por link no e-mail (Etapa 5).
+     Só o hash vai ao banco — o código aparece uma única vez, neste modal. */
   const gerarCodigo = async (u) => {
     setErro(""); setGerando(true);
     try {
-      const r = await gerarCodigoRecuperacao(u?.id);
+      const r = await gerarCodigoRecuperacao(u.id);
       setCopiado(false);
-      setCodigoGerado({ codigo: r.codigo, nome: u ? (u.nome || u.email) : null, permanente: !u });
+      setCodigoGerado({ codigo: r.codigo, nome: u.nome || u.email });
     } catch (err) { setErro(err.message); }
     finally { setGerando(false); }
   };
@@ -2852,9 +3000,9 @@ function GerenciarEmails({ t }) {
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-xs" style={{ color: t.dim }}>
-          Os acessos criados aqui são o que cada pessoa usará na tela de entrada. Síndico e tesouraria entram com e-mail; o morador entra com o nome cadastrado.</div>
+          Os acessos criados aqui são o que cada pessoa usará na tela de entrada. Síndico e tesouraria entram com e-mail; o morador entra com o nome cadastrado.{" "}
+          {L("Síndico redefine a senha por link enviado ao e-mail, em \"Esqueci minha senha\" na tela de entrada. Os códigos valem só para tesouraria e morador.")}</div>
         <div className="flex flex-wrap gap-2">
-          <Btn t={t} onClick={() => gerarCodigo(null)} disabled={gerando}><KeyRound size={15} /> Meu código de recuperação</Btn>
           <Btn t={t} kind="primary" onClick={() => { setErro(""); setNovo(true); }}><Plus size={15} /> Adicionar acesso</Btn>
         </div>
       </div>
@@ -2871,7 +3019,8 @@ function GerenciarEmails({ t }) {
                   <div className="text-xs" style={{ color: t.dim }}>{u.unidade ? `${L("Unidade")} ${u.unidade}` : (u.email && u.nome ? u.email : L("Senha protegida por criptografia"))}</div>
                 </div>
                 <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.goldSoft, color: t.gold }}>{PROFILES[u.role]?.label || u.role}</span>
-                <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" onClick={() => gerarCodigo(u)} disabled={gerando}><KeyRound size={13} /> Gerar código</Btn>
+                {(u.role === "tesouraria" || u.role === "morador") &&
+                  <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" onClick={() => gerarCodigo(u)} disabled={gerando}><KeyRound size={13} /> Gerar código</Btn>}
                 <Btn t={t} kind="danger" className="!px-2 !py-1 text-xs" onClick={() => remover(u)}><Trash2 size={13} /> Remover</Btn>
               </div>
             </Card>))}
@@ -2927,9 +3076,7 @@ function GerenciarEmails({ t }) {
                 <Copy size={13} /> {copiado ? "Copiado!" : "Copiar"}</Btn>
             </div>
             <div className="text-xs" style={{ color: t.dim }}>
-              {L(codigoGerado.permanente
-                ? "Com este código você redefine sua senha na tela de entrada, em \"Esqueci minha senha\". Guarde-o em local seguro — ele é mostrado uma única vez e substitui o anterior."
-                : "Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.")}</div>
+              {L("Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.")}</div>
           </div>
           <div className="mt-5 flex justify-end"><Btn t={t} onClick={() => setCodigoGerado(null)}>Fechar</Btn></div>
         </Modal>)}
@@ -4066,6 +4213,9 @@ export default function App() {
       body{margin:0}
     `}</style>
   );
+  /* estilo global + banner de cookies, presentes em todas as saídas do App —
+     exceto nas páginas legais, onde o banner cobriria o próprio texto que o explica */
+  const chrome = <>{globalStyle}<CookieBanner t={t} /></>;
 
   const sair = useCallback(() => {
     encerrarSessaoServidor(); // revoga o refresh token (cookie HttpOnly) no servidor
@@ -4085,11 +4235,28 @@ export default function App() {
     setCondId(novoId || null);
   }, []);
 
-  if (!role) return <DataCtx.Provider value={dataValue}>{globalStyle}<Login t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} onEnter={entrar} /></DataCtx.Provider>;
+  /* Páginas de URL real servidas pela SPA (rewrites no vercel.json): legais
+     e /redefinir-senha (link do e-mail — Etapa 5). Path desconhecido não
+     chega aqui em produção (404 da Vercel); em dev cai no fluxo normal. */
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  const docLegal = LEGAL_PATHS[path];
+  if (docLegal) return (
+    <>{globalStyle}
+      <LegalPage docKey={docLegal} t={t} dark={dark} setDark={setDark} lang={lang}
+        seletor={<LangSel t={t} lang={lang} onLang={onLang} />} />
+    </>
+  );
+  if (path === "/redefinir-senha") return (
+    <>{globalStyle}
+      <RedefinirSenha t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} />
+    </>
+  );
+
+  if (!role) return <DataCtx.Provider value={dataValue}>{chrome}<Login t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} onEnter={entrar} /></DataCtx.Provider>;
   /* conta sem condomínio próprio (diretor recém-cadastrado) vai direto para o
      primeiro acesso — nunca enxerga o prédio de outra conta */
   if (db?.vazio || !condId) return (
-    <DataCtx.Provider value={dataValue}>{globalStyle}
+    <DataCtx.Provider value={dataValue}>{chrome}
       <SetupCondominio t={t} role={role} diretor={diretorConta} dark={dark} setDark={setDark} onCriado={aoCriarCondominio} onSair={sair} />
     </DataCtx.Provider>);
 
@@ -4098,13 +4265,13 @@ export default function App() {
   const tenantPrincipal = db && !db.vazio ? db.tenants.find((x) => x.id === db.ctx.condominioId) : null;
   const testeValido = tenantPrincipal?.status === "teste" && tenantPrincipal.testeFim && tenantPrincipal.diasTeste >= 0;
   if (db && tenantPrincipal && tenantPrincipal.status !== "ativo" && !testeValido) return (
-    <DataCtx.Provider value={dataValue}>{globalStyle}
+    <DataCtx.Provider value={dataValue}>{chrome}
       <Paywall t={t} role={role} licenca={tenantPrincipal.status} tenant={tenantPrincipal} condominioId={db.ctx.condominioId}
         onLogout={sair} onReload={reload} />
     </DataCtx.Provider>);
 
   if (role === "morador") return (
-    <DataCtx.Provider value={dataValue}>{globalStyle}
+    <DataCtx.Provider value={dataValue}>{chrome}
       {db ? <PortalMorador t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} morador={morador} onLogout={sair} />
         : <div className="mx-auto max-w-lg p-4" style={{ background: t.bg, minHeight: "100vh" }}>
             {dbErr ? <ErrorState t={t} onRetry={reload} /> : <Skeleton t={t} />}</div>}
@@ -4122,7 +4289,7 @@ export default function App() {
   return (
     <DataCtx.Provider value={dataValue}>
     <div style={{ background: t.bg, color: t.text, minHeight: "100vh", fontFamily: "'Inter',system-ui,sans-serif", transition: "background .3s,color .3s" }}>
-      {globalStyle}
+      {chrome}
       <div className="flex">
         {/* SIDEBAR */}
         <aside className={`fixed inset-y-0 left-0 z-40 w-60 border-r transition-transform lg:static lg:translate-x-0 ${sideOpen ? "translate-x-0" : "-translate-x-full"}`}

@@ -198,4 +198,15 @@ export default {
   "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "Dengan kode ini Anda mengatur ulang kata sandi sendiri di \"Lupa kata sandi\", tanpa bergantung pada direktur. Hanya ditampilkan sekali — simpan di tempat aman.",
   "Agora não": "Nanti saja",
   "Continuar": "Lanjutkan",
+
+  /* legal e aviso de cookies */
+  "Usamos cookies e o armazenamento do navegador apenas para o funcionamento do app: sessão e preferências.": "Kami menggunakan cookie dan penyimpanan browser hanya untuk menjalankan aplikasi: sesi dan preferensi.",
+  "Política de Privacidade": "Kebijakan Privasi",
+  "Entendi": "Mengerti",
+  "Aviso de cookies": "Pemberitahuan cookie",
+  "Termos": "Ketentuan",
+  "Privacidade": "Privasi",
+  "Ao criar o condomínio, você concorda com os": "Dengan membuat kondominium, Anda menyetujui",
+  "Termos de Serviço": "Ketentuan Layanan",
+  "e a": "dan",
 };

@@ -5,7 +5,7 @@
    - /api/*, Supabase e outras origens externas: sempre rede — dados nunca são
      cacheados (a resposta de /api/geo depende do IP de quem pede; cachear
      congelaria o país do primeiro acesso). */
-const VERSION = "1.3.0";
+const VERSION = "1.4.0";
 const CACHE = `condomaster-v${VERSION}`;
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/favicon-cm.png", "/logo-menu.png"];
 

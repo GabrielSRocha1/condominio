@@ -1,9 +1,11 @@
-/* POST /api/auth/codigo  (Authorization: Bearer — qualquer perfil logado)
+/* POST /api/auth/codigo  (Authorization: Bearer — só tesouraria e morador)
    A PRÓPRIA conta gera seu código de recuperação PERMANENTE — é o que o
    app sugere logo após o primeiro login (login devolve
    temCodigoRecuperacao=false). Com ele a pessoa usa "Esqueci minha senha"
    sozinha, sem depender do diretor; o diretor só entra em cena se ela
    perder a senha E o código (aí gera um de 24h em Gerenciar Acessos).
+   DIRETOR e SÍNDICO não usam código (Etapa 5): redefinem a senha por
+   link enviado ao e-mail (/api/auth/esqueci) e recebem 403 aqui.
 
    Um código ativo por conta: este substitui qualquer anterior não usado.
    Só o sha256 vai ao banco; o código puro aparece uma única vez aqui.
@@ -26,6 +28,8 @@ export default async function handler(req, res) {
 
   const claims = lerClaimsReq(req);
   if (!claims?.sub) return res.status(401).json({ error: "Entre novamente para gerar o código." });
+  if (claims.perfil === "diretor" || claims.perfil === "sindico")
+    return res.status(403).json({ error: "Diretor e síndico recuperam a senha por link enviado ao e-mail — o código vale só para tesouraria e morador." });
   if (origemBloqueada(req, res)) return;
   const supabase = createClient(envVal("SUPABASE_URL") || process.env.VITE_SUPABASE_URL, serviceKey);
 

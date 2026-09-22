@@ -198,4 +198,15 @@ export default {
   "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "Bu kodla \"Şifremi unuttum\" bölümünde direktöre bağlı kalmadan şifrenizi kendiniz sıfırlarsınız. Yalnızca bir kez gösterilir — güvenli bir yerde saklayın.",
   "Agora não": "Şimdi değil",
   "Continuar": "Devam",
+
+  /* legal e aviso de cookies */
+  "Usamos cookies e o armazenamento do navegador apenas para o funcionamento do app: sessão e preferências.": "Çerezleri ve tarayıcı depolamasını yalnızca uygulamanın çalışması için kullanıyoruz: oturum ve tercihler.",
+  "Política de Privacidade": "Gizlilik Politikası",
+  "Entendi": "Anladım",
+  "Aviso de cookies": "Çerez bildirimi",
+  "Termos": "Koşullar",
+  "Privacidade": "Gizlilik",
+  "Ao criar o condomínio, você concorda com os": "Siteyi oluşturarak şunları kabul etmiş olursunuz:",
+  "Termos de Serviço": "Hizmet Koşulları",
+  "e a": "ve",
 };

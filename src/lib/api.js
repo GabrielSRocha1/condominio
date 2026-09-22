@@ -543,24 +543,36 @@ export async function removerAcesso(usuarioId) {
   await chamarAuth("acessos", { acao: "remover", usuarioId });
 }
 
-/* Código de recuperação de senha (só o diretor gera): sem usuarioId é o do
-   próprio diretor (permanente); com usuarioId, vale 24h para o acesso
-   escolhido. O código aparece UMA vez — o banco só guarda o hash. */
+/* Código de recuperação de 24h (só o diretor gera, e só para TESOURARIA
+   ou MORADOR do condomínio). Diretor e síndico redefinem a senha por link
+   no e-mail. O código aparece UMA vez — o banco só guarda o hash. */
 export async function gerarCodigoRecuperacao(usuarioId) {
   return chamarAuth("acessos", { acao: "codigo", ...(usuarioId ? { usuarioId } : {}) });
 }
 
-/* "Esqueci minha senha" da tela de entrada: troca a senha usando o código
-   de recuperação. Morador se identifica pelo nome; os demais, pelo e-mail. */
+/* "Esqueci minha senha" por código — só tesouraria e morador. Morador se
+   identifica pelo nome; tesouraria, pelo e-mail. */
 export async function recuperarSenha({ perfil, email, nome, codigo, senha }) {
   return chamarAuth("recuperar", { perfil, email, nome, codigo, senha });
 }
 
-/* A PRÓPRIA conta logada gera seu código de recuperação permanente —
-   sugerido logo após o login quando ela ainda não tem um (autonomia:
-   ninguém precisa do diretor para se recuperar). Mostrado UMA vez. */
+/* A PRÓPRIA conta logada (tesouraria/morador) gera seu código de
+   recuperação permanente — sugerido logo após o login quando ela ainda
+   não tem um. Mostrado UMA vez. Diretor/síndico recebem 403. */
 export async function gerarMeuCodigoRecuperacao() {
   return chamarAuth("codigo", {});
+}
+
+/* Diretor e síndico: "Esqueci minha senha" envia um link de redefinição ao
+   e-mail da conta (válido 60 min, uso único). A resposta é sempre neutra —
+   não revela se a conta existe. */
+export async function solicitarLinkRecuperacao({ perfil, email }) {
+  return chamarAuth("esqueci", { perfil, email });
+}
+
+/* Página /redefinir-senha: consome o token do link e grava a senha nova. */
+export async function redefinirSenhaPorLink({ token, senha }) {
+  return chamarAuth("redefinir", { token, senha });
 }
 
 /* Login dos demais perfis. Morador entra pelo nome; os outros, pelo e-mail.

@@ -3,10 +3,11 @@
      { acao: "criar",   perfil, nome?, email?, senha, unidadeId? }
      { acao: "listar" }
      { acao: "remover", usuarioId }
-     { acao: "codigo",  usuarioId? }  → código de recuperação de senha
-       (sem usuarioId = o do PRÓPRIO diretor, permanente; com usuarioId =
-       24h para síndico/tesouraria/morador do condomínio — a pessoa o usa
-       em "Esqueci minha senha" na tela de entrada, /api/auth/recuperar)
+     { acao: "codigo",  usuarioId }   → código de recuperação de 24h para
+       TESOURARIA ou MORADOR do condomínio — a pessoa o usa em "Esqueci
+       minha senha" na tela de entrada (/api/auth/recuperar). Diretor e
+       síndico não usam código (Etapa 5): redefinem a senha por link
+       enviado ao e-mail, então o caminho "permanente para si" saiu daqui.
 
    Por que saiu do navegador: com escrita client-side em usuarios e
    usuario_perfis, qualquer perfil de gestão conseguia se promover a diretor
@@ -110,19 +111,20 @@ export default async function handler(req, res) {
 
     /* ── codigo: gera código de recuperação de senha (uso único) ── */
     if (f.acao === "codigo") {
-      const alvoId = f.usuarioId || claims.sub;   // sem usuarioId = o próprio diretor
-      const proprio = alvoId === claims.sub;
-      if (!proprio) {
-        /* o alvo precisa pertencer AO MEU condomínio e nunca ser um diretor */
-        const { data: alvo } = await supabase.from("usuario_perfis")
-          .select("id, perfis(nome)").eq("usuario_id", alvoId).eq("condominio_id", condominioId);
-        if (!alvo?.length) return res.status(404).json({ error: "Acesso não encontrado." });
-        if (alvo.some((a) => a.perfis?.nome === "diretor"))
-          return res.status(403).json({ error: "Cada diretor gera o próprio código de recuperação." });
-      }
+      /* Etapa 5: código vale só para TESOURARIA e MORADOR — diretor e
+         síndico redefinem a senha por link enviado ao e-mail */
+      const alvoId = f.usuarioId || claims.sub;
+      if (alvoId === claims.sub)
+        return res.status(403).json({ error: "Sua senha agora se recupera por link no e-mail — use \"Esqueci minha senha\" na tela de entrada." });
+      /* o alvo precisa pertencer AO MEU condomínio e ser tesouraria/morador */
+      const { data: alvo } = await supabase.from("usuario_perfis")
+        .select("id, perfis(nome)").eq("usuario_id", alvoId).eq("condominio_id", condominioId);
+      if (!alvo?.length) return res.status(404).json({ error: "Acesso não encontrado." });
+      if (alvo.some((a) => ["diretor", "sindico"].includes(a.perfis?.nome)))
+        return res.status(403).json({ error: "Diretor e síndico recuperam a senha por link enviado ao e-mail." });
 
       const codigo = gerarCodigoRecuperacao();
-      const expiraEm = proprio ? null : new Date(Date.now() + CODIGO_TTL_MS).toISOString();
+      const expiraEm = new Date(Date.now() + CODIGO_TTL_MS).toISOString();
       const eCod = await guardarCodigoRecuperacao(supabase,
         { usuarioId: alvoId, criadoPor: claims.sub, expiraEm, codigo });
       if (erroSemTabela(eCod))
@@ -131,7 +133,7 @@ export default async function handler(req, res) {
 
       await auditar(supabase, { evento: "codigo_recuperacao_gerado", severidade: "aviso",
         usuarioId: claims.sub, condominioId, ip: ipDoRequest(req),
-        detalhe: { usuario_alvo: alvoId, permanente: proprio } });
+        detalhe: { usuario_alvo: alvoId, permanente: false } });
       return res.status(200).json({ codigo, expiraEm });
     }
 

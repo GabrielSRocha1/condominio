@@ -198,4 +198,15 @@ export default {
   "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "이 코드가 있으면 '비밀번호를 잊었어요'에서 이사장 없이 스스로 비밀번호를 재설정할 수 있습니다. 한 번만 표시되니 안전한 곳에 보관하세요.",
   "Agora não": "나중에",
   "Continuar": "계속",
+
+  /* legal e aviso de cookies */
+  "Usamos cookies e o armazenamento do navegador apenas para o funcionamento do app: sessão e preferências.": "앱 작동을 위해서만 쿠키와 브라우저 저장소를 사용합니다: 세션 및 환경설정.",
+  "Política de Privacidade": "개인정보 처리방침",
+  "Entendi": "확인",
+  "Aviso de cookies": "쿠키 안내",
+  "Termos": "약관",
+  "Privacidade": "개인정보",
+  "Ao criar o condomínio, você concorda com os": "아파트를 생성하면 다음에 동의하게 됩니다:",
+  "Termos de Serviço": "서비스 약관",
+  "e a": "및",
 };

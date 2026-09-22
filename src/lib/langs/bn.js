@@ -198,4 +198,15 @@ export default {
   "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "এটি দিয়ে আপনি \"পাসওয়ার্ড ভুলে গেছি\"-তে পরিচালকের উপর নির্ভর না করে নিজেই পাসওয়ার্ড রিসেট করবেন। এটি শুধুমাত্র একবার দেখানো হয় — নিরাপদ স্থানে রাখুন।",
   "Agora não": "এখন নয়",
   "Continuar": "চালিয়ে যান",
+
+  /* legal e aviso de cookies */
+  "Usamos cookies e o armazenamento do navegador apenas para o funcionamento do app: sessão e preferências.": "আমরা শুধু অ্যাপ চালানোর জন্য কুকি ও ব্রাউজার স্টোরেজ ব্যবহার করি: সেশন ও পছন্দসমূহ।",
+  "Política de Privacidade": "গোপনীয়তা নীতি",
+  "Entendi": "বুঝেছি",
+  "Aviso de cookies": "কুকি বিজ্ঞপ্তি",
+  "Termos": "শর্তাবলী",
+  "Privacidade": "গোপনীয়তা",
+  "Ao criar o condomínio, você concorda com os": "কন্ডোমিনিয়াম তৈরি করলে আপনি সম্মত হন:",
+  "Termos de Serviço": "পরিষেবার শর্তাবলী",
+  "e a": "এবং",
 };

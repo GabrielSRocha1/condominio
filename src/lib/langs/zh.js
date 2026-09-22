@@ -198,4 +198,15 @@ export default {
   "Com ele você redefine sua senha sozinho em \"Esqueci minha senha\", sem depender do diretor. Ele é mostrado uma única vez — guarde em local seguro.": "有了它，您可以在“忘记密码”中自行重设密码，无需依赖董事。它仅显示一次——请妥善保管。",
   "Agora não": "暂不",
   "Continuar": "继续",
+
+  /* legal e aviso de cookies */
+  "Usamos cookies e o armazenamento do navegador apenas para o funcionamento do app: sessão e preferências.": "我们仅为应用的运行使用 Cookie 和浏览器存储：会话与偏好设置。",
+  "Política de Privacidade": "隐私政策",
+  "Entendi": "知道了",
+  "Aviso de cookies": "Cookie 提示",
+  "Termos": "条款",
+  "Privacidade": "隐私",
+  "Ao criar o condomínio, você concorda com os": "创建小区即表示您同意",
+  "Termos de Serviço": "服务条款",
+  "e a": "和",
 };

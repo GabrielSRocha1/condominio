@@ -30,8 +30,10 @@ const semColunaPreferencias = (e) =>
 
 /* a conta tem código de recuperação PERMANENTE ativo? O app usa isso para
    sugerir gerar um logo após o login (autonomia: a pessoa se recupera sem
-   o diretor). Sem a tabela (supabase-seguranca4.sql não rodado), responde
-   true — não sugere nada e nada quebra. */
+   o diretor). Só vale para TESOURARIA e MORADOR — diretor e síndico
+   redefinem por link no e-mail (Etapa 5) e recebem sempre true (o app
+   não sugere nada). Sem a tabela (supabase-seguranca4.sql não rodado),
+   responde true — não sugere nada e nada quebra. */
 async function temCodigoPermanente(supabase, usuarioId) {
   const { data, error } = await supabase.from("auth_recuperacao")
     .select("id").eq("usuario_id", usuarioId).is("usado_em", null).is("expira_em", null).limit(1);
@@ -151,7 +153,8 @@ export default async function handler(req, res) {
     return res.status(200).json({ token, conta: {
       nome, email: f.email, condominioId,
       idioma: data.preferencias?.idioma || null, // idioma da interface guardado nesta conta
-      temCodigoRecuperacao: await temCodigoPermanente(supabase, data.id),
+      /* só tesouraria usa código; diretor/síndico redefinem por e-mail */
+      temCodigoRecuperacao: f.perfil === "tesouraria" ? await temCodigoPermanente(supabase, data.id) : true,
     } });
   } catch (e) {
     logSeguro("[auth/login]", e);

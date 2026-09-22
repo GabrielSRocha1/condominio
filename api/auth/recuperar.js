@@ -1,8 +1,10 @@
 /* POST /api/auth/recuperar  { perfil, email?, nome?, codigo, senha }
-   "Esqueci minha senha" da tela de entrada, sem e-mail: a pessoa apresenta
-   um código de recuperação de uso único (gerado pelo diretor em Gerenciar
-   Acessos — o do próprio diretor é permanente) e define a senha nova.
-   Morador se identifica pelo nome; os demais perfis, pelo e-mail.
+   "Esqueci minha senha" por CÓDIGO — só TESOURARIA e MORADOR: a pessoa
+   apresenta um código de recuperação de uso único (permanente gerado por
+   ela mesma em /api/auth/codigo, ou de 24h gerado pelo diretor em
+   Gerenciar Acessos) e define a senha nova. Morador se identifica pelo
+   nome; tesouraria, pelo e-mail. DIRETOR e SÍNDICO redefinem por LINK
+   enviado ao e-mail (Etapa 5 — /api/auth/esqueci) e recebem 403 aqui.
 
    Blindagem (mesma régua do login):
    · lockout por conta E por IP — só FALHAS contam; resposta genérica,
@@ -58,6 +60,8 @@ export default async function handler(req, res) {
       senha:  { tipo: "texto", max: 200, obrigatorio: true },
     });
     if (!f) return;
+    if (f.perfil === "diretor" || f.perfil === "sindico")
+      return res.status(403).json({ error: "Diretor e síndico redefinem a senha pelo link enviado ao e-mail, em \"Esqueci minha senha\"." });
     if (f.senha.length < 8)
       return res.status(400).json({ error: "A senha precisa de pelo menos 8 caracteres." });
 

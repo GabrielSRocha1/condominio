@@ -105,6 +105,25 @@ export async function guardarCodigoRecuperacao(supabase, { usuarioId, criadoPor,
 }
 export const erroSemTabela = (e) => !!e && /does not exist|schema cache/i.test(e.message || "");
 
+/* ── Etapa 5: token de redefinição por LINK DE E-MAIL (diretor/síndico) ──
+   32 bytes → 64 hex na URL; só o sha256 vai à auth_recuperacao com
+   canal='email'. Um token de e-mail ativo por conta (pedir de novo
+   substitui); TTL 60 min. Gerado em /api/auth/esqueci e consumido em
+   /api/auth/redefinir. Tesouraria e morador seguem no código da Etapa 4. */
+export const EMAIL_TOKEN_TTL_MS = 60 * 60 * 1000;
+export const gerarTokenEmail = () => randomBytes(32).toString("hex");
+export async function guardarTokenEmail(supabase, { usuarioId, token }) {
+  const { error: eDel } = await supabase.from("auth_recuperacao")
+    .delete().eq("usuario_id", usuarioId).eq("canal", "email").is("usado_em", null);
+  if (eDel) return eDel;
+  const { error: eIns } = await supabase.from("auth_recuperacao").insert({
+    usuario_id: usuarioId, codigo_hash: sha256Hex(token), canal: "email",
+    criado_por: usuarioId,
+    expira_em: new Date(Date.now() + EMAIL_TOKEN_TTL_MS).toISOString(),
+  });
+  return eIns || null;
+}
+
 /* ── refresh token (cookie HttpOnly + rotação na tabela auth_sessoes) ── */
 export const REFRESH_TTL_SEG = 60 * 60 * 24 * 30; // 30 dias
 const COOKIE = "cm_refresh";
