@@ -8,7 +8,7 @@ import {
   TrendingDown, CircleDot, User, KeyRound, Car, Package, DoorOpen, Star,
   ListChecks, Ban,
   Mail, EyeOff, Trash2, UserPlus, Upload, Copy, MapPin, Banknote, CreditCard,
-  ChevronDown,
+  ChevronDown, Rocket, Circle,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -156,6 +156,57 @@ const NAV = [
   { id: "emails",     label: "Gerenciar Acessos",icon: Mail,            roles: ["diretor"] },
   { id: "planos",     label: "Planos",           icon: Star,            roles: ["diretor"] },
 ];
+
+/* ══════════════ PRIMEIROS PASSOS (onboarding) ══════════════ */
+/* Guia de implantação: cada passo aponta para uma tela e é dado como concluído
+   pelos DADOS reais (nunca por clique) — o db recarrega após toda mutação, então
+   os checks se atualizam sozinhos. `x` traz as checagens que não vivem no db:
+   status da conta Stripe e acessos criados (ambas exclusivas do diretor). */
+const ONBOARDING_STEPS = [
+  { id: "dados", screen: "condominio", tour: "cond-salvar",
+    titulo: "Complete os dados do condomínio",
+    desc: "Defina o país do condomínio e o síndico atual — eles controlam telefones, documentos e a gestão do dia a dia.",
+    roles: ["diretor"],
+    done: (db) => !!(db.cond.pais && db.cond.sindico) },
+  { id: "unidades", screen: "unidades", tour: "unidades-nova",
+    titulo: "Cadastre as unidades",
+    desc: "Crie blocos e unidades — a base de todo rateio, cobrança e do portal do morador.",
+    roles: ["diretor", "sindico", "tesouraria"],
+    done: (db) => db.unidades.length > 0 },
+  { id: "pessoas", screen: "pessoas", tour: "pessoas-nova",
+    titulo: "Cadastre pessoas e responsáveis",
+    desc: "Vincule proprietários e inquilinos às unidades — só unidades com responsável financeiro entram na geração de cobranças. Dá para importar por planilha.",
+    roles: ["diretor", "sindico"],
+    done: (db) => db.pessoas.length > 0 && db.ctx.unidades.some((u) => u.responsavelId) },
+  { id: "pagamentos", screen: "condominio", tour: "cond-tab-pagamentos", tab: "pagamentos",
+    titulo: "Configure os meios de pagamento",
+    desc: "Ative o recebimento online (Stripe), cripto ou conta bancária — é como o morador paga a cota condominial.",
+    roles: ["diretor"],
+    done: (db, x) => !!(db.cond.pagamentos.verumWallet || db.cond.pagamentos.banco?.conta || db.cond.pagamentos.banco?.iban || x.stripe?.chargesEnabled || x.stripe?.online) },
+  { id: "cobrancas", screen: "cobrancas", tour: "cobr-gerar",
+    titulo: "Gere as cobranças do mês",
+    desc: "Rateio automático pela fração ideal ou em partes iguais — cada unidade recebe a sua com QR de pagamento no portal.",
+    roles: ["diretor", "sindico", "tesouraria"],
+    done: (db) => db.cobr.length > 0 },
+  { id: "financeiro", screen: "financeiro", tour: "fin-novo",
+    titulo: "Registre o primeiro lançamento",
+    desc: "Receitas e despesas com aprovação do síndico — o dashboard passa a mostrar o caixa real.",
+    roles: ["diretor", "sindico", "tesouraria"],
+    done: (db) => db.lanc.length > 0 },
+  { id: "comunicado", screen: "comunicados", tour: "comunic-novo",
+    titulo: "Publique o primeiro comunicado",
+    desc: "Avise os moradores — os comunicados aparecem no portal e podem ser enviados por WhatsApp.",
+    roles: ["diretor", "sindico"],
+    done: (db) => db.comunic.length > 0 },
+  { id: "acessos", screen: "emails", tour: "acessos-novo",
+    titulo: "Crie os acessos da equipe e dos moradores",
+    desc: "Contas de síndico, tesouraria e moradores — cada pessoa entra com o próprio perfil.",
+    roles: ["diretor"],
+    done: (db, x) => (x.acessos?.length ?? 0) > 0 },
+];
+const K_ONB = "cm_primeiros_passos"; // { [condominioId]: { welcomed, hidden } } — só estado de UI; conclusão vem dos dados
+const lerOnb = (cid) => { try { return JSON.parse(localStorage.getItem(K_ONB))?.[cid] || {}; } catch { return {}; } };
+const salvarOnb = (cid, patch) => { try { const all = JSON.parse(localStorage.getItem(K_ONB)) || {}; all[cid] = { ...all[cid], ...patch }; localStorage.setItem(K_ONB, JSON.stringify(all)); } catch { /* sem storage */ } };
 
 /* ══════════════ DADOS (Supabase) ══════════════ */
 const DataCtx = React.createContext(null);
@@ -1169,7 +1220,8 @@ function Condominio({ t, role }) {
   const { db, reload } = useData();
   /* síndico enxerga o cadastro somente leitura; apenas o diretor edita */
   const somenteLeitura = role !== "diretor";
-  const [tab, setTab] = useState("dados");
+  /* aba inicial: o guia "Primeiros passos" pode pedir uma aba específica (hint de uso único) */
+  const [tab, setTab] = useState(() => { try { const h = sessionStorage.getItem("cm_cond_tab"); if (h) { sessionStorage.removeItem("cm_cond_tab"); return h; } } catch { /* sem storage */ } return "dados"; });
   const [saved, setSaved] = useState(false);
   const [cond, setCond] = useState(null);
   const [formKey, setFormKey] = useState(0);
@@ -1250,7 +1302,8 @@ function Condominio({ t, role }) {
     <div className="vfade max-w-3xl space-y-4">
       <div className="flex gap-1 overflow-x-auto">
         {[["dados","Dados gerais"],["gestao","Gestão"],["regras","Regras internas"],["pagamentos","Meios de pagamento"],["visual","Identidade visual"]].map(([k,l]) => (
-          <button key={k} onClick={() => setTab(k)} className="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium"
+          <button key={k} onClick={() => setTab(k)} data-tour={k === "pagamentos" ? "cond-tab-pagamentos" : undefined}
+            className="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium"
             style={{ background: tab===k ? t.goldSoft : "transparent", color: tab===k ? t.gold : t.dim, border: `1px solid ${tab===k ? t.border : "transparent"}` }}>{l}</button>))}
       </div>
       {somenteLeitura && (
@@ -1437,7 +1490,7 @@ function Condominio({ t, role }) {
         {!somenteLeitura && (
         <div className="flex justify-end gap-2 pt-2">
           <Btn t={t} onClick={carregar}>Descartar alterações</Btn>
-          <Btn t={t} kind="primary" type="submit" disabled={saving}>
+          <Btn t={t} kind="primary" type="submit" disabled={saving} data-tour="cond-salvar">
             {saved ? <><CheckCircle2 size={15} /> Salvo</> : <><Check size={15} /> {saving ? "Salvando…" : "Salvar alterações"}</>}</Btn>
         </div>)}
       </fieldset>
@@ -1521,14 +1574,14 @@ function Unidades({ t, role }) {
           <AlertCircle size={13} className="mr-1 inline" />
           {L("Acima da franquia do plano")} ({db.unidades.length} / {limiteUn} {L("unidades")}) — {L("o excedente é cobrado por unidade adicional na fatura da licença.")}</div>)}
       <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por unidade, andar, tipo, status ou responsável…"
-        action={podeCriar ? <Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Unidade</Btn> : null}>
+        action={podeCriar ? <Btn t={t} kind="primary" onClick={() => setNovo(true)} data-tour="unidades-nova"><Plus size={15} /> Unidade</Btn> : null}>
         <Sel t={t} value={st} onChange={setSt} opts={[["todos","Todos os status"],["ocupada","Ocupada"],["alugada","Alugada"],["vaga","Vaga"],["vendida","Vendida"],["reservada","Reservada"],["inativa","Inativa"]]} />
       </Toolbar>
       <Tbl t={t} cols={cols} rows={rows} onRowClick={(r) => { setSel(r); setHist(null); setRespSel(r.respId || "");
         setEd({ numero: r.num, bloco: r.bloco === "?" ? "" : r.bloco, tipo: r.tipoRaw, status: r.status, andar: r.andar ?? "" }); }}
         empty={<EmptyState t={t} icon={Home} title="Nenhuma unidade encontrada"
           hint={podeCriar ? "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio." : "Ajuste a busca ou os filtros. O cadastro de novas unidades é feito pelo diretor."}
-          action={podeCriar ? <Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={14} /> Cadastrar unidade</Btn> : null} />}
+          action={podeCriar ? <Btn t={t} kind="primary" onClick={() => setNovo(true)} data-tour="unidades-nova"><Plus size={14} /> Cadastrar unidade</Btn> : null} />}
         renderCell={(r, k) => {
           if (k === "num") return <b>{r.num} · Bloco {r.bloco}</b>;
           if (k === "andar") return r.andar ?? <span style={{ color: t.dim }}>—</span>;
@@ -1668,7 +1721,7 @@ function Pessoas({ t }) {
       <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por nome…"
         action={<>
           <Btn t={t} onClick={() => setImportar(true)}><Upload size={15} /> Importar</Btn>
-          <Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Pessoa</Btn>
+          <Btn t={t} kind="primary" onClick={() => setNovo(true)} data-tour="pessoas-nova"><Plus size={15} /> Pessoa</Btn>
         </>}>
         <Sel t={t} value={papel} onChange={setPapel} opts={[["todos","Todos os papéis"], ...papeis.map((p) => [p, p])]} />
       </Toolbar>
@@ -1964,7 +2017,7 @@ function Financeiro({ t }) {
       </div>
       {tab === "lanc" ? (<>
         <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar lançamento…"
-          action={<><Btn t={t} onClick={exportarLanc}><Download size={14} /> Exportar</Btn><Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={15} /> Lançamento</Btn></>} />
+          action={<><Btn t={t} onClick={exportarLanc}><Download size={14} /> Exportar</Btn><Btn t={t} kind="primary" onClick={() => setNovo(true)} data-tour="fin-novo"><Plus size={15} /> Lançamento</Btn></>} />
         <Tbl t={t} cols={[{k:"data",l:"Data"},{k:"tipo",l:"Tipo"},{k:"cat",l:"Categoria"},{k:"desc",l:"Descrição"},{k:"valor",l:"Valor"},{k:"nf",l:"NF"},{k:"status",l:"Status"}]}
           rows={rows}
           empty={<EmptyState t={t} icon={Wallet} title="Nenhum lançamento neste período"
@@ -2200,14 +2253,14 @@ function Cobrancas({ t }) {
         <StatCard t={t} icon={AlertCircle} label="Vencidas" value={BRL(S.cobrVencidasValor)} color={t.danger} />
       </div>
       <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por unidade ou responsável…"
-        action={<Btn t={t} kind="primary" onClick={() => setNova(true)}><Plus size={15} /> Gerar cobranças</Btn>}>
+        action={<Btn t={t} kind="primary" onClick={() => setNova(true)} data-tour="cobr-gerar"><Plus size={15} /> Gerar cobranças</Btn>}>
         <Sel t={t} value={st} onChange={setSt} opts={[["todos","Todos"],["pago","Pagas"],["informado","Informadas"],["divergente","Divergentes"],["emitida","Emitidas"],["vencida","Vencidas"]]} />
       </Toolbar>
       <Tbl t={t} cols={[{k:"unidade",l:"Unidade"},{k:"resp",l:"Responsável"},{k:"comp",l:"Competência"},{k:"valor",l:"Valor"},{k:"venc",l:"Vencimento"},{k:"status",l:"Status"},{k:"acao",l:""}]}
         rows={rows}
         empty={<EmptyState t={t} icon={QrCode} title="Nenhuma cobrança nesta competência"
           hint="Gere as cobranças do mês: cada unidade recebe a sua no portal do morador, com pagamento online (Pix/cartão) e pelos meios cadastrados do condomínio."
-          action={<Btn t={t} kind="primary" onClick={() => setNova(true)}><Plus size={14} /> Gerar cobranças do mês</Btn>} />}
+          action={<Btn t={t} kind="primary" onClick={() => setNova(true)} data-tour="cobr-gerar"><Plus size={14} /> Gerar cobranças do mês</Btn>} />}
         renderCell={(r, k) => {
           if (k === "valor") return <b>{BRL(r.valor)}</b>;
           if (k === "status") return <Badge t={t} s={r.status} />;
@@ -2478,7 +2531,7 @@ function Comunicados({ t }) {
   });
   return (
     <div className="vfade space-y-4">
-      <div className="flex justify-end"><Btn t={t} kind="primary" onClick={abrirNovo}><Plus size={15} /> Novo comunicado</Btn></div>
+      <div className="flex justify-end"><Btn t={t} kind="primary" onClick={abrirNovo} data-tour="comunic-novo"><Plus size={15} /> Novo comunicado</Btn></div>
       <div className="space-y-2">
         {db.comunic.map((c) => (
           <Card t={t} key={c.id}>
@@ -3056,7 +3109,7 @@ function GerenciarEmails({ t }) {
           Os acessos criados aqui são o que cada pessoa usará na tela de entrada. Síndico e tesouraria entram com e-mail; o morador entra com o nome cadastrado.{" "}
           {L("Síndico redefine a senha por link enviado ao e-mail, em \"Esqueci minha senha\" na tela de entrada. Os códigos valem só para tesouraria e morador.")}</div>
         <div className="flex flex-wrap gap-2">
-          <Btn t={t} kind="primary" onClick={() => { setErro(""); setNovo(true); }}><Plus size={15} /> Adicionar acesso</Btn>
+          <Btn t={t} kind="primary" onClick={() => { setErro(""); setNovo(true); }} data-tour="acessos-novo"><Plus size={15} /> Adicionar acesso</Btn>
         </div>
       </div>
       {usuarios === null ? (
@@ -3081,7 +3134,7 @@ function GerenciarEmails({ t }) {
       ) : (
         <EmptyState t={t} icon={Mail} title="Nenhum acesso criado ainda"
           hint="Cadastre o primeiro e-mail e senha para que síndico, tesouraria e moradores consigam entrar."
-          action={<Btn t={t} kind="primary" onClick={() => setNovo(true)}><Plus size={14} /> Adicionar acesso</Btn>} />)}
+          action={<Btn t={t} kind="primary" onClick={() => setNovo(true)} data-tour="acessos-novo"><Plus size={14} /> Adicionar acesso</Btn>} />)}
       <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
         Os acessos são gravados no banco de dados com senha criptografada — a pessoa consegue entrar de qualquer navegador.</div>
       {novo && (
@@ -4163,6 +4216,73 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
   );
 }
 
+/* ══════════════ PAINEL PRIMEIROS PASSOS ══════════════ */
+/* Checklist flutuante e não-modal: o usuário navega pelo app com ele aberto e
+   reabre a qualquer momento pela entrada "Primeiros passos" do menu lateral.
+   Mobile: folha inferior; desktop: cartão no canto (inset-inline → RTL ok). */
+function OnboardingPanel({ t, role, extras, onClose, onHide, onGoStep }) {
+  const { db } = useData();
+  /* com o aviso de cookies ainda visível (fixo embaixo), o painel sobe para não cobrir o botão de aceitar */
+  const cookiesPendentes = (() => { try { return localStorage.getItem(K_COOKIES) !== "1"; } catch { return false; } })();
+  const steps = ONBOARDING_STEPS.filter((s) => role && s.roles.includes(role));
+  const feito = (s) => { try { return !!s.done(db, extras); } catch { return false; } };
+  const feitos = steps.filter(feito).length;
+  const completo = steps.length > 0 && feitos === steps.length;
+  const pct = steps.length ? Math.round((feitos / steps.length) * 100) : 0;
+  const primeiroPendente = steps.find((s) => !feito(s));
+  const [aberto, setAberto] = useState(null); // id expandido pelo usuário ("" = tudo recolhido)
+  const expandido = aberto ?? primeiroPendente?.id;
+  return (
+    <div role="complementary" aria-label={L("Primeiros passos")}
+      className={`vfade fixed inset-x-0 bottom-0 z-40 max-h-[70vh] overflow-y-auto rounded-t-3xl border p-4 sm:inset-x-auto sm:end-4 sm:w-[360px] sm:rounded-3xl ${cookiesPendentes ? "sm:bottom-24" : "sm:bottom-4"}`}
+      style={{ background: t.surface, borderColor: t.border, boxShadow: t.shadow, color: t.text }}>
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-base font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>
+          <Rocket size={17} color={t.gold} /> {L("Primeiros passos")}</div>
+        <button onClick={onClose} aria-label={L("Fechar")} className="rounded-lg p-1.5" style={{ background: t.surface2 }}><X size={16} color={t.dim} /></button>
+      </div>
+      <div className="mb-1 flex items-center justify-between text-xs" style={{ color: t.dim }}>
+        <span>{feitos}/{steps.length} {L("passos concluídos")}</span><span>{pct}%</span></div>
+      <div className="mb-3 h-1.5 overflow-hidden rounded-full" style={{ background: t.surface2 }}>
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: completo ? t.ok : t.gold, transition: "width .4s ease" }} /></div>
+      {feitos === 0 && (
+        <div className="mb-3 text-xs" style={{ color: t.dim }}>
+          {L("Bem-vindo! Siga estes passos para deixar o condomínio pronto para o dia a dia.")}</div>)}
+      <div className="space-y-1">
+        {steps.map((s, i) => {
+          const ok = feito(s);
+          const exp = expandido === s.id && !ok;
+          return (
+            <div key={s.id} className="rounded-xl border" style={{ borderColor: exp ? t.border : "transparent", background: exp ? t.surface2 : "transparent", opacity: ok ? 0.55 : 1 }}>
+              <button onClick={() => setAberto(exp ? "" : s.id)} disabled={ok}
+                className="flex w-full items-center gap-2.5 px-2.5 py-2 text-left disabled:cursor-default">
+                {ok ? <CheckCircle2 size={17} color={t.ok} className="shrink-0" /> : <Circle size={17} color={t.dim} className="shrink-0" />}
+                <span className="min-w-0 flex-1 text-xs font-semibold">{i + 1}. {L(s.titulo)}</span>
+                {!ok && <ChevronDown size={14} color={t.dim} className="shrink-0" style={{ transform: exp ? "rotate(180deg)" : "none", transition: "transform .2s" }} />}
+              </button>
+              {exp && (
+                <div className="px-2.5 pb-2.5 ps-10">
+                  <div className="mb-2 text-xs" style={{ color: t.dim }}>{L(s.desc)}</div>
+                  <Btn t={t} kind="primary" className="!px-2.5 !py-1.5 !text-xs" onClick={() => onGoStep(s)}>
+                    {L("Ir para")} {L(NAV.find((n) => n.id === s.screen)?.label || "")} <ChevronRight size={13} /></Btn>
+                </div>)}
+            </div>);
+        })}
+      </div>
+      {completo ? (
+        <div className="mt-3 space-y-2">
+          <div className="rounded-xl px-3 py-2 text-xs font-semibold" style={{ background: t.ok + "18", color: t.ok }}>
+            🎉 {L("Tudo pronto! O condomínio está configurado para o dia a dia.")}</div>
+          <Btn t={t} kind="soft" className="w-full" onClick={onHide}>{L("Concluir e ocultar do menu")}</Btn>
+        </div>
+      ) : (
+        <button onClick={onClose} className="mt-3 w-full text-center text-xs" style={{ color: t.dim, background: "transparent", border: "none" }}>
+          {L("Continuar depois")}</button>
+      )}
+    </div>
+  );
+}
+
 /* ══════════════ SHELL PRINCIPAL ══════════════ */
 export default function App() {
   const [dark, setDark] = useState(true);
@@ -4252,6 +4372,51 @@ export default function App() {
     return n.filter((x) => NAV.some((nv) => nv.id === x.s && nv.roles.includes(role)));
   }, [db, role, lang]); // lang: os textos passam por L(), então trocar o idioma precisa recalcular
 
+  /* ── Primeiros passos (onboarding): conclusão derivada do db; só o estado de
+     UI (welcomed/hidden) persiste, por condomínio, em localStorage ── */
+  const [obOpen, setObOpen] = useState(false);
+  const [obExtras, setObExtras] = useState({ stripe: null, acessos: null }); // checagens fora do db (diretor)
+  const obSteps = role ? ONBOARDING_STEPS.filter((s) => s.roles.includes(role)) : [];
+  const obDone = db && !db.vazio ? obSteps.filter((s) => { try { return !!s.done(db, obExtras); } catch { return false; } }).length : 0;
+  const obCompleto = obSteps.length > 0 && obDone === obSteps.length;
+  const obVisivel = !!(role && role !== "morador" && obSteps.length && db && !db.vazio && condId && !lerOnb(condId).hidden);
+  useEffect(() => { // status Stripe e acessos criados — endpoints do diretor; param quando tudo concluído/oculto
+    if (role !== "diretor" || !obVisivel || obCompleto) return;
+    statusStripeConnect().then((s) => setObExtras((x) => ({ ...x, stripe: s }))).catch(() => { /* sem rede: passo fica pendente */ });
+    listarAcessos().then((a) => setObExtras((x) => ({ ...x, acessos: a }))).catch(() => { /* idem */ });
+  }, [db, role]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { // auto-abre UMA vez por condomínio com passos pendentes; o menu fica como caminho de volta
+    if (!obVisivel) return;
+    const tp = (db.tenants || []).find((x) => x.id === db.ctx.condominioId);
+    const licencaOk = tp && (tp.status === "ativo" || (tp.status === "teste" && tp.testeFim && tp.diasTeste >= 0));
+    if (!licencaOk) return; // nunca por cima do Paywall
+    const prefs = lerOnb(condId);
+    if (prefs.welcomed || prefs.hidden) return;
+    salvarOnb(condId, { welcomed: true }); // recarregar a página não reabre
+    if (obDone < obSteps.length) setObOpen(true); // condomínio já populado (importação): não abre
+  }, [db, condId, role]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* realça o botão-alvo da tela de destino: a tela monta no próximo render,
+     então procura o data-tour com novas tentativas e pulsa um anel dourado */
+  const pingTour = useCallback((sel) => {
+    if (!sel) return;
+    let tent = 0;
+    const busca = () => {
+      const el = document.querySelector(`[data-tour="${sel}"]`);
+      if (el) {
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+        el.classList.add("vtour");
+        setTimeout(() => el.classList.remove("vtour"), 4200);
+      } else if (++tent < 10) setTimeout(busca, 150);
+    };
+    setTimeout(busca, 150);
+  }, []);
+  const irParaPasso = useCallback((s) => {
+    if (s.tab) try { sessionStorage.setItem("cm_cond_tab", s.tab); } catch { /* sem storage */ }
+    go(s.screen); // em telas largas o painel continua aberto acompanhando o guia;
+    if (window.innerWidth < 640) setObOpen(false); // no celular ele cobriria o botão realçado
+    pingTour(s.tour);
+  }, [go, pingTour]);
+
   const globalStyle = (
     <style>{`
       @import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
@@ -4261,6 +4426,7 @@ export default function App() {
       .vpulse{animation:vpulse 1.4s ease infinite} @keyframes vpulse{0%,100%{opacity:.35}50%{opacity:.7}}
       .vspin{animation:vspin 1s linear infinite} @keyframes vspin{to{transform:rotate(360deg)}}
       .vhover{transition:transform .18s,box-shadow .18s} .vhover:hover{transform:translateY(-2px)}
+      .vtour{animation:vtour 1.3s ease 3} @keyframes vtour{0%,100%{box-shadow:0 0 0 0 ${t.gold}00}50%{box-shadow:0 0 0 6px ${t.gold}66}}
       @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
       input,select,textarea{outline:none} button{cursor:pointer}
       button:focus-visible,a:focus-visible{outline:2px solid ${t.gold};outline-offset:2px}
@@ -4371,6 +4537,16 @@ export default function App() {
               })}
             </nav>
             <div className="mt-4 space-y-2 border-t pt-3" style={{ borderColor: t.borderSoft }}>
+              {obVisivel && (
+                <button onClick={() => { setObOpen((v) => !v); setSideOpen(false); }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
+                  style={{ background: obOpen ? t.goldSoft : "transparent", color: t.gold, border: `1px solid ${obOpen ? t.border : "transparent"}` }}>
+                  <Rocket size={16} /> {L("Primeiros passos")}
+                  <span className="ml-auto rounded-full px-1.5 text-[10px] font-bold"
+                    style={{ background: obCompleto ? t.ok + "22" : t.goldSoft, color: obCompleto ? t.ok : t.gold }}>
+                    {obDone}/{obSteps.length}</span>
+                </button>
+              )}
               <div className="flex items-center gap-2.5 rounded-xl px-2 py-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold" style={{ background: t.goldSoft, color: t.gold }}>
                   {L(PROFILES[role].label)[0]}</div>
@@ -4449,6 +4625,11 @@ export default function App() {
           </main>
         </div>
       </div>
+      {obVisivel && obOpen && (
+        <OnboardingPanel t={t} role={role} extras={obExtras}
+          onClose={() => setObOpen(false)}
+          onHide={() => { salvarOnb(condId, { hidden: true }); setObOpen(false); }}
+          onGoStep={irParaPasso} />)}
     </div>
     </DataCtx.Provider>
   );

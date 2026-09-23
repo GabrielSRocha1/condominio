@@ -79,6 +79,31 @@ export const conciliarIdiomaDaConta = (idiomaSalvo) => {
 };
 
 const EN = {
+  /* primeiros passos (onboarding) */
+  "Primeiros passos": "Getting started",
+  "passos concluídos": "steps completed",
+  "Bem-vindo! Siga estes passos para deixar o condomínio pronto para o dia a dia.": "Welcome! Follow these steps to get the condominium ready for day-to-day management.",
+  "Ir para": "Go to",
+  "Continuar depois": "Continue later",
+  "Tudo pronto! O condomínio está configurado para o dia a dia.": "All set! The condominium is configured for day-to-day management.",
+  "Concluir e ocultar do menu": "Finish and hide from menu",
+  "Complete os dados do condomínio": "Complete the condominium details",
+  "Defina o país do condomínio e o síndico atual — eles controlam telefones, documentos e a gestão do dia a dia.": "Set the condominium's country and the current manager — they drive phone formats, documents and daily management.",
+  "Cadastre as unidades": "Register the units",
+  "Crie blocos e unidades — a base de todo rateio, cobrança e do portal do morador.": "Create blocks and units — the foundation of every expense split, charge and the resident portal.",
+  "Cadastre pessoas e responsáveis": "Register people and account holders",
+  "Vincule proprietários e inquilinos às unidades — só unidades com responsável financeiro entram na geração de cobranças. Dá para importar por planilha.": "Link owners and tenants to units — only units with a financial account holder are included when generating charges. You can import from a spreadsheet.",
+  "Configure os meios de pagamento": "Set up payment methods",
+  "Ative o recebimento online (Stripe), cripto ou conta bancária — é como o morador paga a cota condominial.": "Enable online payments (Stripe), crypto or a bank account — it's how residents pay their fees.",
+  "Gere as cobranças do mês": "Generate this month's charges",
+  "Rateio automático pela fração ideal ou em partes iguais — cada unidade recebe a sua com QR de pagamento no portal.": "Automatic split by ownership share or equal parts — each unit gets its own charge with a payment QR in the portal.",
+  "Registre o primeiro lançamento": "Record the first transaction",
+  "Receitas e despesas com aprovação do síndico — o dashboard passa a mostrar o caixa real.": "Income and expenses with manager approval — the dashboard starts showing the real cash flow.",
+  "Publique o primeiro comunicado": "Publish the first announcement",
+  "Avise os moradores — os comunicados aparecem no portal e podem ser enviados por WhatsApp.": "Notify residents — announcements appear in the portal and can be sent via WhatsApp.",
+  "Crie os acessos da equipe e dos moradores": "Create team and resident logins",
+  "Contas de síndico, tesouraria e moradores — cada pessoa entra com o próprio perfil.": "Manager, treasury and resident accounts — each person signs in with their own profile.",
+
   /* navegação e cabeçalho */
   "Condomínio": "Condominium", "Unidades": "Units", "Pessoas": "People", "Financeiro": "Finance",
   "Cobranças QR": "QR Billing", "Multas": "Fines", "Comunicados": "Announcements", "Documentos": "Documents",
@@ -671,6 +696,31 @@ const EN = {
 };
 
 const ES = {
+  /* primeiros passos (onboarding) */
+  "Primeiros passos": "Primeros pasos",
+  "passos concluídos": "pasos completados",
+  "Bem-vindo! Siga estes passos para deixar o condomínio pronto para o dia a dia.": "¡Bienvenido! Siga estos pasos para dejar el condominio listo para el día a día.",
+  "Ir para": "Ir a",
+  "Continuar depois": "Continuar después",
+  "Tudo pronto! O condomínio está configurado para o dia a dia.": "¡Todo listo! El condominio está configurado para el día a día.",
+  "Concluir e ocultar do menu": "Finalizar y ocultar del menú",
+  "Complete os dados do condomínio": "Complete los datos del condominio",
+  "Defina o país do condomínio e o síndico atual — eles controlam telefones, documentos e a gestão do dia a dia.": "Defina el país del condominio y el administrador actual — controlan teléfonos, documentos y la gestión diaria.",
+  "Cadastre as unidades": "Registre las unidades",
+  "Crie blocos e unidades — a base de todo rateio, cobrança e do portal do morador.": "Cree bloques y unidades — la base de todo prorrateo, cobro y del portal del residente.",
+  "Cadastre pessoas e responsáveis": "Registre personas y responsables",
+  "Vincule proprietários e inquilinos às unidades — só unidades com responsável financeiro entram na geração de cobranças. Dá para importar por planilha.": "Vincule propietarios e inquilinos a las unidades — solo las unidades con responsable financiero entran en la generación de cobros. Puede importar por planilla.",
+  "Configure os meios de pagamento": "Configure los medios de pago",
+  "Ative o recebimento online (Stripe), cripto ou conta bancária — é como o morador paga a cota condominial.": "Active el cobro en línea (Stripe), cripto o cuenta bancaria — es como el residente paga la cuota.",
+  "Gere as cobranças do mês": "Genere los cobros del mes",
+  "Rateio automático pela fração ideal ou em partes iguais — cada unidade recebe a sua com QR de pagamento no portal.": "Prorrateo automático por alícuota o en partes iguales — cada unidad recibe el suyo con QR de pago en el portal.",
+  "Registre o primeiro lançamento": "Registre el primer movimiento",
+  "Receitas e despesas com aprovação do síndico — o dashboard passa a mostrar o caixa real.": "Ingresos y gastos con aprobación del administrador — el panel pasa a mostrar la caja real.",
+  "Publique o primeiro comunicado": "Publique el primer comunicado",
+  "Avise os moradores — os comunicados aparecem no portal e podem ser enviados por WhatsApp.": "Avise a los residentes — los comunicados aparecen en el portal y pueden enviarse por WhatsApp.",
+  "Crie os acessos da equipe e dos moradores": "Cree los accesos del equipo y de los residentes",
+  "Contas de síndico, tesouraria e moradores — cada pessoa entra com o próprio perfil.": "Cuentas de administrador, tesorería y residentes — cada persona entra con su propio perfil.",
+
   /* navegação e cabeçalho */
   "Condomínio": "Condominio", "Unidades": "Unidades", "Pessoas": "Personas", "Financeiro": "Finanzas",
   "Cobranças QR": "Cobros QR", "Multas": "Multas", "Comunicados": "Comunicados", "Documentos": "Documentos",
