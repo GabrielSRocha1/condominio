@@ -15,17 +15,23 @@
 
    As sondas do bloco A rodam SEM chave nenhuma (são de código local) — e
    mostram de propósito o estado VULNERÁVEL das tabelas de moeda antes da
-   Fase 1. O bloco B precisa das chaves de SANDBOX no .env:
+   Fase 1. O bloco B precisa de um par de chaves no .env:
 
-     DLOCAL_API_KEY / DLOCAL_SECRET_KEY
+     sandbox: DLOCAL_API_KEY / DLOCAL_SECRET_KEY          (conta de teste,
+              criada em https://dashboard-sbx.dlocalgo.com/signup)
+     live:    DLOCAL_API_KEY_LIVE / DLOCAL_SECRET_KEY_LIVE  (--live)
 
-   Elas saem de uma CONTA DE TESTE (separada da live) criada em
-   https://dashboard-sbx.dlocalgo.com/signup → Integrations → API Integration.
+   CONTRA A CONTA LIVE: por padrão só as sondas de LEITURA rodam. Com
+   --criar-pagamentos a matriz também roda em live, e aí vale saber que um
+   pagamento criado nasce PENDING — é um link de checkout, não uma cobrança:
+   ninguém é debitado sem abrir o link e pagar. Mesmo assim a sonda manda
+   expiração de 10 minutos e descrição "NAO PAGAR", para não deixar link
+   pagável vivo no painel.
 
    Uso: node scripts/testar-dlocal.mjs
         node scripts/testar-dlocal.mjs --json fase0-dlocal.json
-        node scripts/testar-dlocal.mjs --live    (só sondas de LEITURA —
-                                                  nenhum pagamento é criado) */
+        node scripts/testar-dlocal.mjs --live                      (só leitura)
+        node scripts/testar-dlocal.mjs --live --criar-pagamentos    (matriz) */
 import { readFileSync, writeFileSync } from "node:fs";
 import { createHmac } from "node:crypto";
 import { MOEDA_POR_PAIS, IDIOMA_POR_PAIS } from "../api/_lib/geo.js";
@@ -43,6 +49,8 @@ const val = (k) => {
 };
 
 const LIVE = process.argv.includes("--live");
+/* em live, criar pagamento exige pedido explícito (ver cabeçalho) */
+const CRIAR = !LIVE || process.argv.includes("--criar-pagamentos");
 const iJson = process.argv.indexOf("--json");
 const JSON_OUT = iJson > -1 ? process.argv[iJson + 1] : null;
 
@@ -154,11 +162,21 @@ console.log(`\n━━ B · API ${achados.ambiente} (${BASE}) ━━`);
 if (!API_KEY || !SECRET) {
   const sufixo = LIVE ? "_LIVE" : "";
   console.log(`\n⚠️  DLOCAL_API_KEY${sufixo} / DLOCAL_SECRET_KEY${sufixo} ausentes no .env — bloco B inteiro pulado.\n`);
-  console.log("   Como obter as de SANDBOX (são de uma conta de TESTE, separada da live):");
-  console.log("   1. crie a conta de teste em https://dashboard-sbx.dlocalgo.com/signup");
-  console.log("   2. no painel: Integrations → API Integration → copie Sandbox API Key e Sandbox Secret Key");
-  console.log("   3. cole no .env em DLOCAL_API_KEY e DLOCAL_SECRET_KEY e rode esta sonda de novo");
-  console.log("   (as chaves LIVE ficam em dashboard.dlocalgo.com/payment-integration?details=API)\n");
+  if (LIVE) {
+    console.log("   Como obter as chaves LIVE:");
+    console.log("   1. entre em https://dashboard.dlocalgo.com/payment-integration?details=API");
+    console.log("   2. copie API Key e Secret Key");
+    console.log("   3. cole no .env em DLOCAL_API_KEY_LIVE e DLOCAL_SECRET_KEY_LIVE (os nomes com");
+    console.log("      sufixo são lidos SÓ por este script — o dev server nunca os vê)\n");
+  } else {
+    console.log("   Como obter as de SANDBOX (são de uma conta de TESTE, separada da live):");
+    console.log("   1. crie a conta de teste em https://dashboard-sbx.dlocalgo.com/signup");
+    console.log("   2. no painel: Integrations → API Integration → copie Sandbox API Key e Sandbox Secret Key");
+    console.log("   3. cole no .env em DLOCAL_API_KEY e DLOCAL_SECRET_KEY e rode esta sonda de novo");
+    console.log("   Sem conseguir criar a conta de teste? rode contra a live:");
+    console.log("      node scripts/testar-dlocal.mjs --live                    (só leitura)");
+    console.log("      node scripts/testar-dlocal.mjs --live --criar-pagamentos (matriz)\n");
+  }
   for (const n of ["/v1/me", "GET /v1/collaborations", "POST /v1/collaborations", "matriz país × moeda",
     "valor decimal (sem ×100)", "order_id duplicado", "GET /v1/payments/:id", "split_code"])
     pula(n, "sem chave");
@@ -213,20 +231,24 @@ if (!API_KEY || !SECRET) {
   }
 
   /* B6 · matriz país × moeda — a sonda que vale o gate da Fase 0 */
-  if (LIVE) {
-    pula("matriz país × moeda", "--live não cria pagamentos (dinheiro real)");
-    pula("valor decimal (sem ×100)", "--live");
-    pula("order_id duplicado", "--live");
-    pula("GET /v1/payments/:id", "--live");
-    pula("split_code", "--live");
+  if (!CRIAR) {
+    const motivo = "--live sem --criar-pagamentos (nenhum link de checkout é criado na conta real)";
+    for (const n of ["matriz país × moeda", "valor decimal (sem ×100)", "order_id duplicado",
+      "GET /v1/payments/:id", "payer com documento", "split_code"]) pula(n, motivo);
   } else {
     const RUN = Date.now().toString(36).toUpperCase();
+    /* em live o pagamento nasce PENDING (link de checkout, não débito), mas
+       ainda assim expira em 10 min e se anuncia como sonda — nenhum link
+       pagável fica vivo no painel de produção */
+    const guarda = LIVE ? { expiration_type: "MINUTES", expiration_value: 10 } : {};
+    const marca = LIVE ? " [SONDA FASE 0 - NAO PAGAR]" : "";
+    if (LIVE) console.log("\n  ⚠️  conta LIVE: 15 pagamentos PENDING vão aparecer no painel, expirando em 10 min");
     const pagar = (p, extra = {}) => chamar("POST", "/v1/payments", {
       amount: p.valor, currency: p.moeda, country: p.pais,
-      order_id: `F0-${RUN}-${p.pais}`, description: `Fase 0 CondoMaster ${p.pais}`,
+      order_id: `F0-${RUN}-${p.pais}`, description: `Fase 0 CondoMaster ${p.pais}${marca}`.slice(0, 100),
       notification_url: "https://example.com/notifications",
       success_url: "https://example.com/success", back_url: "https://example.com/",
-      ...extra,
+      ...guarda, ...extra,
     });
     console.log("\n  país moeda    valor  http  id            amount devolvido  redirect_url");
     const linhas = [];
@@ -280,10 +302,8 @@ if (!API_KEY || !SECRET) {
 
     /* B10 · payer com documento — o morador vai sempre com nome, e-mail e
        CPF/DNI (é o que a LGPD obriga a declarar) */
-    const comPayer = await chamar("POST", "/v1/payments", {
-      amount: 60, currency: "BRL", country: "BR", order_id: `F0-${RUN}-PAYER`,
-      description: "Fase 0 payer", notification_url: "https://example.com/notifications",
-      success_url: "https://example.com/success", back_url: "https://example.com/",
+    const comPayer = await pagar({ pais: "BR", moeda: "BRL", valor: 60 }, {
+      order_id: `F0-${RUN}-PAYER`,
       payer: { name: "Morador Teste", email: "morador.teste@example.com", document: "12345678909", document_type: "CPF" },
     });
     achados.payer = { http: comPayer.http, erro: comPayer.http === 200 ? null : erroDlocal(comPayer) };
@@ -295,11 +315,8 @@ if (!API_KEY || !SECRET) {
     const split = val("DLOCAL_SPLIT_CODE") || ativa?.code;
     if (!split) pula("split_code", "defina DLOCAL_SPLIT_CODE no .env (Integrator Code do painel) ou aceite um convite");
     else {
-      const comSplit = await chamar("POST", "/v1/payments", {
-        amount: 10000, currency: "ARS", country: "AR", order_id: `F0-${RUN}-SPLIT`,
-        description: "Fase 0 split", notification_url: "https://example.com/notifications",
-        success_url: "https://example.com/success", back_url: "https://example.com/", split_code: split,
-      });
+      const comSplit = await pagar({ pais: "AR", moeda: "ARS", valor: 10000 },
+        { order_id: `F0-${RUN}-SPLIT`, split_code: split });
       achados.split = { code_usado: split, origem: val("DLOCAL_SPLIT_CODE") ? "DLOCAL_SPLIT_CODE" : "collaborations.code", http: comSplit.http };
       ok("POST /v1/payments aceita o split_code", comSplit.http === 200,
         `${comSplit.http} ${erroDlocal(comSplit)}${comSplit.http !== 200 ? " → o Integrator Code do painel difere do code da colaboração" : ""}`);

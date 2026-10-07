@@ -35,12 +35,19 @@ duas concatenadas por dois-pontos, **sem Base64**.
 | Sandbox | `https://api-sbx.dlocalgo.com` | `dashboard-sbx.dlocalgo.com` — **conta de teste SEPARADA**, criada em `/signup` |
 | Live | `https://api.dlocalgo.com` | `dashboard.dlocalgo.com/payment-integration?details=API` |
 
-Convenção do projeto (a mesma da Stripe): o `.env` local fica em **sandbox**;
-os valores **live** vivem só na Vercel, sob os mesmos nomes, com
-`DLOCAL_AMBIENTE=live`. As variáveis estão documentadas no `.env`
-(`DLOCAL_API_KEY`, `DLOCAL_SECRET_KEY`, `DLOCAL_AMBIENTE`, e `*_LIVE` só para
-scripts com `--live`). `GET /api/auth/diag` já reporta presença/placeholder
-das duas.
+**A Fase 0 está sendo feita contra a conta LIVE**, porque não foi possível
+criar a conta de teste. O arranjo do `.env` preserva a convenção do projeto
+(a mesma da `STRIPE_SECRET_KEY_LIVE`):
+
+| Variável | Quem lê | Valor hoje |
+|---|---|---|
+| `DLOCAL_API_KEY_LIVE` / `DLOCAL_SECRET_KEY_LIVE` | **só** `scripts/testar-dlocal.mjs --live` | chaves live |
+| `DLOCAL_API_KEY` / `DLOCAL_SECRET_KEY` | dev server e funções de `/api` | **placeholder** → handlers respondem 503 |
+| `DLOCAL_AMBIENTE` | base URL dos handlers | `sandbox` |
+
+Ou seja: o `npm run dev` **não tem** como falar com a dLocal live — nenhum
+handler lê os nomes com sufixo. `GET /api/auth/diag` reporta
+presença/placeholder das duas chaves do servidor e o ambiente.
 
 **Redação de log (feito):** as chaves da dLocal não têm formato `sk_`/`whsec_`
 e vazariam em log. `api/_lib/seguranca.js` passou a (a) incluir `:` na regra
@@ -94,10 +101,19 @@ status `PENDING|PAID|REJECTED|CANCELLED|EXPIRED` com `status_detail` e
 ## 3. Fase 0 — o que só a API responde (sonda)
 
 ```
-node scripts/testar-dlocal.mjs                    # sandbox
-node scripts/testar-dlocal.mjs --json fase0.json  # grava os achados
-node scripts/testar-dlocal.mjs --live             # só leitura; não cria pagamento
+node scripts/testar-dlocal.mjs                            # sandbox (precisa da conta de teste)
+node scripts/testar-dlocal.mjs --live                     # live, só sondas de LEITURA
+node scripts/testar-dlocal.mjs --live --criar-pagamentos   # live, matriz completa
+node scripts/testar-dlocal.mjs --live --json fase0.json    # grava os achados
 ```
+
+**Rodar a matriz em live é seguro, e por quê:** `POST /v1/payments` devolve um
+pagamento `PENDING` — é um **link de checkout**, não um débito; ninguém é
+cobrado sem abrir o link e pagar. Ainda assim a sonda manda
+`expiration_type: MINUTES / expiration_value: 10` e descrição
+`[SONDA FASE 0 - NAO PAGAR]`, então os ~15 registros que aparecem no painel
+de produção expiram em 10 minutos e nenhum link pagável fica vivo. Sem
+`--criar-pagamentos`, `--live` não cria nada.
 
 A sonda roda **sem chave** o bloco A (tabelas de moeda do app, redação de
 log, fixture do HMAC) e, com as chaves de sandbox, levanta:
@@ -130,7 +146,26 @@ cobra hoje 0,2%, e 1% fixo cobraria 5× mais. A escolha também torna falsa a
 divulgação em `CondoMasterPro.jsx:1403` ("retém 1%, limitado a 1 {moeda}")
 nesses países — string que entra na lista de tradução dos 15 idiomas.
 
-## 5. LGPD
+## 5. Produção (Vercel) — quando a Fase 1 entrar
+
+Nada disso vale agora: sem `api/dlocal/*`, as variáveis em produção não têm
+efeito nenhum. A lista fica aqui para o deploy da Fase 1:
+
+| Variável na Vercel | Valor |
+|---|---|
+| `DLOCAL_API_KEY` | API Key **live** |
+| `DLOCAL_SECRET_KEY` | Secret Key **live** |
+| `DLOCAL_AMBIENTE` | `live` |
+
+As `*_LIVE` **não** vão para a Vercel — são só do script local, como a
+`STRIPE_SECRET_KEY_LIVE`. Diferente da Stripe, **não existe script de
+webhook**: a `notification_url` vai em cada `POST /v1/payments`, então basta
+que o host de produção esteja correto na requisição — nada a registrar no
+painel, nada equivalente ao `recriar-webhooks-live.mjs`. Antes de liberar:
+`GET /api/auth/diag` com as duas chaves presentes e um smoke test de valor
+mínimo num país dLocal, conferindo o crédito do split nas duas contas.
+
+## 6. LGPD
 
 Hoje o checkout da Stripe recebe só número de unidade e competência — nenhum
 dado pessoal. A dLocal recebe **nome, e-mail e documento (CPF/DNI)** do
