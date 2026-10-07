@@ -263,13 +263,26 @@ const REDACOES = [
   [/eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/g, "[jwt-redigido]"],
   [/\b(sk|rk|pk)_(live|test)_[A-Za-z0-9]+/g, "[chave-stripe-redigida]"],
   [/\bwhsec_[A-Za-z0-9]+/g, "[segredo-webhook-redigido]"],
-  [/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [redigido]"],
+  /* o ":" entra na classe por causa do Bearer <API_KEY>:<SECRET_KEY> da
+     dLocal Go — sem ele o segredo (2ª metade) sobrava no log */
+  [/Bearer\s+[A-Za-z0-9._:-]+/gi, "Bearer [redigido]"],
   [/cm_refresh=[^;\s"]+/g, "cm_refresh=[redigido]"],
   [/("?senha"?\s*[:=]\s*)"[^"]*"/gi, '$1"[redigida]"'],
+];
+/* segredos SEM formato reconhecível (as chaves da dLocal, a senha de SMTP, o
+   JWT secret) não casam com nenhuma regex acima — só podem ser redigidos
+   pelo próprio valor, lido do ambiente na hora */
+const SEGREDOS_ENV = [
+  "DLOCAL_API_KEY", "DLOCAL_SECRET_KEY", "DLOCAL_API_KEY_LIVE", "DLOCAL_SECRET_KEY_LIVE",
+  "SUPABASE_JWT_SECRET", "SMTP_PASS",
 ];
 export function logSeguro(tag, erro) {
   let msg = String(erro?.stack || erro?.message || erro);
   for (const [rx, sub] of REDACOES) msg = msg.replace(rx, sub);
+  for (const k of SEGREDOS_ENV) {
+    const v = (process.env[k] || "").trim();
+    if (v.length >= 8 && !v.startsWith("COLE_AQUI")) msg = msg.split(v).join(`[${k}-redigido]`);
+  }
   console.error(tag, msg);
 }
 

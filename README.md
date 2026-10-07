@@ -13,7 +13,7 @@ idiomas, instalável como PWA.
 | Frontend | React 18 + Vite + Tailwind 4 (`CondoMasterPro.jsx` + `src/`) |
 | Backend | Funções serverless Vercel (`api/`) — auth própria com JWT + refresh cookie |
 | Banco/Storage | Supabase (PostgreSQL com RLS por condomínio + bucket `documentos`) |
-| Pagamentos | Stripe — Billing (licença SaaS) e Connect (cobranças condominiais) |
+| Pagamentos | Stripe — Billing (licença SaaS) e Connect (cobranças condominiais); dLocal Go para os países LATAM que o Connect não atende, em **Fase 0** (descoberta — nada em produção) |
 
 ## Rodando do zero
 
@@ -51,6 +51,7 @@ idiomas, instalável como PWA.
 | `testar-seguranca.mjs` / `2` / `3` | sondas de regressão das etapas de segurança |
 | `testar-recuperacao.mjs` | sondas da recuperação de senha — código (Etapa 4) e link por e-mail (Etapa 5) |
 | `testar-idioma-moeda.mjs` | sondas do idioma por IP, da preferência no banco e da semente de moeda |
+| `testar-dlocal.mjs` | sondas da Fase 0 da dLocal Go: credenciais, colaborações de split e matriz país × moeda (`--live` só lê) |
 | `relatorio-seguranca.mjs` | auditoria semanal (sessões, eventos, anomalias) |
 | `emergencia-sessoes.mjs` | resposta a incidente: revoga sessões em massa |
 | `verificar-segredos-bundle.mjs` | confere que nenhum segredo vazou no build |
@@ -63,4 +64,5 @@ idiomas, instalável como PWA.
 
 - `SEGURANCA.md` — modelo de ameaças, camadas aplicadas e rotina de operação
 - `STRIPE-INTEGRACAO.md` — arquitetura de pagamentos e ativação em produção
+- `DLOCAL-INTEGRACAO.md` — dLocal Go (LATAM): chaves, achados da Fase 0 e o que falta decidir
 - `MODELAGEM-BANCO-DE-DADOS.tsv` — dicionário de dados original (v1)

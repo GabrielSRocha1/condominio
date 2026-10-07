@@ -13,7 +13,9 @@ por cartão + métodos locais dinâmicos). Os meios manuais (carteira Verum
 Wallet, transferência bancária, dinheiro) continuam existindo — e são a
 única via nos países onde a Stripe NÃO abre conta de recebedor (Paraguai,
 Argentina, Bolívia e Colômbia: lá só existe "cross-border payouts", produto
-indisponível para plataformas fora de US/UK/EEA/CA/CH).
+indisponível para plataformas fora de US/UK/EEA/CA/CH). É esse buraco que a
+dLocal Go deve preencher — em Fase 0, sem nenhum efeito sobre a Stripe; ver
+`DLOCAL-INTEGRACAO.md`.
 
 ---
 

@@ -16,15 +16,15 @@ ficam inertes (com aviso no log do servidor).
 | Idempotência | `api_idempotencia` + header `Idempotency-Key` | retry de rede nunca duplica pagamento/informe; chave repassada à Stripe |
 | Origem estrita | `origemBloqueada()` | POSTs que escrevem exigem Origin do próprio host ou de `APP_ORIGINS` (nunca wildcard) |
 | CSP/headers | `vercel.json` | `default-src 'self'`, frame-ancestors none, HSTS, nosniff; câmera liberada só para o QR da portaria |
-| OpSec | `logSeguro()` | 500 genérico; JWT/chaves/cookies/senhas redigidos de qualquer log |
+| OpSec | `logSeguro()` | 500 genérico; JWT/chaves/cookies/senhas redigidos de qualquer log. Chave sem formato reconhecível (dLocal, SMTP, JWT secret) é redigida **pelo próprio valor** do ambiente (`SEGREDOS_ENV`); a regra do `Bearer` inclui `:` por causa do par `<API_KEY>:<SECRET_KEY>` da dLocal |
 | Auditoria | `auditoria_eventos` (append-only) | trilha imutável: logins, bloqueios, reuso de sessão, acessos, pagamentos e informes (triggers pegam até RPC do navegador) |
 | Recuperação de senha | `auth_recuperacao` + `/api/auth/codigo` + `/api/auth/recuperar` | sem e-mail: cada conta gera o próprio código permanente após o login (autonomia); diretor gera código de 24h como plano B; só o sha256 no banco, lockout próprio, uso revoga todas as sessões da conta |
 
 SQLs (rodar no SQL Editor, nesta ordem, todos idempotentes):
-`supabase-rls.sql` → `supabase-seguranca.sql` → `supabase-seguranca2.sql` → `supabase-seguranca3.sql` → `supabase-seguranca4.sql`.
+`supabase-rls.sql` → `supabase-seguranca.sql` → `supabase-seguranca2.sql` → `supabase-seguranca3.sql` → `supabase-seguranca4.sql` → `supabase-seguranca5.sql`.
 (Instalação do zero: antes deles vêm `supabase-schema.sql` e
 `supabase-storage.sql` — ordem completa no `README.md`. Se re-rodar o
-`supabase-rls.sql` depois das etapas, re-rode as três em seguida — ele derruba
+`supabase-rls.sql` depois das etapas, re-rode as cinco em seguida — ele derruba
 todas as policies antes de recriar as suas.)
 
 ## Ferramentas
