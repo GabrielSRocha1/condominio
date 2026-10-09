@@ -3,3 +3,4 @@ dist/
 .env
 .claude/settings.local.json
 *.log
+fase0-dlocal.json

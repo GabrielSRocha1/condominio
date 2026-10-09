@@ -189,7 +189,25 @@ if (!API_KEY || !SECRET) {
   ok("credenciais válidas em /v1/me", mePost.http === 200 || meGet.http === 200,
     `POST ${mePost.http} · GET ${meGet.http}${mePost.http === 403 || meGet.http === 403 ? " (403/3001 = credenciais inválidas)" : ""}`);
   info("verbo aceito em /v1/me", [mePost.http === 200 && "POST", meGet.http === 200 && "GET"].filter(Boolean).join(" e ") || "nenhum");
-  if (mePost.corpo || meGet.corpo) info("corpo de /v1/me", JSON.stringify(mePost.corpo || meGet.corpo).slice(0, 220));
+  /* imprimir a resposta de SUCESSO, não a primeira que existir: o POST
+     devolve 500 com corpo, e era ele que aparecia aqui — escondendo o
+     estado do merchant, que é o diagnóstico mais útil da conta */
+  const meOk = [meGet, mePost].find((r) => r.http === 200);
+  if (meOk?.corpo) info("estado do merchant (/v1/me)", JSON.stringify(meOk.corpo).slice(0, 400));
+  achados.me = meOk?.corpo || null;
+
+  /* B1b · O GATE REAL DA FASE 0. Credencial válida não é conta ativada: com
+     kyc_level_status PENDING ou is_in_fraud_review=true, todas as leituras
+     respondem 200 e POST /v1/payments devolve 403/3003. Sem esta sonda, o
+     3003 parece (e eu li assim no 1º run) limite de cobertura por país. */
+  const st = achados.me || {};
+  const kyc = String(st.kyc_level_status || "").toUpperCase();
+  const contaPronta = !!kyc && kyc !== "PENDING" && kyc !== "REJECTED" && st.is_in_fraud_review !== true;
+  achados.conta_pronta = contaPronta;
+  ok("conta ativada: KYC concluído e fora de revisão de fraude", contaPronta,
+    `kyc_level=${st.kyc_level ?? "?"} status=${kyc || "?"} fraud_review=${st.is_in_fraud_review ?? "?"}` +
+    (contaPronta ? "" : " → POST /v1/payments responde 403/3003 até isso ser resolvido pela dLocal"));
+  if (st.currency) info("moeda de liquidação da conta", `${st.currency} (saldo ${st.available_balance ?? "?"})`);
 
   /* B2 · colaborações (split): forma do objeto e quais estão ACTIVE */
   const colabs = await chamar("GET", "/v1/collaborations");
@@ -257,6 +275,14 @@ if (!API_KEY || !SECRET) {
     cambio.http !== 200 ? `HTTP ${cambio.http}` : (semCambio.length ? `faltam ${semCambio.join(", ")} de ${moedasConta.size} moedas` : `${moedasConta.size} moedas na conta`));
   if (moedasConta.size) info("moedas da conta", achados.moedas_da_conta.join(" "));
 
+  /* B5c · ler a lista de pagamentos separa credencial de ativação: 200 aqui
+     com 403/3003 no POST significa que a chave está certa e é o ESTADO da
+     conta que barra a criação (ver B1b) — não o produto estar ausente. */
+  const listaPag = await chamar("GET", "/v1/payments");
+  achados.endpoints["GET /v1/payments"] = listaPag.http;
+  ok("a conta consegue LER pagamentos (credencial ok; criar depende de B1b)", listaPag.http === 200,
+    `GET /v1/payments → ${listaPag.http} ${listaPag.http === 200 ? "" : erroDlocal(listaPag)}`);
+
   /* B6 · matriz país × moeda — a sonda que vale o gate da Fase 0 */
   if (!CRIAR) {
     const motivo = "--live sem --criar-pagamentos (nenhum link de checkout é criado na conta real)";
@@ -293,17 +319,40 @@ if (!API_KEY || !SECRET) {
     }
     const aceitos = linhas.filter(({ r }) => r.http === 200);
     const novos = aceitos.filter(({ p }) => !p.stripe);
-    ok(`os 10 países sem pagamento online hoje são aceitos em POST /v1/payments`, novos.length === 10,
-      `${novos.length}/10 → ${novos.map(({ p }) => p.pais).join(" ") || "nenhum"}`);
-    ok("todo pagamento aceito traz redirect_url (checkout hospedado por GET)",
-      aceitos.length > 0 && aceitos.every(({ c }) => !!c.redirect_url), `${aceitos.filter(({ c }) => c.redirect_url).length}/${aceitos.length}`);
-    if (aceitos.length) info("redirect_url de exemplo", aceitos[0].c.redirect_url);
+    /* 3003 em TODOS os países (inclusive BR, que a dLocal cobre com certeza)
+       é bloqueio de CONTA, não cobertura — e nesse caso nada abaixo pode ser
+       concluído. Dar ❌ em "não traz redirect_url" ou ✅ em "o valor não foi
+       multiplicado" seria inventar resultado a partir de zero resposta. */
+    const bloqueio = linhas.length > 0 && linhas.every(({ r }) => r.http === 403 && r.corpo?.code === 3003);
+    achados.bloqueio_3003 = bloqueio;
+    if (bloqueio) {
+      console.log("\n  ⛔ 3003 em todos os países, inclusive BR: a conta NÃO está autorizada a");
+      console.log("     usar a API de pagamentos. As leituras (/v1/me, /v1/collaborations,");
+      console.log("     /v1/currency-exchanges) respondem 200 — as chaves estão certas; falta");
+      console.log("     habilitação do lado da dLocal. Ação: pedir ao suporte/comercial a");
+      console.log("     liberação da Integration API (Payments) e confirmar se a ativação da");
+      console.log("     conta (KYC/contrato) está concluída. Não é problema de país nem de código.");
+    }
+    ok("os 10 países sem pagamento online hoje são aceitos em POST /v1/payments", novos.length === 10,
+      bloqueio ? "0/10 — bloqueio de conta (3003), cobertura INDETERMINADA"
+        : `${novos.length}/10 → ${novos.map(({ p }) => p.pais).join(" ") || "nenhum"}`);
+    if (bloqueio) {
+      pula("redirect_url no retorno", "nenhum pagamento foi criado (3003)");
+      pula("valor decimal (sem ×100)", "nenhum pagamento foi criado (3003)");
+    } else {
+      ok("todo pagamento aceito traz redirect_url (checkout hospedado por GET)",
+        aceitos.length > 0 && aceitos.every(({ c }) => !!c.redirect_url),
+        `${aceitos.filter(({ c }) => c.redirect_url).length}/${aceitos.length}`);
+      if (aceitos.length) info("redirect_url de exemplo", aceitos[0].c.redirect_url);
 
-    /* B7 · o risco de cobrar 100× — o amount devolvido tem de ser o decimal
-       enviado, inclusive nas moedas que a Stripe trata como zero-decimal */
-    const erradas = aceitos.filter(({ p, c }) => Number(c.amount) !== Number(p.valor));
-    ok("o amount devolvido é o decimal enviado (nada de centavos)", erradas.length === 0,
-      erradas.map(({ p, c }) => `${p.moeda} ${p.valor}→${c.amount}`).join(" ") || "conferido em ARS, CLP e PYG");
+      /* B7 · o risco de cobrar 100× — o amount devolvido tem de ser o decimal
+         enviado, inclusive nas moedas que a Stripe trata como zero-decimal */
+      const erradas = aceitos.filter(({ p, c }) => Number(c.amount) !== Number(p.valor));
+      ok("o amount devolvido é o decimal enviado (nada de centavos)",
+        aceitos.length > 0 && erradas.length === 0,
+        erradas.map(({ p, c }) => `${p.moeda} ${p.valor}→${c.amount}`).join(" ")
+          || (aceitos.length ? "conferido em ARS, CLP e PYG" : "nenhum pagamento aceito"));
+    }
 
     /* B8 · order_id duplicado (erro 5009): a cobrança reaberta precisa de
        order_id novo, senão o 2º checkout do morador toma 400 */
@@ -329,18 +378,22 @@ if (!API_KEY || !SECRET) {
 
     /* B10 · payer com documento — o morador vai sempre com nome, e-mail e
        CPF/DNI (é o que a LGPD obriga a declarar) */
-    const comPayer = await pagar({ pais: "BR", moeda: "BRL", valor: 60 }, {
-      order_id: `F0-${RUN}-PAYER`,
-      payer: { name: "Morador Teste", email: "morador.teste@example.com", document: "12345678909", document_type: "CPF" },
-    });
-    achados.payer = { http: comPayer.http, erro: comPayer.http === 200 ? null : erroDlocal(comPayer) };
-    ok("payer{name,email,document,document_type} é aceito", comPayer.http === 200,
-      `${comPayer.http} ${erroDlocal(comPayer)}`);
+    if (bloqueio) pula("payer com documento", "conta sem autorização para pagamentos (3003)");
+    else {
+      const comPayer = await pagar({ pais: "BR", moeda: "BRL", valor: 60 }, {
+        order_id: `F0-${RUN}-PAYER`,
+        payer: { name: "Morador Teste", email: "morador.teste@example.com", document: "12345678909", document_type: "CPF" },
+      });
+      achados.payer = { http: comPayer.http, erro: comPayer.http === 200 ? null : erroDlocal(comPayer) };
+      ok("payer{name,email,document,document_type} é aceito", comPayer.http === 200,
+        `${comPayer.http} ${erroDlocal(comPayer)}`);
+    }
 
     /* B11 · split_code. O doc diz que o valor é o "Integrator Code" da tabela
        de contratos do painel — que pode NÃO ser o code de /v1/collaborations. */
     const split = val("DLOCAL_SPLIT_CODE") || ativa?.code;
-    if (!split) pula("split_code", "defina DLOCAL_SPLIT_CODE no .env (Integrator Code do painel) ou aceite um convite");
+    if (bloqueio) pula("split_code", "conta sem autorização para pagamentos (3003)");
+    else if (!split) pula("split_code", "defina DLOCAL_SPLIT_CODE no .env (Integrator Code do painel) ou aceite um convite");
     else {
       const comSplit = await pagar({ pais: "AR", moeda: "ARS", valor: 10000 },
         { order_id: `F0-${RUN}-SPLIT`, split_code: split });

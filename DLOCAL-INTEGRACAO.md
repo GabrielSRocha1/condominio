@@ -1,7 +1,12 @@
 # Integração dLocal Go — CondoMaster Pro
 
-> **ESTADO: FASE 0 (descoberta) — nada em produção.** Não existe `api/dlocal/*`,
-> nenhuma tabela, nenhum enum novo. A Stripe segue intocada e é o único
+> **ESTADO: FASE 0 — parada na ativação da conta dLocal (09/10/2026).** As
+> credenciais live funcionam e todas as leituras respondem 200, mas
+> `POST /v1/payments` devolve **403 / 3003** em todos os 12 países: a conta
+> está com `kyc_level_status: PENDING` e `is_in_fraud_review: true`. Enquanto
+> a dLocal não liberar, **a matriz país × moeda não pode ser levantada** e o
+> gate da fase não fecha. Nada em produção: não existe `api/dlocal/*`,
+> nenhuma tabela, nenhum enum novo — a Stripe segue intocada e é o único
 > provedor ativo. Plano completo em
 > `~/.claude/plans/dlocal-go-latam-roteamento-por-pais.md`.
 
@@ -116,6 +121,27 @@ status `PENDING|PAID|REJECTED|CANCELLED|EXPIRED` com `status_detail` e
 - **Não existe endpoint de métodos por país**: `/v1/payments-methods?country=`,
   `/v1/payment-methods?country=` e `/v1/countries` dão 404. A matriz sai de
   `POST /v1/payments`, como planejado.
+- **O gate não fechou: `POST /v1/payments` → 403 `3003 Merchant has no
+  authorization to use this API` nos 12 países, BR incluído.** Como o Brasil
+  é certamente coberto pela dLocal, isso **não** é limite de país. O
+  `GET /v1/me` dá o motivo:
+
+  ```json
+  {"merchant_id":239511,"kyc_level":2,"kyc_level_status":"PENDING",
+   "is_limit_exceeded":false,"is_in_fraud_review":true,"currency":"USD",
+   "current_balance":0,"available_balance":0,"in_transit_balance":0}
+  ```
+
+  **KYC nível 2 PENDENTE** e a conta **em revisão de fraude**. E
+  `GET /v1/payments` responde **200**: dá para *ler* pagamentos, só não
+  *criar*. Ou seja — credencial certa, produto presente, **conta não
+  ativada**. A sonda virou uma verificação nomeada (`conta ativada: KYC
+  concluído e fora de revisão de fraude`), para o 3003 nunca mais ser lido
+  como cobertura de país. Resolver é com a dLocal: concluir o KYC nível 2 e
+  sair da revisão de fraude.
+- **A conta liquida em `USD`** (`currency` do `/v1/me`, saldo 0). Fica
+  anotado para o desenho do split: a comissão da plataforma cai em USD,
+  enquanto a parte do condomínio cai na conta dele, na moeda dele.
 - **`GET /v1/currency-exchanges`** (plural, e **fora** de `/payments` — o
   caminho que eu havia suposto, `/v1/payments/currency-exchange`, dá 400/5000)
   devolve 200 com **31 moedas** habilitadas na conta, incluindo as **11
@@ -166,9 +192,19 @@ obrigatório da Fase 1): das 12 moedas da dLocal, **7 não existem** no
 sem a `<option>` correspondente salva a primeira opção, **um condomínio
 chileno vira USD em silêncio** ao salvar configurações. Isso já é bug hoje.
 
-## 5. Decisão de negócio pendente (bloqueia a Fase 1)
+## 5. O que bloqueia a Fase 1 (nada disso é código)
 
-**Qual percentual fixo de comissão** nos países dLocal. O split é só
+**1. Ativar a conta dLocal** — KYC nível 2 concluído e saída da revisão de
+fraude (ver seção 3). É o que destrava `POST /v1/payments` e, com ele, a
+matriz país × moeda que define `PAISES_DLOCAL`. Reconferir com
+`node scripts/testar-dlocal.mjs --live`: a sonda "conta ativada" vira ✅
+sozinha quando a dLocal liberar.
+
+**2. Enviar o primeiro convite de split** no painel — sem uma colaboração
+aceita não existe `split_code`, e é ele que prova o modelo de dinheiro (a
+conta tem **0 colaborações** hoje).
+
+**3. Qual percentual fixo de comissão** nos países dLocal. O split é só
 percentual e é definido no painel, no convite. A taxa atual é
 `min(1% × valor, 1 unidade)` — um **teto**: numa cobrança de 500 a plataforma
 cobra hoje 0,2%, e 1% fixo cobraria 5× mais. A escolha também torna falsa a
