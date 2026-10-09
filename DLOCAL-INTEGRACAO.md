@@ -9,6 +9,13 @@
 > nenhuma tabela, nenhum enum novo — a Stripe segue intocada e é o único
 > provedor ativo. Plano completo em
 > `~/.claude/plans/dlocal-go-latam-roteamento-por-pais.md`.
+>
+> **Para retomar:** confira o estado da conta com
+> `node scripts/testar-dlocal.mjs --live` (a sonda *"conta ativada"* fica ✅
+> sozinha quando a dLocal liberar). Com ela liberada, o gate fecha com
+> `! node scripts/testar-dlocal.mjs --live --criar-pagamentos --json fase0-dlocal.json`
+> — esse você roda, porque escrita em infra live é bloqueada pelo
+> classificador. As três pendências humanas estão na seção 5.
 
 **Por que existe:** de toda a América Latina, `PAISES_CONNECT`
 (`api/stripe/_lib/comum.js:121`) contém só **BR e MX** — a Stripe não abre
