@@ -61,9 +61,8 @@ segredos **pelo próprio valor** lido do ambiente (`SEGREDOS_ENV`), que é a
 
 Três correções ao plano original, todas verificadas na doc da dLocal:
 
-1. **`/v1/me` é `POST`** na página *Authentication* e `GET` no *Getting
-   started* — a doc divergia; a sonda testa os dois verbos e registra qual a
-   API aceita.
+1. **`/v1/me`**: a página *Authentication* mostra `POST` e o *Getting started*
+   mostra `GET`. Resolvido contra a conta real na seção 3 — é **GET**.
 2. **Não existe `POST /v1/collaborations`.** A doc de Split Payments é
    explícita: convite e **percentual de comissão** são do painel. Logo o
    onboarding do condomínio **fica com 2 ações humanas** (ele cria a conta e
@@ -98,7 +97,35 @@ status `PENDING|PAID|REJECTED|CANCELLED|EXPIRED` com `status_detail` e
 `approved_date`. Cartões de teste do sandbox: `4111 1111 1111 1111` e
 `4242 4242 4242 4242` (sucesso).
 
-## 3. Fase 0 — o que só a API responde (sonda)
+## 3. Fase 0 — o que a conta live já respondeu (09/10/2026, sondas de leitura)
+
+- **Credenciais válidas.** `GET /v1/me` → 200. **`POST /v1/me` → 500** — a
+  página *Authentication* do doc, que mostra POST, está errada; o verbo é GET.
+- **Esta API não devolve 405.** Rota inexistente → **404** limpo
+  (`{"error":"Not Found","path":…}`); método não suportado numa rota
+  **mapeada** → **500 com `code: 7000 internal_server_error`**. Vale para
+  `POST /v1/me`, `POST /v1/collaborations` e `PUT /v1/collaborations`. Duas
+  consequências: (a) um 500/7000 da dLocal **não** é necessariamente falha
+  deles — pode ser verbo errado nosso; (b) qualquer sonda que conclua
+  "a rota existe" a partir de um 500 conclui o oposto do certo — por isso a
+  sonda compara com uma rota inexistente antes de decidir.
+- **Confirmado que não há API de convite ao split** (`POST /v1/collaborations`
+  = 500/7000 contra 404 da rota inexistente), como a doc afirma. O onboarding
+  fica com 2 ações humanas. A conta tem **0 colaborações** hoje — nenhum
+  contrato de split existe ainda, então `split_code` não pôde ser testado.
+- **Não existe endpoint de métodos por país**: `/v1/payments-methods?country=`,
+  `/v1/payment-methods?country=` e `/v1/countries` dão 404. A matriz sai de
+  `POST /v1/payments`, como planejado.
+- **`GET /v1/currency-exchanges`** (plural, e **fora** de `/payments` — o
+  caminho que eu havia suposto, `/v1/payments/currency-exchange`, dá 400/5000)
+  devolve 200 com **31 moedas** habilitadas na conta, incluindo as **11
+  moedas locais** dos países-alvo: ARS, BOB, BRL, CLP, COP, CRC, GTQ, MXN,
+  PEN, PYG, UYU. É o sinal de cobertura mais barato desta API — nenhum
+  pagamento criado. `source_currency` é sempre USD, então USD não aparece
+  como destino: **a cobertura do Equador só se conclui pela matriz**. Esse
+  endpoint também serve à Fase 3 (licença SaaS em moeda local).
+
+## 4. Fase 0 — o que só a API responde (sonda)
 
 ```
 node scripts/testar-dlocal.mjs                            # sandbox (precisa da conta de teste)
@@ -111,7 +138,9 @@ node scripts/testar-dlocal.mjs --live --json fase0.json    # grava os achados
 pagamento `PENDING` — é um **link de checkout**, não um débito; ninguém é
 cobrado sem abrir o link e pagar. Ainda assim a sonda manda
 `expiration_type: MINUTES / expiration_value: 10` e descrição
-`[SONDA FASE 0 - NAO PAGAR]`, então os ~15 registros que aparecem no painel
+`[SONDA FASE 0 - NAO PAGAR]`, e **quem roda é você** (`! node scripts/…`):
+escrita em infra live é bloqueada pelo classificador, igual aos scripts live
+da Stripe. Os ~15 registros que aparecem no painel
 de produção expiram em 10 minutos e nenhum link pagável fica vivo. Sem
 `--criar-pagamentos`, `--live` não cria nada.
 
@@ -137,7 +166,7 @@ obrigatório da Fase 1): das 12 moedas da dLocal, **7 não existem** no
 sem a `<option>` correspondente salva a primeira opção, **um condomínio
 chileno vira USD em silêncio** ao salvar configurações. Isso já é bug hoje.
 
-## 4. Decisão de negócio pendente (bloqueia a Fase 1)
+## 5. Decisão de negócio pendente (bloqueia a Fase 1)
 
 **Qual percentual fixo de comissão** nos países dLocal. O split é só
 percentual e é definido no painel, no convite. A taxa atual é
@@ -146,7 +175,7 @@ cobra hoje 0,2%, e 1% fixo cobraria 5× mais. A escolha também torna falsa a
 divulgação em `CondoMasterPro.jsx:1403` ("retém 1%, limitado a 1 {moeda}")
 nesses países — string que entra na lista de tradução dos 15 idiomas.
 
-## 5. Produção (Vercel) — quando a Fase 1 entrar
+## 6. Produção (Vercel) — quando a Fase 1 entrar
 
 Nada disso vale agora: sem `api/dlocal/*`, as variáveis em produção não têm
 efeito nenhum. A lista fica aqui para o deploy da Fase 1:
@@ -165,7 +194,7 @@ painel, nada equivalente ao `recriar-webhooks-live.mjs`. Antes de liberar:
 `GET /api/auth/diag` com as duas chaves presentes e um smoke test de valor
 mínimo num país dLocal, conferindo o crédito do split nas duas contas.
 
-## 6. LGPD
+## 7. LGPD
 
 Hoje o checkout da Stripe recebe só número de unidade e competência — nenhum
 dado pessoal. A dLocal recebe **nome, e-mail e documento (CPF/DNI)** do

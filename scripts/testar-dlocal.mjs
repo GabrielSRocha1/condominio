@@ -206,13 +206,23 @@ if (!API_KEY || !SECRET) {
   }
   const ativa = lista.find((c) => String(c.status).toUpperCase() === "ACTIVE");
 
-  /* B3 · existe API para CONVIDAR? (o doc diz que não — confirmar na API) */
+  /* B3 · existe API para CONVIDAR? (o doc diz que não — confirmar na API)
+     Cuidado na leitura: esta API NÃO devolve 405. Rota inexistente dá 404
+     limpo ({"error":"Not Found","path":…}), mas método não suportado numa
+     rota MAPEADA dá 500 com code 7000 — o mesmo que POST /v1/me devolve,
+     tendo GET /v1/me 200. Por isso a baseline abaixo: sem ela, o 500 seria
+     lido como "a rota existe e quebrou", que é a conclusão oposta. */
+  const baseline = await chamar("POST", "/v1/zzz-rota-que-nao-existe", { a: 1 });
   const criarColab = await chamar("POST", "/v1/collaborations",
     { name: "sonda-fase0", email: "sonda-fase0@example.com", commission: 1 });
   achados.endpoints["POST /v1/collaborations"] = criarColab.http;
-  const semApiConvite = [404, 405, 501].includes(criarColab.http);
-  ok("POST /v1/collaborations NÃO existe (onboarding fica com 2 passos humanos)", semApiConvite,
-    `HTTP ${criarColab.http}${semApiConvite ? "" : ` — INESPERADO: ${erroDlocal(criarColab)} (se criou algo, remova no painel)`}`);
+  achados.endpoints["POST /v1/<rota inexistente> (baseline)"] = baseline.http;
+  const metodoNaoSuportado = criarColab.http === 500 && criarColab.corpo?.code === 7000 && baseline.http === 404;
+  const semApiConvite = [404, 405, 501].includes(criarColab.http) || metodoNaoSuportado;
+  ok("não há API para CONVIDAR ao split (onboarding fica com 2 passos humanos)", semApiConvite,
+    `POST ${criarColab.http} · rota inexistente ${baseline.http}` +
+    (metodoNaoSuportado ? " → 500/7000 = método não suportado, não rota quebrada" : "") +
+    (semApiConvite ? "" : ` — INESPERADO: ${erroDlocal(criarColab)} (se criou algo, remova no painel)`));
 
   /* B4 · status do vendedor, quando a plataforma é a colaboradora */
   if (ativa?.code) {
@@ -221,14 +231,31 @@ if (!API_KEY || !SECRET) {
     ok("seller-status da colaboração ACTIVE responde", ss.http === 200, `${ss.http} ${JSON.stringify(ss.corpo || {}).slice(0, 140)}`);
   } else pula("seller-status", "nenhuma colaboração ACTIVE ainda");
 
-  /* B5 · existe endpoint que liste métodos/moedas por país? (não documentado —
-     se não houver, a matriz do plano sai de POST /v1/payments, abaixo) */
-  for (const rota of ["/v1/payments-methods?country=AR", "/v1/payment-methods?country=AR",
-    "/v1/countries", "/v1/currencies", "/v1/currency-exchange", "/v1/payments/currency-exchange"]) {
+  /* B5 · existe endpoint que liste MÉTODOS por país? (nada documentado — se
+     não houver, a matriz do plano sai de POST /v1/payments, abaixo) */
+  for (const rota of ["/v1/payments-methods?country=AR", "/v1/payment-methods?country=AR", "/v1/countries"]) {
     const r = await chamar("GET", rota);
     achados.endpoints[`GET ${rota}`] = r.http;
     info(`descoberta ${rota}`, r.http === 200 ? `200 → ${r.texto.slice(0, 160)}` : `${r.http}`);
   }
+
+  /* B5b · moedas que a conta transaciona, SEM criar pagamento: a tabela de
+     câmbio (GET /v1/currency-exchanges — plural, fora de /payments) lista um
+     par USD→moeda por moeda habilitada. É o sinal de cobertura mais baixo
+     custo que existe nesta API. */
+  const cambio = await chamar("GET", "/v1/currency-exchanges");
+  achados.endpoints["GET /v1/currency-exchanges"] = cambio.http;
+  const linhasCambio = Array.isArray(cambio.corpo) ? cambio.corpo : (cambio.corpo?.data || []);
+  const moedasConta = new Set(linhasCambio.map((l) => String(l.target_currency || "").toUpperCase()));
+  achados.moedas_da_conta = [...moedasConta].sort();
+  /* USD é a moeda BASE da tabela (source_currency é sempre USD), então nunca
+     aparece como target: a cobertura do Equador — que transaciona em USD —
+     não se conclui daqui, só da matriz de POST /v1/payments. */
+  const semCambio = MOEDAS_DLOCAL.filter((m) => m !== "USD" && !moedasConta.has(m));
+  ok("a tabela de câmbio da conta cobre as 11 moedas locais da dLocal (USD é a base)",
+    cambio.http === 200 && semCambio.length === 0,
+    cambio.http !== 200 ? `HTTP ${cambio.http}` : (semCambio.length ? `faltam ${semCambio.join(", ")} de ${moedasConta.size} moedas` : `${moedasConta.size} moedas na conta`));
+  if (moedasConta.size) info("moedas da conta", achados.moedas_da_conta.join(" "));
 
   /* B6 · matriz país × moeda — a sonda que vale o gate da Fase 0 */
   if (!CRIAR) {
