@@ -61,7 +61,12 @@ export const IDIOMA_POR_PAIS = {
 };
 
 /* País → moeda de gestão. Espelho de PAISES_CONNECT (api/stripe/_lib/comum.js)
-   mais AR e PY, que a Stripe não atende mas seguem nos meios manuais.
+   mais a América Latina que a Stripe NÃO atende (AR, PY, BO, CL, CO, CR, EC,
+   GT, PE, UY): lá o condomínio opera pelos meios manuais, mas a contabilidade
+   dele é na moeda local — sem a linha aqui o condomínio nasceria em USD e
+   todo o histórico sairia redenominado. Toda moeda desta tabela precisa de
+   <option> em MOEDAS e locale em LOCALE_MOEDA (src/lib/api.js), senão o
+   formulário salva a 1ª opção (USD) em silêncio.
    Duplicado de propósito: importar comum.js puxaria o SDK da Stripe e o
    supabase-js para dentro de /api/geo, que está no caminho do primeiro paint. */
 export const MOEDA_POR_PAIS = {
@@ -72,7 +77,8 @@ export const MOEDA_POR_PAIS = {
   GB: "GBP", CH: "CHF", DK: "DKK", SE: "SEK", NO: "NOK", PL: "PLN",
   CZ: "CZK", HU: "HUF", RO: "RON", BG: "BGN", AU: "AUD", NZ: "NZD",
   JP: "JPY", SG: "SGD", HK: "HKD", MY: "MYR", TH: "THB", AE: "AED",
-  AR: "ARS", PY: "PYG",
+  AR: "ARS", PY: "PYG", BO: "BOB", CL: "CLP", CO: "COP", CR: "CRC",
+  EC: "USD", GT: "GTQ", PE: "PEN", UY: "UYU",
 };
 
 /* países em que a Stripe abre conta conectada — espelho das chaves de

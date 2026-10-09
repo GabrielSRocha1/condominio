@@ -26,7 +26,7 @@ import {
   obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
-  salvarPreferencias, importarPessoas,
+  salvarPreferencias, importarPessoas, LOCALE_MOEDA,
 } from "./src/lib/api.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
@@ -70,14 +70,9 @@ const THEMES = {
 
 /* Moeda de gestão do condomínio — padrão: dólar (USD). O App chama setMoeda
    quando o cadastro do condomínio traz outra moeda salva nas configurações.
-   Qualquer moeda ISO vale; o mapa de locales só escolhe a formatação
-   preferida (fora dele, formata no locale en-US com a própria moeda). */
-const LOCALE_MOEDA = {
-  BRL: "pt-BR", USD: "en-US", EUR: "de-DE", GBP: "en-GB", ARS: "es-AR", PYG: "es-PY",
-  MXN: "es-MX", JPY: "ja-JP", CHF: "de-CH", CAD: "en-CA", AUD: "en-AU", NZD: "en-NZ",
-  SGD: "en-SG", HKD: "zh-HK", MYR: "ms-MY", THB: "th-TH", DKK: "da-DK", SEK: "sv-SE",
-  NOK: "nb-NO", PLN: "pl-PL", CZK: "cs-CZ", HUF: "hu-HU", RON: "ro-RO", BGN: "bg-BG",
-};
+   Qualquer moeda ISO vale; o mapa de locales (LOCALE_MOEDA, importado de
+   src/lib/api.js — fonte única) só escolhe a formatação preferida: fora
+   dele, formata no locale en-US com a própria moeda. */
 /* Moedas do seletor de "Moeda de gestão" — precisa cobrir TODAS as moedas que
    MOEDA_POR_PAIS (api/_lib/geo.js) pode semear na criação do condomínio. Um
    <select> com defaultValue sem <option> correspondente não dá erro: ele
@@ -92,6 +87,9 @@ const MOEDAS = [
   ["PLN", "Zloty (zł)"], ["CZK", "Coroa tcheca (Kč)"], ["HUF", "Forint (Ft)"],
   ["RON", "Leu (lei)"], ["BGN", "Lev (лв)"],
   ["ARS", "Peso argentino ($)"], ["PYG", "Guarani (₲)"],
+  ["BOB", "Boliviano (Bs)"], ["CLP", "Peso chileno ($)"], ["COP", "Peso colombiano ($)"],
+  ["CRC", "Colón costarriquenho (₡)"], ["GTQ", "Quetzal (Q)"], ["PEN", "Sol peruano (S/)"],
+  ["UYU", "Peso uruguaio ($U)"],
 ];
 let MOEDA = "USD";
 const setMoeda = (m) => {

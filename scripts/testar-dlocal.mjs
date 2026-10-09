@@ -128,16 +128,18 @@ const faltaIdioma = PAISES.filter((p) => !IDIOMA_POR_PAIS[p.pais]);
 ok("IDIOMA_POR_PAIS cobre os 12 países", faltaIdioma.length === 0,
   faltaIdioma.map((p) => p.pais).join(", "));
 
-/* LOCALE_MOEDA existe DUAS vezes (front e lib) — e as duas listas divergem */
-for (const [arq, caminho] of [["CondoMasterPro.jsx", "../CondoMasterPro.jsx"], ["src/lib/api.js", "../src/lib/api.js"]]) {
-  const txt = readFileSync(new URL(caminho, import.meta.url), "utf8");
-  const mapa = bloco(txt, "LOCALE_MOEDA = {", "}");
-  const temLocale = new Set([...mapa.matchAll(/([A-Z]{3}):\s*"/g)].map((m) => m[1]));
-  const falta = MOEDAS_DLOCAL.filter((m) => !temLocale.has(m));
-  achados.moeda_app[`locale_faltando_${arq}`] = falta;
-  ok(`LOCALE_MOEDA de ${arq} formata as 12 moedas`, falta.length === 0,
-    falta.length ? `faltam ${falta.join(", ")} → cai em en-US (CLP sai como "CLP 1,000.00")` : "");
-}
+/* LOCALE_MOEDA vivia duplicado (jsx + lib) e as duas cópias divergiram —
+   agora a lib é fonte única e o jsx importa. A 2ª sonda guarda isso. */
+const libApi = readFileSync(new URL("../src/lib/api.js", import.meta.url), "utf8");
+const temLocale = new Set([...bloco(libApi, "LOCALE_MOEDA = {", "}").matchAll(/([A-Z]{3}):\s*"/g)].map((m) => m[1]));
+const faltaLocale = MOEDAS_DLOCAL.filter((m) => !temLocale.has(m));
+achados.moeda_app.locale_faltando = faltaLocale;
+ok("LOCALE_MOEDA (src/lib/api.js) formata as 12 moedas", faltaLocale.length === 0,
+  faltaLocale.length ? `faltam ${faltaLocale.join(", ")} → caem em en-US (CLP sai "CLP 1,000" em vez de "$1.000")` : `${temLocale.size} moedas`);
+const copiaNoJsx = /const\s+LOCALE_MOEDA\s*=/.test(jsx);
+ok("LOCALE_MOEDA é fonte única (o jsx importa, não redeclara)", !copiaNoJsx,
+  copiaNoJsx ? "CondoMasterPro.jsx voltou a ter cópia própria — é assim que as duas divergem"
+    : "importado de src/lib/api.js");
 
 /* redação do segredo em log: a DLOCAL_SECRET_KEY não tem formato sk_/whsec_ */
 const capturar = (fn) => {

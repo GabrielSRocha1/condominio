@@ -56,7 +56,24 @@ export const parseBRL = (s) => Number(String(s || "0").replace(/[R$\s.]/g, "").r
 /* Formata um valor na moeda de gestão do condomínio — aceita qualquer moeda
    ISO (o mapa de locales só escolhe a formatação preferida; moedas fora dele
    saem no locale en-US, sem cair para USD) */
-const LOCALE_MOEDA = { BRL: "pt-BR", USD: "en-US", EUR: "de-DE", GBP: "en-GB", ARS: "es-AR", PYG: "es-PY", MXN: "es-MX", JPY: "ja-JP", CHF: "de-CH" };
+/* FONTE ÚNICA do mapa de locales — o CondoMasterPro.jsx importa este mesmo
+   objeto. Havia uma segunda cópia lá, e as duas divergiram: a de cá tinha 9
+   moedas e a de lá 24, então a mesma moeda saía formatada de um jeito na
+   tela e de outro no PDF. Toda moeda de MOEDA_POR_PAIS (api/_lib/geo.js)
+   precisa estar aqui — sem locale cai em en-US, e aí a moeda aparece pelo
+   código ISO com separador errado: "CLP 1,000" em vez de "$1.000", "UYU
+   1,000.00" em vez de "$ 1.000,00". (Os decimais o Intl acerta sozinho pelo
+   código da moeda: CLP e PYG saem sem centavos mesmo em en-US.) */
+export const LOCALE_MOEDA = {
+  BRL: "pt-BR", USD: "en-US", EUR: "de-DE", GBP: "en-GB", CHF: "de-CH", JPY: "ja-JP",
+  CAD: "en-CA", AUD: "en-AU", NZD: "en-NZ", SGD: "en-SG", HKD: "zh-HK", MYR: "ms-MY",
+  THB: "th-TH", DKK: "da-DK", SEK: "sv-SE", NOK: "nb-NO", PLN: "pl-PL", CZK: "cs-CZ",
+  HUF: "hu-HU", RON: "ro-RO", BGN: "bg-BG",
+  /* América Latina — MXN/ARS/PYG já existiam; as 7 seguintes faltavam nas
+     duas cópias, embora o app já aceite condomínio nesses países */
+  MXN: "es-MX", ARS: "es-AR", PYG: "es-PY",
+  BOB: "es-BO", CLP: "es-CL", COP: "es-CO", CRC: "es-CR", GTQ: "es-GT", PEN: "es-PE", UYU: "es-UY",
+};
 export const fmtMoeda = (v, moeda) => {
   try {
     return Number(v || 0).toLocaleString(LOCALE_MOEDA[moeda] || "en-US", { style: "currency", currency: moeda || "USD" });

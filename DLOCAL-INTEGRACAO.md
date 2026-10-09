@@ -184,13 +184,17 @@ log, fixture do HMAC) e, com as chaves de sandbox, levanta:
 - `order_id` duplicado, `GET /v1/payments/:id`, `payer` com documento e
   `split_code`.
 
-**Estado vulnerável que o bloco A já expõe** (é de propósito, vira trabalho
-obrigatório da Fase 1): das 12 moedas da dLocal, **7 não existem** no
-`<select>` de moeda de gestão (`MOEDAS`), em `MOEDA_POR_PAIS`
-(`api/_lib/geo.js`) nem nos **dois** `LOCALE_MOEDA` (`CondoMasterPro.jsx:75` e
-`src/lib/api.js:59`) — BOB, CLP, COP, CRC, GTQ, PEN e UYU. Como um `<select>`
-sem a `<option>` correspondente salva a primeira opção, **um condomínio
-chileno vira USD em silêncio** ao salvar configurações. Isso já é bug hoje.
+**Moedas da LATAM — RESOLVIDO em 09/10/2026, antes da Fase 1.** O bloco A
+expôs que 7 das 12 moedas (BOB, CLP, COP, CRC, GTQ, PEN, UYU) não existiam no
+`<select>` `MOEDAS`, em `MOEDA_POR_PAIS` (`api/_lib/geo.js`) nem no
+`LOCALE_MOEDA` — e, como um `<select>` sem a `<option>` correspondente salva
+a primeira opção, **um condomínio chileno virava USD em silêncio** ao salvar
+configurações. Era bug corrente, independente da dLocal, e foi corrigido:
+`MOEDA_POR_PAIS` passou a cobrir BO/CL/CO/CR/EC/GT/PE/UY (EC em USD), as 7
+opções entraram no seletor, e o `LOCALE_MOEDA` — que existia **duplicado**
+(9 moedas em `src/lib/api.js`, 24 no `CondoMasterPro.jsx`, divergentes) —
+virou **fonte única** exportada da lib e importada pelo jsx, agora com 31
+moedas. A sonda guarda as duas coisas: a cobertura e a não-duplicação.
 
 ## 5. O que bloqueia a Fase 1 (nada disso é código)
 
