@@ -92,6 +92,8 @@ export default {
   "Planos": "Tarife",
   "Últimos comunicados": "Neueste Mitteilungen", "Minha situação": "Meine Übersicht", "Cobranças da unidade": "Zahlungen der Einheit",
   "Unidade / apartamento": "Einheit / Wohnung", "Cadastre unidades primeiro na tela Unidades.": "Legen Sie zuerst Einheiten im Bildschirm „Einheiten“ an.",
+  "Papel na unidade": "Rolle in der Einheit", "Proprietário": "Eigentümer", "Inquilino": "Mieter",
+  "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "Nur der Eigentümer sieht im Portal die Zahlen der Wohnanlage (Saldo, Einnahmen, Ausgaben und Zahlungsverzug).",
   "Nenhuma cobrança para esta unidade ainda.": "Noch keine Zahlungen für diese Einheit.",
   "Toque para ler": "Zum Lesen tippen",
   "Destino": "Ziel", "Todas as unidades (rateio pela fração)": "Alle Einheiten (nach Anteil umgelegt)",

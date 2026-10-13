@@ -94,7 +94,7 @@ export default async function handler(req, res) {
     /* morador entra pelo nome cadastrado em Gerenciar Acessos */
     if (f.perfil === "morador") {
       const buscar = (pref) => supabase.from("usuarios")
-        .select(`id, senha_hash, ${pref}pessoas!inner(nome, pessoa_vinculos(papel, unidades(numero, blocos(nome)))), usuario_perfis(condominio_id, perfis(nome))`)
+        .select(`id, senha_hash, ${pref}pessoas!inner(nome, pessoa_vinculos(papel, unidade_id, unidades(numero, blocos(nome)))), usuario_perfis(condominio_id, perfis(nome))`)
         .ilike("pessoas.nome", f.nome || "");
       let { data: rows, error } = await buscar("preferencias, ");
       if (semColunaPreferencias(error)) ({ data: rows, error } = await buscar(""));
@@ -110,7 +110,12 @@ export default async function handler(req, res) {
       await limparLimite(supabase, chaveConta);
 
       const vincPerfil = conta.usuario_perfis.find((up) => up.perfis?.nome === "morador");
-      const vincUnidade = (conta.pessoas?.pessoa_vinculos || []).find((v) => v.papel === "morador");
+      /* o vínculo é achado pela UNIDADE, não pelo papel: o diretor pode
+         marcar a conta como proprietário/inquilino em Gerenciar Acessos, e
+         filtrar por papel == 'morador' faria a unidade desaparecer — com
+         ela, boletos, multas e entregas do portal */
+      const vincs = conta.pessoas?.pessoa_vinculos || [];
+      const vincUnidade = vincs.find((v) => v.unidade_id) || vincs[0] || null;
       const condominioId = vincPerfil?.condominio_id || null;
       await auditar(supabase, { evento: "login_sucesso", usuarioId: conta.id, condominioId, ip,
         detalhe: { perfil: "morador" } });
@@ -120,6 +125,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ token, conta: {
         nome: conta.pessoas.nome, condominioId,
         unidade: vincUnidade?.unidades ? `${vincUnidade.unidades.numero}-${vincUnidade.unidades.blocos?.nome || "?"}` : null,
+        papel: vincUnidade?.papel || null, // proprietário vê o dashboard do condomínio no portal
         idioma: conta.preferencias?.idioma || null, // idioma da interface guardado nesta conta
         temCodigoRecuperacao: await temCodigoPermanente(supabase, conta.id),
       } });

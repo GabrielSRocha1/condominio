@@ -546,9 +546,16 @@ export async function criarAcesso(ctx, f) {
   const un = ehMorador ? ctx.unidades.find((u) => u.label === f.unidade || u.id === f.unidade) : null;
   return chamarAuth("acessos", {
     acao: "criar", perfil: f.perfil, senha: f.senha,
-    ...(ehMorador ? { nome: f.nome?.trim() } : { email: f.email?.trim().toLowerCase() }),
+    ...(ehMorador ? { nome: f.nome?.trim(), papel: f.papel || "morador" } : { email: f.email?.trim().toLowerCase() }),
     ...(un ? { unidadeId: un.id } : {}),
   });
+}
+
+/* Papel do morador NA UNIDADE (proprietario | inquilino | morador) — eixo
+   separado do perfil de acesso. É ele que libera o dashboard de leitura do
+   condomínio no portal, e o caminho para corrigir acessos antigos. */
+export async function definirPapelAcesso(usuarioId, papel) {
+  return chamarAuth("acessos", { acao: "papel", usuarioId, papel });
 }
 
 /* Lista os acessos do condomínio (todos os perfis, exceto o diretor). */

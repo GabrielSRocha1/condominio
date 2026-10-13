@@ -92,6 +92,8 @@ export default {
   "Planos": "Paket",
   "Últimos comunicados": "Pengumuman terbaru", "Minha situação": "Status saya", "Cobranças da unidade": "Tagihan unit",
   "Unidade / apartamento": "Unit / apartemen", "Cadastre unidades primeiro na tela Unidades.": "Daftarkan unit terlebih dahulu di layar Unit.",
+  "Papel na unidade": "Peran di unit", "Proprietário": "Pemilik", "Inquilino": "Penyewa",
+  "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "Hanya pemilik yang melihat angka kondominium (saldo, pendapatan, pengeluaran, dan tunggakan) di portal.",
   "Nenhuma cobrança para esta unidade ainda.": "Belum ada tagihan untuk unit ini.",
   "Toque para ler": "Ketuk untuk membaca",
   "Destino": "Tujuan", "Todas as unidades (rateio pela fração)": "Semua unit (dibagi menurut porsi)",

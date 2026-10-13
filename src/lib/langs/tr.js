@@ -92,6 +92,8 @@ export default {
   "Planos": "Planlar",
   "Últimos comunicados": "Son duyurular", "Minha situação": "Durumum", "Cobranças da unidade": "Dairenin tahsilatları",
   "Unidade / apartamento": "Daire / apartman", "Cadastre unidades primeiro na tela Unidades.": "Önce \"Daireler\" ekranında daire kaydedin.",
+  "Papel na unidade": "Dairedeki rol", "Proprietário": "Mal sahibi", "Inquilino": "Kiracı",
+  "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "Portalda site rakamlarını (bakiye, gelir, gider ve gecikme) yalnızca mal sahibi görür.",
   "Nenhuma cobrança para esta unidade ainda.": "Bu daire için henüz tahsilat yok.",
   "Toque para ler": "Okumak için dokunun",
   "Destino": "Hedef", "Todas as unidades (rateio pela fração)": "Tüm daireler (paya göre bölüştürülür)",

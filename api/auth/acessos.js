@@ -23,7 +23,20 @@ import {
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
 const PERFIS_CRIAVEIS = ["sindico", "tesouraria", "morador"];
+/* papel do morador NA UNIDADE (pessoa_vinculos.papel) — eixo diferente do
+   perfil de acesso: todo mundo aqui entra como "morador", e é o papel que
+   diz se a conta é do dono. O enum vinculo_papel do schema aceita mais
+   valores (coproprietario, dependente…); aqui ficam só os três que o
+   diretor escolhe na tela. */
+const PAPEIS_UNIDADE = ["proprietario", "inquilino", "morador"];
 const CODIGO_TTL_MS = 24 * 3600 * 1000; // código gerado para outra pessoa vale 24h
+
+/* vínculo que carrega a unidade da conta. NÃO procurar por papel ==
+   'morador': desde que o diretor pode marcar o morador como proprietário,
+   filtrar por papel fazia a unidade (e com ela boletos, multas e entregas
+   do portal) desaparecer. */
+const vinculoDaUnidade = (vinculos) =>
+  (vinculos || []).find((v) => v.unidades || v.unidade_id) || (vinculos || [])[0] || null;
 
 /* e-mail sintético do morador (entra pelo nome) — mesmo formato do frontend */
 const emailMorador = (nome, condominioId) =>
@@ -44,8 +57,9 @@ export default async function handler(req, res) {
 
   try {
     const f = corpoValidado(res, typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {}), {
-      acao:      { tipo: "enum", valores: ["criar", "listar", "remover", "codigo"], obrigatorio: true },
+      acao:      { tipo: "enum", valores: ["criar", "listar", "remover", "codigo", "papel"], obrigatorio: true },
       perfil:    { tipo: "enum", valores: PERFIS_CRIAVEIS },
+      papel:     { tipo: "enum", valores: PAPEIS_UNIDADE },
       nome:      { tipo: "texto", max: 120 },
       email:     { tipo: "email" },
       senha:     { tipo: "texto", max: 200 },
@@ -67,18 +81,19 @@ export default async function handler(req, res) {
     /* ── listar ── */
     if (f.acao === "listar") {
       const { data: rows, error } = await supabase.from("usuario_perfis")
-        .select("perfis(nome), usuarios(id, email, pessoas(nome, pessoa_vinculos(papel, unidades(numero, blocos(nome)))))")
+        .select("perfis(nome), usuarios(id, email, pessoas(nome, pessoa_vinculos(papel, unidade_id, unidades(numero, blocos(nome)))))")
         .eq("condominio_id", condominioId);
       if (error) throw new Error(error.message);
       const acessos = (rows || [])
         .filter((r) => r.perfis?.nome && r.perfis.nome !== "diretor" && r.usuarios)
         .map((r) => {
           const u = r.usuarios, p = u.pessoas;
-          const vinc = (p?.pessoa_vinculos || []).find((v) => v.papel === "morador");
+          const vinc = vinculoDaUnidade(p?.pessoa_vinculos);
           return {
             id: u.id, role: r.perfis.nome, nome: p?.nome || null,
             email: u.email.endsWith(".local") ? null : u.email,
             unidade: vinc?.unidades ? `${vinc.unidades.numero}-${vinc.unidades.blocos?.nome || "?"}` : null,
+            papel: vinc?.papel || null,
           };
         });
       return res.status(200).json({ acessos });
@@ -137,6 +152,33 @@ export default async function handler(req, res) {
       return res.status(200).json({ codigo, expiraEm });
     }
 
+    /* ── papel: proprietário / inquilino / morador na unidade ──
+       Só muda pessoa_vinculos.papel; o perfil de ACESSO não é tocado (nada
+       de escalar privilégio por aqui). É o que destrava o dashboard de
+       leitura do portal para o dono da unidade — e o que permite corrigir
+       os acessos antigos, todos criados como "morador". */
+    if (f.acao === "papel") {
+      if (!f.usuarioId || !f.papel)
+        return res.status(400).json({ error: "Informe usuarioId e papel." });
+      const { data: alvo } = await supabase.from("usuario_perfis")
+        .select("id, perfis(nome)").eq("usuario_id", f.usuarioId).eq("condominio_id", condominioId);
+      if (!alvo?.length) return res.status(404).json({ error: "Acesso não encontrado." });
+      if (!alvo.some((a) => a.perfis?.nome === "morador"))
+        return res.status(403).json({ error: "O papel na unidade vale só para acessos de morador." });
+
+      const { data: u } = await supabase.from("usuarios").select("pessoa_id").eq("id", f.usuarioId).maybeSingle();
+      if (!u?.pessoa_id) return res.status(404).json({ error: "Acesso sem pessoa vinculada." });
+      const { data: atualizados, error: ePap } = await supabase.from("pessoa_vinculos")
+        .update({ papel: f.papel }).eq("pessoa_id", u.pessoa_id).eq("condominio_id", condominioId)
+        .is("fim", null).select("id");
+      if (ePap) throw new Error(ePap.message);
+      if (!atualizados?.length) return res.status(404).json({ error: "Vínculo da pessoa não encontrado." });
+
+      await auditar(supabase, { evento: "acesso_papel_alterado", severidade: "aviso", usuarioId: claims.sub,
+        condominioId, ip: ipDoRequest(req), detalhe: { usuario_alvo: f.usuarioId, papel: f.papel } });
+      return res.status(200).json({ ok: true, papel: f.papel });
+    }
+
     /* ── criar ── */
     if (!f.perfil) return res.status(400).json({ error: "Informe o perfil do acesso." });
     const ehMorador = f.perfil === "morador";
@@ -176,9 +218,12 @@ export default async function handler(req, res) {
     });
     if (eUp) throw new Error(eUp.message);
 
+    /* morador: o papel na unidade vem da tela (padrão "morador"); síndico e
+       tesouraria seguem com o papel igual ao perfil de acesso */
     await supabase.from("pessoa_vinculos").insert({
       condominio_id: condominioId, pessoa_id: pessoa.id, unidade_id: f.unidadeId || null,
-      papel: f.perfil, inicio: new Date().toISOString().slice(0, 10),
+      papel: ehMorador ? (f.papel || "morador") : f.perfil,
+      inicio: new Date().toISOString().slice(0, 10),
     });
     /* morador vinculado à unidade vira o responsável financeiro dela */
     if (ehMorador && f.unidadeId)

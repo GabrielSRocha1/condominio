@@ -92,6 +92,8 @@ export default {
   "Planos": "প্ল্যান",
   "Últimos comunicados": "সর্বশেষ নোটিশ", "Minha situação": "আমার অবস্থা", "Cobranças da unidade": "ইউনিটের বিল",
   "Unidade / apartamento": "ইউনিট / ফ্ল্যাট", "Cadastre unidades primeiro na tela Unidades.": "আগে \"ইউনিট\" পর্দায় ইউনিট নিবন্ধন করুন।",
+  "Papel na unidade": "ইউনিটে ভূমিকা", "Proprietário": "মালিক", "Inquilino": "ভাড়াটে",
+  "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "পোর্টালে কেবল মালিক কনডোমিনিয়ামের হিসাব (ব্যালান্স, আয়, ব্যয় ও বকেয়া) দেখতে পান।",
   "Nenhuma cobrança para esta unidade ainda.": "এই ইউনিটের জন্য এখনো কোনো বিল নেই।",
   "Toque para ler": "পড়তে ট্যাপ করুন",
   "Destino": "লক্ষ্য", "Todas as unidades (rateio pela fração)": "সব ইউনিট (অংশ অনুযায়ী ভাগ)",

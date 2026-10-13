@@ -92,6 +92,8 @@ export default {
   "Planos": "プラン",
   "Últimos comunicados": "最新のお知らせ", "Minha situação": "マイステータス", "Cobranças da unidade": "住戸の請求",
   "Unidade / apartamento": "住戸 / 部屋", "Cadastre unidades primeiro na tela Unidades.": "先に「住戸」画面で住戸を登録してください。",
+  "Papel na unidade": "住戸での立場", "Proprietário": "区分所有者", "Inquilino": "賃借人",
+  "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "ポータルでマンションの数値（残高・収入・支出・滞納）を見られるのは区分所有者だけです。",
   "Nenhuma cobrança para esta unidade ainda.": "この住戸への請求はまだありません。",
   "Toque para ler": "タップして読む",
   "Destino": "宛先", "Todas as unidades (rateio pela fração)": "全住戸（持分割合で按分）",

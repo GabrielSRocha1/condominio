@@ -26,7 +26,7 @@ import {
   obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
-  salvarPreferencias, importarPessoas, LOCALE_MOEDA,
+  salvarPreferencias, importarPessoas, LOCALE_MOEDA, definirPapelAcesso,
 } from "./src/lib/api.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
@@ -138,6 +138,12 @@ const PROFILES = {
   tesouraria:    { label: "Tesouraria",     icon: Wallet,      desc: "Financeiro, cobranças e conciliação" },
   morador:       { label: "Morador",        icon: Home,        desc: "Boletos, comprovantes, comunicados e chamados" },
 };
+
+/* Papel do morador NA UNIDADE (pessoa_vinculos.papel) — eixo separado do
+   perfil de acesso, que para todo mundo do portal é "morador". É o papel
+   que diz quem é dono, e só o dono vê os números do prédio no portal. */
+const PAPEIS_UNIDADE = [["proprietario", "Proprietário"], ["inquilino", "Inquilino"], ["morador", "Morador"]];
+const rotuloPapel = (p) => PAPEIS_UNIDADE.find(([k]) => k === p)?.[1] || "Morador";
 
 const NAV = [
   { id: "dashboard",  label: "Dashboard",       icon: LayoutDashboard, roles: ["diretor","sindico","tesouraria"] },
@@ -715,7 +721,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
       setVerificando(true);
       try {
         const conta = await loginUsuario("morador", { nome, senha: f.senha });
-        if (conta) { setErro(""); aplicarIdiomaDaConta(conta); return entrarNoApp(conta, [role, { nome: conta.nome, unidade: conta.unidade || null }, null, conta.condominioId, conta.token]); }
+        if (conta) { setErro(""); aplicarIdiomaDaConta(conta); return entrarNoApp(conta, [role, { nome: conta.nome, unidade: conta.unidade || null, papel: conta.papel || null }, null, conta.condominioId, conta.token]); }
         setErro(L("Nome ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Acessos."));
       } catch (err) {
         setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -1057,7 +1063,11 @@ function SetupCondominio({ t, role, diretor, onCriado, onSair, dark, setDark }) 
 }
 
 /* ══════════════ DASHBOARDS POR PERFIL ══════════════ */
-function Dashboard({ t, role, go }) {
+/* `leitura`: mesma tela, sem nada que acione nada — é como o proprietário a
+   vê no portal (só indicadores e gráficos). Esconde as ações rápidas e o
+   card de aprovações/alertas, que é onde vivem os botões e as linhas
+   clicáveis para as telas de gestão. */
+function Dashboard({ t, role, go = () => {}, leitura = false }) {
   const { db } = useData();
   const S = db.stats;
   const [mesGrafico, setMesGrafico] = useState(db.mesAtualReal);
@@ -1081,8 +1091,11 @@ function Dashboard({ t, role, go }) {
   };
   return (
     <div className="vfade space-y-4">
-      {/* cards principais — variam por perfil */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {/* cards principais — variam por perfil.
+          As classes lg: respondem ao VIEWPORT, não ao container: no portal
+          (coluna de max-w-lg) elas espremeriam 4 cards em ~480px e cortariam
+          valor e rótulo. Em leitura, a grade fica fixa em coluna estreita. */}
+      <div className={`grid grid-cols-2 gap-3${leitura ? "" : " lg:grid-cols-4"}`}>
         <StatCard t={t} icon={Wallet}     label="Saldo em caixa"       value={BRL(S.saldo)} />
         <StatCard t={t} icon={TrendingUp} label={`${L("Receitas de")} ${S.competencia}`}   value={BRL(S.receitaMes)} trend={trendOf("receita")} color={t.ok} />
         <StatCard t={t} icon={TrendingDown} label={`${L("Despesas de")} ${S.competencia}`} value={BRL(S.despesaMes)} trend={trendOf("despesa")} color={t.info} />
@@ -1090,16 +1103,17 @@ function Dashboard({ t, role, go }) {
       </div>
 
       {/* ações rápidas */}
-      <div className="flex flex-wrap gap-2">
-        {[["Nova cobrança", QrCode, "cobrancas"], ["Novo gasto", Wallet, "financeiro"], ["Nova multa", Gavel, "multas"],
-          ["Novo comunicado", Megaphone, "comunicados"], ["Novo chamado", Wrench, "chamados"]]
-          .filter(([, , s]) => NAV.find((n) => n.id === s)?.roles.includes(role))
-          .map(([l, Ic, s]) => (
-            <Btn key={l} t={t} kind="soft" onClick={() => go(s)}><Ic size={14} /> {l}</Btn>))}
-      </div>
+      {!leitura && (
+        <div className="flex flex-wrap gap-2">
+          {[["Nova cobrança", QrCode, "cobrancas"], ["Novo gasto", Wallet, "financeiro"], ["Nova multa", Gavel, "multas"],
+            ["Novo comunicado", Megaphone, "comunicados"], ["Novo chamado", Wrench, "chamados"]]
+            .filter(([, , s]) => NAV.find((n) => n.id === s)?.roles.includes(role))
+            .map(([l, Ic, s]) => (
+              <Btn key={l} t={t} kind="soft" onClick={() => go(s)}><Ic size={14} /> {l}</Btn>))}
+        </div>)}
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card t={t} className="lg:col-span-2">
+      <div className={`grid gap-4${leitura ? "" : " lg:grid-cols-3"}`}>
+        <Card t={t} className={leitura ? "" : "lg:col-span-2"}>
           <SectionTitle t={t} action={selectMes(mesGrafico, setMesGrafico, db.fluxoDiarioPorMes)}>
             Evolução financeira do mês — dia a dia</SectionTitle>
           <div style={{ height: 220 }}>
@@ -1138,7 +1152,7 @@ function Dashboard({ t, role, go }) {
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className={`grid gap-4${leitura ? "" : " lg:grid-cols-2"}`}>
         <Card t={t}>
           <SectionTitle t={t} action={selectMes(mesDespesas, setMesDespesas, db.despesasPorMes)}>
             Despesas por categoria</SectionTitle>
@@ -1173,6 +1187,7 @@ function Dashboard({ t, role, go }) {
       </div>
 
       {/* pendências + todas as atividades recentes, tudo clicável */}
+      {!leitura && (
       <Card t={t}>
         <SectionTitle t={t} action={<button onClick={() => { try { sessionStorage.setItem("cm_fin_tab", "aprovar"); } catch { /* sem storage */ } go("financeiro"); }} className="text-xs" style={{ color: t.gold }}>{L("Ver todas →")}</button>}>
           {role === "diretor" ? "Aprovações pendentes" : "Alertas do dia"}</SectionTitle>
@@ -1206,7 +1221,7 @@ function Dashboard({ t, role, go }) {
             </>);
           })()}
         </div>
-      </Card>
+      </Card>)}
     </div>
   );
 }
@@ -3078,6 +3093,16 @@ function GerenciarEmails({ t }) {
     try { await removerAcesso(u.id); await recarregar(); }
     catch (err) { setErro(err.message); }
   };
+  /* papel na unidade: só o proprietário vê os números do prédio no portal.
+     Vale para os acessos já existentes, criados antes deste campo (todos
+     nasceram como "morador"). Troca de papel só vale no próximo login. */
+  const [trocandoPapel, setTrocandoPapel] = useState(null);
+  const trocarPapel = async (u, papel) => {
+    setErro(""); setTrocandoPapel(u.id);
+    try { await definirPapelAcesso(u.id, papel); await recarregar(); }
+    catch (err) { setErro(err.message); }
+    finally { setTrocandoPapel(null); }
+  };
 
   /* código de recuperação de 24h para um acesso de TESOURARIA ou MORADOR.
      Diretor e síndico redefinem a senha por link no e-mail (Etapa 5).
@@ -3123,6 +3148,12 @@ function GerenciarEmails({ t }) {
                   <div className="text-xs" style={{ color: t.dim }}>{u.unidade ? `${L("Unidade")} ${u.unidade}` : (u.email && u.nome ? u.email : L("Senha protegida por criptografia"))}</div>
                 </div>
                 <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.goldSoft, color: t.gold }}>{PROFILES[u.role]?.label || u.role}</span>
+                {u.role === "morador" && (
+                  <select value={u.papel || "morador"} disabled={trocandoPapel === u.id}
+                    onChange={(e) => trocarPapel(u, e.target.value)} title="Papel na unidade"
+                    style={{ ...inputStyle(t), width: "auto", padding: "4px 8px", fontSize: 12 }}>
+                    {PAPEIS_UNIDADE.map(([k, l]) => <option key={k} value={k}>{L(l)}</option>)}
+                  </select>)}
                 {(u.role === "tesouraria" || u.role === "morador") &&
                   <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" onClick={() => gerarCodigo(u)} disabled={gerando}><KeyRound size={13} /> Gerar código</Btn>}
                 <Btn t={t} kind="danger" className="!px-2 !py-1 text-xs" onClick={() => remover(u)}><Trash2 size={13} /> Remover</Btn>
@@ -3155,8 +3186,14 @@ function GerenciarEmails({ t }) {
                         {L("Cadastre unidades primeiro na tela Unidades.")}</div>
                     )}
                   </Field>
+                  <Field t={t} label="Papel na unidade">
+                    <select name="papel" defaultValue="morador" style={inputStyle(t)}>
+                      {PAPEIS_UNIDADE.map(([k, l]) => <option key={k} value={k}>{L(l)}</option>)}
+                    </select>
+                  </Field>
                   <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.dim }}>
-                    O morador entrará na tela inicial usando exatamente este nome e a senha abaixo, e verá os dados da unidade escolhida.</div>
+                    O morador entrará na tela inicial usando exatamente este nome e a senha abaixo, e verá os dados da unidade escolhida.{" "}
+                    {L("Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.")}</div>
                 </>
               ) : (
                 <Field t={t} label="E-mail"><input name="email" type="email" required placeholder="pessoa@exemplo.com" style={inputStyle(t)} /></Field>
@@ -3194,6 +3231,14 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
   /* recarregar mantém a aba do portal onde o morador estava */
   const [tab, setTab] = useState(() => { try { return sessionStorage.getItem("cm_tela_portal") || "inicio"; } catch { return "inicio"; } });
   useEffect(() => { try { sessionStorage.setItem("cm_tela_portal", tab); } catch { /* sem storage */ } }, [tab]);
+  /* dono da unidade vê a aba "Condomínio": os números do prédio em leitura.
+     O papel vem do vínculo da pessoa (Gerenciar Acessos) e entra na sessão
+     no login — quem já estava logado só o recebe no próximo acesso.
+     É filtro de PRODUTO: o RLS libera a leitura a qualquer perfil do
+     condomínio, então isto não é controle de segurança. */
+  const ehProprietario = ["proprietario", "coproprietario"].includes(String(morador?.papel || "").toLowerCase());
+  /* a aba fica gravada na sessão: se o papel mudou, não deixar o portal numa aba vazia */
+  useEffect(() => { if (tab === "condominio" && !ehProprietario) setTab("inicio"); }, [tab, ehProprietario]);
   const [qr, setQr] = useState(null); const [chamado, setChamado] = useState(false);
   const [formaPag, setFormaPag] = useState(null); // null = escolhendo | "qr" | "verum" | "banco" | "dinheiro"
   /* informe de pagamento manual (comprovante de transferência / hash cripto) */
@@ -3594,12 +3639,18 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
             <div className="text-[11px]" style={{ color: t.dim }}>
               {L("As ocorrências registradas ficam visíveis para a administração e a portaria.")}</div>
           </div>)}
+        {/* números do prédio para o dono da unidade: a mesma tela da gestão
+            em leitura — sem ações rápidas, sem aprovações, nada clicável */}
+        {tab === "condominio" && ehProprietario && (
+          <Dashboard t={t} role="morador" leitura />)}
       </main>
       {/* navegação inferior mobile-first */}
       <nav className="fixed bottom-0 left-0 right-0 z-30 border-t px-4 py-2 backdrop-blur-md" style={{ background: t.glass, borderColor: t.borderSoft }}>
         <div className="mx-auto flex max-w-lg justify-around">
-          {[["inicio","Início",Home],["pagamentos","Pagamentos",QrCode],["comunicados","Avisos",Megaphone],["ocorrencias","Ocorrências",AlertCircle]].map(([k,l,Ic]) => (
-            <button key={k} onClick={() => setTab(k)} className="relative flex flex-col items-center gap-0.5 rounded-lg px-4 py-1.5 text-[10px] font-medium"
+          {[["inicio","Início",Home],["pagamentos","Pagamentos",QrCode],["comunicados","Avisos",Megaphone],["ocorrencias","Ocorrências",AlertCircle],
+            ...(ehProprietario ? [["condominio","Condomínio",Building2]] : [])].map(([k,l,Ic]) => (
+            /* com 5 abas o px-4 estoura em telas de 320px — afrouxa no mobile */
+            <button key={k} onClick={() => setTab(k)} className="relative flex min-w-0 flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 text-[10px] font-medium sm:px-4"
               style={{ color: tab === k ? t.gold : t.dim }}>
               <Ic size={18} /> {L(l)}
               {k === "pagamentos" && abertas > 0 && (

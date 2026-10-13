@@ -92,6 +92,8 @@ export default {
   "Planos": "요금제",
   "Últimos comunicados": "최신 공지", "Minha situação": "내 현황", "Cobranças da unidade": "세대 청구 내역",
   "Unidade / apartamento": "세대 / 호", "Cadastre unidades primeiro na tela Unidades.": "먼저 '세대' 화면에서 세대를 등록하세요.",
+  "Papel na unidade": "세대 내 역할", "Proprietário": "소유자", "Inquilino": "세입자",
+  "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "포털에서 관리단의 수치(잔액, 수입, 지출, 연체)는 소유자만 볼 수 있습니다.",
   "Nenhuma cobrança para esta unidade ainda.": "이 세대에는 아직 청구가 없습니다.",
   "Toque para ler": "눌러서 읽기",
   "Destino": "대상", "Todas as unidades (rateio pela fração)": "전체 세대(지분 비율로 배분)",

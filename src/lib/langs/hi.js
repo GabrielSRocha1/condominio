@@ -92,6 +92,8 @@ export default {
   "Planos": "प्लान",
   "Últimos comunicados": "ताज़ा सूचनाएँ", "Minha situação": "मेरी स्थिति", "Cobranças da unidade": "यूनिट के भुगतान",
   "Unidade / apartamento": "यूनिट / फ्लैट", "Cadastre unidades primeiro na tela Unidades.": "पहले \"यूनिट\" स्क्रीन में यूनिट पंजीकृत करें।",
+  "Papel na unidade": "यूनिट में भूमिका", "Proprietário": "मालिक", "Inquilino": "किरायेदार",
+  "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "पोर्टल में कॉन्डोमिनियम के आंकड़े (शेष, आय, व्यय और बकाया) केवल मालिक देखता है।",
   "Nenhuma cobrança para esta unidade ainda.": "इस यूनिट के लिए अभी कोई भुगतान नहीं।",
   "Toque para ler": "पढ़ने के लिए टैप करें",
   "Destino": "लक्ष्य", "Todas as unidades (rateio pela fração)": "सभी यूनिट (हिस्से के अनुसार बँटवारा)",

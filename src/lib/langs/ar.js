@@ -92,6 +92,8 @@ export default {
   "Planos": "الباقات",
   "Últimos comunicados": "أحدث الإعلانات", "Minha situação": "وضعي", "Cobranças da unidade": "مدفوعات الوحدة",
   "Unidade / apartamento": "الوحدة / الشقة", "Cadastre unidades primeiro na tela Unidades.": "سجّل الوحدات أولاً في شاشة «الوحدات».",
+  "Papel na unidade": "الدور في الوحدة", "Proprietário": "المالك", "Inquilino": "المستأجر",
+  "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "المالك فقط يرى أرقام المجمع (الرصيد والإيرادات والمصروفات والتأخر في السداد) في البوابة.",
   "Nenhuma cobrança para esta unidade ainda.": "لا مدفوعات لهذه الوحدة بعد.",
   "Toque para ler": "انقر للقراءة",
   "Destino": "الوجهة", "Todas as unidades (rateio pela fração)": "جميع الوحدات (توزيع حسب الحصة)",

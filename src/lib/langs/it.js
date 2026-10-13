@@ -92,6 +92,8 @@ export default {
   "Planos": "Piani",
   "Últimos comunicados": "Ultime comunicazioni", "Minha situação": "La mia situazione", "Cobranças da unidade": "Pagamenti dell'unità",
   "Unidade / apartamento": "Unità / appartamento", "Cadastre unidades primeiro na tela Unidades.": "Registra prima le unità nella schermata Unità.",
+  "Papel na unidade": "Ruolo nell'unità", "Proprietário": "Proprietario", "Inquilino": "Inquilino",
+  "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "Solo il proprietario vede i numeri del condominio (saldo, entrate, uscite e morosità) nel portale.",
   "Nenhuma cobrança para esta unidade ainda.": "Ancora nessun pagamento per questa unità.",
   "Toque para ler": "Tocca per leggere",
   "Destino": "Destinatario", "Todas as unidades (rateio pela fração)": "Tutte le unità (ripartito per millesimi)",

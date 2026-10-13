@@ -92,6 +92,8 @@ export default {
   "Planos": "Тарифы",
   "Últimos comunicados": "Последние объявления", "Minha situação": "Моя сводка", "Cobranças da unidade": "Платежи квартиры",
   "Unidade / apartamento": "Квартира", "Cadastre unidades primeiro na tela Unidades.": "Сначала зарегистрируйте квартиры на экране «Квартиры».",
+  "Papel na unidade": "Роль в квартире", "Proprietário": "Собственник", "Inquilino": "Арендатор",
+  "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "Только собственник видит в портале показатели дома (баланс, доходы, расходы и задолженность).",
   "Nenhuma cobrança para esta unidade ainda.": "Для этой квартиры пока нет платежей.",
   "Toque para ler": "Нажмите, чтобы прочитать",
   "Destino": "Получатель", "Todas as unidades (rateio pela fração)": "Все квартиры (распределение по доле)",

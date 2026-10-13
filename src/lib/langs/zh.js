@@ -92,6 +92,8 @@ export default {
   "Planos": "套餐",
   "Últimos comunicados": "最新公告", "Minha situação": "我的概况", "Cobranças da unidade": "本单元收费",
   "Unidade / apartamento": "单元 / 公寓", "Cadastre unidades primeiro na tela Unidades.": "请先在“单元”页面登记单元。",
+  "Papel na unidade": "在单元中的身份", "Proprietário": "业主", "Inquilino": "租户",
+  "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "门户中仅业主可查看小区数据（余额、收入、支出和欠缴率）。",
   "Nenhuma cobrança para esta unidade ainda.": "该单元暂无收费。",
   "Toque para ler": "点击阅读",
   "Destino": "对象", "Todas as unidades (rateio pela fração)": "所有单元（按份额分摊）",
