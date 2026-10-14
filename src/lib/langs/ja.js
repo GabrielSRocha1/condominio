@@ -148,6 +148,7 @@ export default {
   "Rode o arquivo supabase-planilhas.sql no SQL Editor do Supabase (uma vez). Nada mais do app depende dele — o resto continua funcionando normalmente.": "Supabase の SQL エディタで supabase-planilhas.sql を一度実行してください。アプリの他の機能はこれに依存しません。",
   "Suba a planilha de histórico do condomínio — com as colunas que ela já tem. O sistema espelha as colunas, soma os valores e cruza cada linha com as cobranças do app.": "管理組合の履歴の表をアップロードしてください — 今ある列のままで構いません。列をそのまま再現し、金額を合計し、各行をアプリの請求と突合します。",
   "Papel na unidade": "住戸での立場", "Proprietário": "区分所有者", "Inquilino": "賃借人",
+  "Sua sessão expirou. Entre novamente.": "セッションの有効期限が切れました。もう一度ログインしてください。",
   "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "ポータルでマンションの数値（残高・収入・支出・滞納）を見られるのは区分所有者だけです。",
   "Nenhuma cobrança para esta unidade ainda.": "この住戸への請求はまだありません。",
   "Toque para ler": "タップして読む",

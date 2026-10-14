@@ -148,6 +148,7 @@ export default {
   "Rode o arquivo supabase-planilhas.sql no SQL Editor do Supabase (uma vez). Nada mais do app depende dele — o resto continua funcionando normalmente.": "Esegui il file supabase-planilhas.sql nell'SQL Editor di Supabase (una volta). Nient'altro nell'app dipende da questo.",
   "Suba a planilha de histórico do condomínio — com as colunas que ela já tem. O sistema espelha as colunas, soma os valores e cruza cada linha com as cobranças do app.": "Carica il foglio dello storico del condominio — con le colonne che ha già. Il sistema rispecchia le colonne, somma i valori e confronta ogni riga con gli addebiti dell'app.",
   "Papel na unidade": "Ruolo nell'unità", "Proprietário": "Proprietario", "Inquilino": "Inquilino",
+  "Sua sessão expirou. Entre novamente.": "La sessione è scaduta. Accedi di nuovo.",
   "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "Solo il proprietario vede i numeri del condominio (saldo, entrate, uscite e morosità) nel portale.",
   "Nenhuma cobrança para esta unidade ainda.": "Ancora nessun pagamento per questa unità.",
   "Toque para ler": "Tocca per leggere",

@@ -148,6 +148,7 @@ export default {
   "Rode o arquivo supabase-planilhas.sql no SQL Editor do Supabase (uma vez). Nada mais do app depende dele — o resto continua funcionando normalmente.": "شغّل ملف supabase-planilhas.sql في محرّر SQL بـ Supabase (مرة واحدة). لا شيء آخر في التطبيق يعتمد عليه.",
   "Suba a planilha de histórico do condomínio — com as colunas que ela já tem. O sistema espelha as colunas, soma os valores e cruza cada linha com as cobranças do app.": "ارفع جدول سجل المجمع — بالأعمدة الموجودة فيه. يعكس النظام الأعمدة ويجمع القيم ويطابق كل صف مع طلبات الدفع.",
   "Papel na unidade": "الدور في الوحدة", "Proprietário": "المالك", "Inquilino": "المستأجر",
+  "Sua sessão expirou. Entre novamente.": "انتهت صلاحية الجلسة. سجّل الدخول من جديد.",
   "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "المالك فقط يرى أرقام المجمع (الرصيد والإيرادات والمصروفات والتأخر في السداد) في البوابة.",
   "Nenhuma cobrança para esta unidade ainda.": "لا مدفوعات لهذه الوحدة بعد.",
   "Toque para ler": "انقر للقراءة",

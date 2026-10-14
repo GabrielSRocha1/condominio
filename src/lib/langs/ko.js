@@ -148,6 +148,7 @@ export default {
   "Rode o arquivo supabase-planilhas.sql no SQL Editor do Supabase (uma vez). Nada mais do app depende dele — o resto continua funcionando normalmente.": "Supabase SQL 편집기에서 supabase-planilhas.sql 파일을 한 번 실행하세요. 앱의 다른 기능은 이것에 의존하지 않습니다.",
   "Suba a planilha de histórico do condomínio — com as colunas que ela já tem. O sistema espelha as colunas, soma os valores e cruza cada linha com as cobranças do app.": "관리단의 이력 시트를 올리세요 — 지금 있는 열 그대로. 시스템이 열을 그대로 반영하고 값을 합산하며 각 행을 앱의 청구와 대조합니다.",
   "Papel na unidade": "세대 내 역할", "Proprietário": "소유자", "Inquilino": "세입자",
+  "Sua sessão expirou. Entre novamente.": "세션이 만료되었습니다. 다시 로그인하세요.",
   "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "포털에서 관리단의 수치(잔액, 수입, 지출, 연체)는 소유자만 볼 수 있습니다.",
   "Nenhuma cobrança para esta unidade ainda.": "이 세대에는 아직 청구가 없습니다.",
   "Toque para ler": "눌러서 읽기",

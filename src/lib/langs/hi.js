@@ -148,6 +148,7 @@ export default {
   "Rode o arquivo supabase-planilhas.sql no SQL Editor do Supabase (uma vez). Nada mais do app depende dele — o resto continua funcionando normalmente.": "Supabase के SQL एडिटर में supabase-planilhas.sql फ़ाइल एक बार चलाएँ। ऐप का और कुछ इस पर निर्भर नहीं है।",
   "Suba a planilha de histórico do condomínio — com as colunas que ela já tem. O sistema espelha as colunas, soma os valores e cruza cada linha com as cobranças do app.": "कॉन्डोमिनियम की इतिहास शीट अपलोड करें — उसके मौजूदा कॉलम के साथ। सिस्टम कॉलम दर्शाता है, मान जोड़ता है और हर पंक्ति का ऐप के शुल्कों से मिलान करता है।",
   "Papel na unidade": "यूनिट में भूमिका", "Proprietário": "मालिक", "Inquilino": "किरायेदार",
+  "Sua sessão expirou. Entre novamente.": "आपका सत्र समाप्त हो गया। फिर से लॉगिन करें।",
   "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "पोर्टल में कॉन्डोमिनियम के आंकड़े (शेष, आय, व्यय और बकाया) केवल मालिक देखता है।",
   "Nenhuma cobrança para esta unidade ainda.": "इस यूनिट के लिए अभी कोई भुगतान नहीं।",
   "Toque para ler": "पढ़ने के लिए टैप करें",

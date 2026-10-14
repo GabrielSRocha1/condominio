@@ -40,10 +40,31 @@ const expiraEmMs = (token) => {
   } catch { return null; }
 };
 
+/* lock entre ABAS e janela PWA (navigator.locks): a renovação fica
+   serializada na origem inteira. Sem ele, timers que acordavam juntos (volta
+   da suspensão, duas abas) disparavam dois POSTs com o MESMO cookie e a
+   detecção anti-roubo do servidor revogava a família inteira da sessão.
+   Navegador sem a API segue sem lock — o servidor tolera a duplicata
+   (janela de graça em rotacionarRefresh). */
+const comLockRenovacao = (fn) =>
+  (typeof navigator !== "undefined" && navigator.locks?.request)
+    ? navigator.locks.request("cm_renovacao", fn)
+    : fn();
+
 async function renovarSessao() {
-  if (renovando) return renovando; // single-flight
-  renovando = (async () => {
+  if (renovando) return renovando; // single-flight (mesma aba)
+  renovando = comLockRenovacao(async () => {
     try {
+      /* outra aba renovou enquanto este lock esperava? adota o token dela e
+         não repete o POST (repetir contaria como reuso no servidor) */
+      try {
+        const s = JSON.parse(localStorage.getItem("cm_sessao"));
+        const resta = s?.token ? expiraEmMs(s.token) : null;
+        if (s?.token && s.token !== tokenAtual && resta != null && resta > MARGEM_MS) {
+          setAuthToken(s.token);
+          return s.token;
+        }
+      } catch { /* sem storage */ }
       const r = await fetch("/api/auth/refresh", { method: "POST" });
       if (!r.ok) return null;
       const corpo = await r.json().catch(() => null);
@@ -56,8 +77,8 @@ async function renovarSessao() {
       } catch { /* sem storage */ }
       return corpo.token;
     } catch { return null; }
-    finally { renovando = null; }
-  })();
+  }).catch(() => null);
+  renovando = renovando.finally(() => { renovando = null; });
   return renovando;
 }
 

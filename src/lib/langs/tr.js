@@ -148,6 +148,7 @@ export default {
   "Rode o arquivo supabase-planilhas.sql no SQL Editor do Supabase (uma vez). Nada mais do app depende dele — o resto continua funcionando normalmente.": "supabase-planilhas.sql dosyasını Supabase SQL Düzenleyici'de bir kez çalıştırın. Uygulamanın başka hiçbir yeri buna bağlı değil.",
   "Suba a planilha de histórico do condomínio — com as colunas que ela já tem. O sistema espelha as colunas, soma os valores e cruza cada linha com as cobranças do app.": "Sitenin geçmiş tablosunu yükleyin — hâlihazırdaki sütunlarıyla. Sistem sütunları birebir yansıtır, değerleri toplar ve her satırı uygulamanın tahakkuklarıyla eşleştirir.",
   "Papel na unidade": "Dairedeki rol", "Proprietário": "Mal sahibi", "Inquilino": "Kiracı",
+  "Sua sessão expirou. Entre novamente.": "Oturumunuz sona erdi. Yeniden giriş yapın.",
   "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "Portalda site rakamlarını (bakiye, gelir, gider ve gecikme) yalnızca mal sahibi görür.",
   "Nenhuma cobrança para esta unidade ainda.": "Bu daire için henüz tahsilat yok.",
   "Toque para ler": "Okumak için dokunun",

@@ -156,35 +156,54 @@ export async function emitirRefresh(supabase, res, { usuarioId, perfil, condomin
   }
 }
 
-/* valida + ROTACIONA o refresh do cookie. Reuso de token já rotacionado =
-   possível roubo → revoga a família inteira. Devolve a sessão ou null. */
+/* valida + ROTACIONA o refresh do cookie — de forma ATÔMICA: o UPDATE com
+   filtro `usado_em is null` é um compare-and-swap, então de N requisições
+   simultâneas com o MESMO token (duas abas, timers acordando juntos da
+   suspensão — visto em produção a 99ms de distância) só UMA vence. As outras
+   caem no ramo de reuso, que separa a duplicata benigna (segundos atrás →
+   só nega, sem punir) do replay tardio = possível roubo → revoga a família
+   inteira. Devolve a sessão ou null. */
+const REUSO_GRACA_MS = 30 * 1000; // reuso dentro disto = corrida de cliente, não roubo
+
 export async function rotacionarRefresh(supabase, req, res) {
   const token = lerCookieRefresh(req);
   if (!token) return null;
-  const { data: sessao } = await supabase.from("auth_sessoes")
-    .select("id, usuario_id, familia, perfil, condominio_id, expira_em, usado_em, revogada")
-    .eq("token_hash", hashToken(token)).maybeSingle();
-  if (!sessao) return null;
-
-  if (sessao.revogada || sessao.usado_em) {
-    /* token já consumido voltou a aparecer: derruba toda a cadeia */
-    await supabase.from("auth_sessoes").update({ revogada: true }).eq("familia", sessao.familia);
-    limparCookieRefresh(res);
-    await auditar(supabase, {
-      evento: "sessao_reuso_detectado", severidade: "alta",
-      usuarioId: sessao.usuario_id, condominioId: sessao.condominio_id,
-      ip: ipDoRequest(req), detalhe: { familia: sessao.familia },
+  const agora = new Date();
+  const { data: vencidas } = await supabase.from("auth_sessoes")
+    .update({ usado_em: agora.toISOString() })
+    .eq("token_hash", hashToken(token))
+    .is("usado_em", null).eq("revogada", false).gt("expira_em", agora.toISOString())
+    .select("id, usuario_id, familia, perfil, condominio_id");
+  const sessao = vencidas?.[0];
+  if (sessao) {
+    const ok = await emitirRefresh(supabase, res, {
+      usuarioId: sessao.usuario_id, perfil: sessao.perfil,
+      condominioId: sessao.condominio_id, familia: sessao.familia,
     });
-    return null;
+    return ok ? sessao : null;
   }
-  if (new Date(sessao.expira_em) < new Date()) { limparCookieRefresh(res); return null; }
 
-  await supabase.from("auth_sessoes").update({ usado_em: new Date().toISOString() }).eq("id", sessao.id);
-  const ok = await emitirRefresh(supabase, res, {
-    usuarioId: sessao.usuario_id, perfil: sessao.perfil,
-    condominioId: sessao.condominio_id, familia: sessao.familia,
+  /* não venceu o CAS — token desconhecido, expirado ou já consumido */
+  const { data: vista } = await supabase.from("auth_sessoes")
+    .select("usuario_id, familia, condominio_id, expira_em, usado_em, revogada")
+    .eq("token_hash", hashToken(token)).maybeSingle();
+  if (!vista) return null;
+  if (!vista.revogada && !vista.usado_em) { limparCookieRefresh(res); return null; } // só expirou
+
+  if (!vista.revogada && agora - new Date(vista.usado_em) < REUSO_GRACA_MS)
+    /* duplicata benigna: a requisição irmã que venceu já levou o token novo
+       e o Set-Cookie dela define o cookie — aqui não se mexe em nada */
+    return null;
+
+  /* replay tardio ou família já revogada: derruba toda a cadeia */
+  await supabase.from("auth_sessoes").update({ revogada: true }).eq("familia", vista.familia);
+  limparCookieRefresh(res);
+  await auditar(supabase, {
+    evento: "sessao_reuso_detectado", severidade: "alta",
+    usuarioId: vista.usuario_id, condominioId: vista.condominio_id,
+    ip: ipDoRequest(req), detalhe: { familia: vista.familia },
   });
-  return ok ? sessao : null;
+  return null;
 }
 
 export async function revogarRefresh(supabase, req, res) {

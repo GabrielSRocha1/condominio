@@ -87,9 +87,17 @@ const sha256 = async (s) => {
   return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");
 };
 
+/* Erro de autenticação (JWT vencido/inválido — PGRST301/302) ganha a marca
+   authExpirada: o App desloga e volta ao login em vez de insistir num token
+   morto atrás do ErrorState. Erro de rede/dados segue sem a marca. */
 const q = async (promise, label) => {
   const { data, error } = await promise;
-  if (error) throw new Error(`${label}: ${error.message}`);
+  if (error) {
+    const e = new Error(`${label}: ${error.message}`);
+    e.authExpirada = error.code === "PGRST301" || error.code === "PGRST302"
+      || /\bJW[TS]/i.test(String(error.message));
+    throw e;
+  }
   return data;
 };
 

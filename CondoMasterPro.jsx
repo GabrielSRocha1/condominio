@@ -609,7 +609,7 @@ const useLoad = (screen) => {
 };
 
 /* ══════════════ LOGIN ══════════════ */
-function Login({ t, onEnter, dark, setDark, lang, onLang }) {
+function Login({ t, onEnter, dark, setDark, lang, onLang, aviso }) {
   const [diretor, setDiretor] = useState(null); // conta do diretor desta sessão (a fonte é o banco)
   const [role, setRole] = useState(null);
   const [erro, setErro] = useState("");
@@ -770,6 +770,10 @@ function Login({ t, onEnter, dark, setDark, lang, onLang }) {
           <p className="mt-1 text-xs" style={{ color: t.dim }}>{L("Gestão condominial premium · powered by Serve Now Global")}</p>
         </div>
         <Card t={t} className="p-5">
+          {aviso && !posLogin && (
+            <div className="mb-3 rounded-xl border px-3 py-2 text-xs"
+              style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>{L(aviso)}</div>
+          )}
           {posLogin ? (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
@@ -4822,11 +4826,24 @@ export default function App() {
   /* carga dos dados do Supabase */
   const [db, setDb] = useState(null);
   const [dbErr, setDbErr] = useState(null);
+  const [avisoLogin, setAvisoLogin] = useState(null); // ex.: sessão expirada — exibido na tela de entrada
+  const sair = useCallback(() => {
+    encerrarSessaoServidor(); // revoga o refresh token (cookie HttpOnly) no servidor
+    salvarSessao(null); setAuthToken(null);
+    try { sessionStorage.removeItem(K_TELA); sessionStorage.removeItem("cm_tela_portal"); } catch { /* sem storage */ }
+    setMorador(null); setDiretorConta(null); setCondId(null); setRole(null);
+  }, []);
   const reload = useCallback(async () => {
     setDbErr(null);
     try { setDb(await loadAll(condId)); }
-    catch (e) { console.error("[Supabase]", e); setDbErr(e); }
-  }, [condId]);
+    catch (e) {
+      console.error("[Supabase]", e);
+      /* sessão morta (JWT vencido e renovação negada): volta ao login com
+         aviso, em vez de prender a pessoa no ErrorState com um token morto */
+      if (e?.authExpirada) { setAvisoLogin("Sua sessão expirou. Entre novamente."); sair(); return; }
+      setDbErr(e);
+    }
+  }, [condId, sair]);
   useEffect(() => { reload(); }, [reload]);
   const dataValue = useMemo(() => ({ db, reload }), [db, reload]);
   /* moeda de gestão vinda do banco (padrão USD) — aplicada antes de renderizar as telas */
@@ -4935,14 +4952,9 @@ export default function App() {
      exceto nas páginas legais, onde o banner cobriria o próprio texto que o explica */
   const chrome = <>{globalStyle}<CookieBanner t={t} /></>;
 
-  const sair = useCallback(() => {
-    encerrarSessaoServidor(); // revoga o refresh token (cookie HttpOnly) no servidor
-    salvarSessao(null); setAuthToken(null);
-    try { sessionStorage.removeItem(K_TELA); sessionStorage.removeItem("cm_tela_portal"); } catch { /* sem storage */ }
-    setMorador(null); setDiretorConta(null); setCondId(null); setRole(null);
-  }, []);
   const entrar = useCallback((r, m, d, cId, token) => {
     salvarSessao({ role: r, morador: m || null, diretor: d ? { nome: d.nome, email: d.email } : null, condominioId: cId || null, token: token || null });
+    setAvisoLogin(null); // o aviso de sessão expirada cumpriu o papel
     setMorador(m || null); setDiretorConta(d || null); setCondId(cId || null); setRole(r);
     setScreen("dashboard");
   }, []);
@@ -4970,7 +4982,7 @@ export default function App() {
     </>
   );
 
-  if (!role) return <DataCtx.Provider value={dataValue}>{chrome}<Login t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} onEnter={entrar} /></DataCtx.Provider>;
+  if (!role) return <DataCtx.Provider value={dataValue}>{chrome}<Login t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} onEnter={entrar} aviso={avisoLogin} /></DataCtx.Provider>;
   /* conta sem condomínio próprio (diretor recém-cadastrado) vai direto para o
      primeiro acesso — nunca enxerga o prédio de outra conta */
   if (db?.vazio || !condId) return (

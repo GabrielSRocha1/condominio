@@ -148,6 +148,7 @@ export default {
   "Rode o arquivo supabase-planilhas.sql no SQL Editor do Supabase (uma vez). Nada mais do app depende dele — o resto continua funcionando normalmente.": "在 Supabase 的 SQL 编辑器中执行一次 supabase-planilhas.sql 文件。应用的其他部分都不依赖它。",
   "Suba a planilha de histórico do condomínio — com as colunas que ela já tem. O sistema espelha as colunas, soma os valores e cruza cada linha com as cobranças do app.": "上传小区的历史表格 — 沿用它已有的列。系统会照搬这些列、汇总数值，并把每一行与应用中的账单比对。",
   "Papel na unidade": "在单元中的身份", "Proprietário": "业主", "Inquilino": "租户",
+  "Sua sessão expirou. Entre novamente.": "您的会话已过期。请重新登录。",
   "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "门户中仅业主可查看小区数据（余额、收入、支出和欠缴率）。",
   "Nenhuma cobrança para esta unidade ainda.": "该单元暂无收费。",
   "Toque para ler": "点击阅读",
