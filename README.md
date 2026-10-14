@@ -32,6 +32,11 @@ idiomas, instalável como PWA.
       para diretor/síndico (Etapa 5 — exige as envs `SMTP_HOST/PORT/USER/PASS`;
       detalhes no `SEGURANCA.md`)
 
+   5. `supabase-planilhas.sql` — histórico de cobranças importado de
+      planilha (tabelas `planilhas_cobranca` e `planilha_cobranca_linhas`,
+      com as próprias policies). Opcional: sem ele, só a aba
+      "Histórico (planilha)" da tela Cobranças fica indisponível.
+
    Banco **já instalado**? Não re-rode o schema inteiro — rode apenas o
    `alter table usuarios add column if not exists preferencias …` que vem logo
    abaixo do `create table usuarios` (guarda o idioma escolhido por cada conta)
@@ -52,6 +57,7 @@ idiomas, instalável como PWA.
 | `testar-recuperacao.mjs` | sondas da recuperação de senha — código (Etapa 4) e link por e-mail (Etapa 5) |
 | `testar-idioma-moeda.mjs` | sondas do idioma por IP, da preferência no banco e da semente de moeda |
 | `testar-dlocal.mjs` | sondas da Fase 0 da dLocal Go: credenciais, colaborações de split e matriz país × moeda (`--live` só lê) |
+| `testar-planilha-cobrancas.mjs` | sondas do histórico por planilha: leitura de colunas livres, conciliação, dedupe e a prova de que o histórico não entra no caixa |
 | `relatorio-seguranca.mjs` | auditoria semanal (sessões, eventos, anomalias) |
 | `emergencia-sessoes.mjs` | resposta a incidente: revoga sessões em massa |
 | `verificar-segredos-bundle.mjs` | confere que nenhum segredo vazou no build |

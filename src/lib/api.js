@@ -1595,3 +1595,142 @@ export async function gerarCobrancas(ctx, f) {
   }
   return rows.length;
 }
+
+/* ═════════ HISTÓRICO DE COBRANÇAS POR PLANILHA ═════════
+   A planilha do condomínio (colunas dele) vira tabela gerenciável aqui
+   dentro, conciliada com as cobranças por unidade + competência. Ela NÃO
+   é a verdade do financeiro: lê cobranças e, no máximo, insere as que
+   faltam — nunca altera as existentes, e nunca lança no caixa.
+   Escrita direta por supabase-js, autorizada pelo RLS (tenant_escrita =
+   diretor/síndico/tesouraria), no mesmo padrão de gerarCobrancas. */
+
+/* supabase-planilhas.sql ainda não rodado: o app degrada aberto e a aba
+   mostra o aviso, em vez de estourar erro */
+const semTabela = (e) => !!e && /does not exist|schema cache|PGRST205/i.test(`${e.message} ${e.code || ""}`);
+
+export async function carregarPlanilhaCobrancas(ctx) {
+  const { data: pl, error } = await supabase.from("planilhas_cobranca")
+    .select("*").eq("condominio_id", ctx.condominioId).maybeSingle();
+  if (error) {
+    if (semTabela(error)) return { indisponivel: true, planilha: null, linhas: [] };
+    throw new Error("planilha: " + error.message);
+  }
+  if (!pl) return { planilha: null, linhas: [] };
+  const linhas = await q(supabase.from("planilha_cobranca_linhas")
+    .select("*").eq("planilha_id", pl.id).order("ordem").order("criado_em"), "planilha_cobranca_linhas");
+  return { planilha: pl, linhas };
+}
+
+/* cria a planilha na 1ª carga; nas seguintes ACRESCENTA linhas, casando
+   pelo unique (planilha_id, unidade_id, competencia) — reenviar o mesmo
+   mês atualiza a linha em vez de duplicá-la. Colunas novas entram na
+   definição; as que sumiram continuam valendo para as linhas antigas. */
+export async function salvarPlanilhaCobrancas(ctx, { nome, colunas, linhas }) {
+  const atual = await carregarPlanilhaCobrancas(ctx);
+  if (atual.indisponivel) throw new Error("Rode o supabase-planilhas.sql no Supabase para habilitar o histórico por planilha.");
+
+  let planilha = atual.planilha;
+  if (!planilha) {
+    [planilha] = await q(supabase.from("planilhas_cobranca").insert({
+      condominio_id: ctx.condominioId, nome: nome || "Histórico de cobranças", colunas,
+    }).select(), "planilhas_cobranca");
+  } else {
+    const porChave = new Map((planilha.colunas || []).map((c) => [c.chave, c]));
+    for (const c of colunas) if (!porChave.has(c.chave)) porChave.set(c.chave, c);
+    const fundidas = [...porChave.values()].map((c, i) => ({ ...c, ordem: i }));
+    [planilha] = await q(supabase.from("planilhas_cobranca")
+      .update({ colunas: fundidas, atualizado_em: new Date().toISOString() })
+      .eq("id", planilha.id).select(), "planilhas_cobranca");
+  }
+
+  const base = atual.linhas.reduce((m, l) => Math.max(m, l.ordem || 0), 0);
+  const rows = linhas.map((l, i) => ({
+    condominio_id: ctx.condominioId, planilha_id: planilha.id, dados: l.dados,
+    unidade_id: l.unidadeId || null, competencia: l.competencia || null,
+    origem: "planilha", ordem: base + i + 1,
+  }));
+  /* em lotes: uma carga de 5.000 linhas num único insert estoura o limite
+     de corpo do PostgREST */
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await supabase.from("planilha_cobranca_linhas")
+      .upsert(rows.slice(i, i + 500), { onConflict: "planilha_id,unidade_id,competencia" });
+    if (error) throw new Error("linhas da planilha: " + error.message);
+  }
+  return { planilhaId: planilha.id, gravadas: rows.length };
+}
+
+export async function salvarColunasPlanilha(planilhaId, colunas) {
+  await q(supabase.from("planilhas_cobranca")
+    .update({ colunas, atualizado_em: new Date().toISOString() }).eq("id", planilhaId).select(), "planilhas_cobranca");
+}
+
+/* edição célula a célula: lê-modifica-grava o jsonb da própria linha */
+export async function atualizarCelulaPlanilha(linha, chave, valor) {
+  const dados = { ...(linha.dados || {}), [chave]: valor };
+  const [nova] = await q(supabase.from("planilha_cobranca_linhas")
+    .update({ dados, atualizado_em: new Date().toISOString() }).eq("id", linha.id).select(), "planilha_cobranca_linhas");
+  return nova;
+}
+
+export async function criarLinhaPlanilha(ctx, planilhaId, { dados = {}, unidadeId = null, competencia = null, ordem = 0 }) {
+  const [nova] = await q(supabase.from("planilha_cobranca_linhas").insert({
+    condominio_id: ctx.condominioId, planilha_id: planilhaId, dados,
+    unidade_id: unidadeId, competencia, origem: "manual", ordem,
+  }).select(), "planilha_cobranca_linhas");
+  return nova;
+}
+
+export async function removerLinhaPlanilha(id) {
+  const { error } = await supabase.from("planilha_cobranca_linhas").delete().eq("id", id);
+  if (error) throw new Error("linha da planilha: " + error.message);
+}
+
+/* Cria as cobranças das linhas "só na planilha". Mesmo formato de
+   gerarCobrancas (tipo ordinária, responsável financeiro da unidade), com
+   o status derivado do que a planilha diz sobre o pagamento.
+   NÃO cria pagamentos nem lançamentos: histórico importado não entra no
+   caixa — o saldo do dashboard segue sendo só o que o app recebeu. */
+export async function criarCobrancasDaPlanilha(ctx, linhas) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const recusadas = [];
+  const aCriar = [];
+  for (const l of linhas) {
+    const u = ctx.unidades.find((x) => x.id === l.unidadeId);
+    if (!u) { recusadas.push({ linha: l, motivo: "Unidade não reconhecida." }); continue; }
+    if (!u.responsavelId) {
+      recusadas.push({ linha: l, motivo: `${u.label}: sem responsável financeiro — defina a pessoa na tela Pessoas ou o morador em Gerenciar Acessos.` });
+      continue;
+    }
+    if (!l.competencia) { recusadas.push({ linha: l, motivo: "Competência não reconhecida." }); continue; }
+    const valor = num(l.valor);
+    if (!valor) { recusadas.push({ linha: l, motivo: "Valor ausente ou igual a zero." }); continue; }
+    const vencimento = l.vencimento || `${l.competencia}-10`;
+    const status = l.pagoEm || l.pago
+      ? (l.pagoEm && l.pagoEm > vencimento ? "paga_em_atraso" : "paga")
+      : (vencimento < hoje ? "vencida" : "emitida");
+    aCriar.push({ linhaId: l.id, row: {
+      condominio_id: ctx.condominioId, unidade_id: u.id, responsavel_id: u.responsavelId,
+      competencia: l.competencia, tipo: "ordinaria", valor_original: valor, vencimento, status,
+    } });
+  }
+  if (!aCriar.length) return { criadas: 0, recusadas };
+
+  let criadas = 0;
+  for (let i = 0; i < aCriar.length; i += 200) {
+    const lote = aCriar.slice(i, i + 200);
+    const { data, error } = await supabase.from("cobrancas").insert(lote.map((x) => x.row)).select();
+    if (error) {
+      if (error.message.includes("uq_cobranca_ordinaria"))
+        throw new Error("Alguma dessas competências já tem cobrança ordinária na unidade — recarregue a tela e tente de novo.");
+      throw new Error("cobranças: " + error.message);
+    }
+    /* devolve o vínculo para a linha: a planilha passa a apontar a cobrança */
+    const porChave = new Map((data || []).map((c) => [`${c.unidade_id}|${c.competencia}`, c.id]));
+    for (const x of lote) {
+      const id = porChave.get(`${x.row.unidade_id}|${x.row.competencia}`);
+      if (id) await supabase.from("planilha_cobranca_linhas").update({ cobranca_id: id }).eq("id", x.linhaId);
+    }
+    criadas += data?.length || 0;
+  }
+  return { criadas, recusadas };
+}

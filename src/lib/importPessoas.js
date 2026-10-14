@@ -4,17 +4,9 @@
    api.js (importarPessoas) — aqui é só arquivo e validação. */
 import { L, traducoesDe } from "./i18n.js";
 import { separarTel, validarTel, normalizarTel } from "./telefone.js";
-
-/* exceljs (~250 KB gz) só carrega quando o modal de importação é usado —
-   dynamic import mantém o chunk fora do bundle principal */
-let _exceljs = null;
-async function carregarExcelJS() {
-  if (!_exceljs) {
-    const mod = await import("exceljs");
-    _exceljs = mod.default || mod;
-  }
-  return _exceljs;
-}
+/* leitura de arquivo, coerção de célula e datas vivem no núcleo comum —
+   o histórico de cobranças usa exatamente o mesmo código */
+import { carregarExcelJS, lerCsv, lerMatrizXlsx, paraISO, texto, norm, resolverUnidade } from "./planilha.js";
 
 /* mesmos 10 papéis oferecidos no formulário manual (tela Pessoas) */
 const PAPEIS_UI = ["Proprietário", "Inquilino", "Morador", "Dependente", "Diretor", "Síndico", "Tesouraria", "Funcionário", "Prestador", "Visitante recorrente"];
@@ -36,9 +28,6 @@ const MAX_BYTES = 2 * 1024 * 1024;
    — a variante fiscal, com "/", porque o campo aceita CPF E CNPJ/RUC/CUIT… */
 const RE_DOC = /^(?=.*\d)[A-Za-z0-9][A-Za-z0-9 ./-]{4,17}$/;
 const RE_EMAIL = /^\S+@\S+\.\S+$/;
-
-const norm = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\*/g, "").toLowerCase().replace(/\s+/g, " ").trim();
-const pad2 = (n) => String(n).padStart(2, "0");
 
 /* ─────────── geração do modelo ─────────── */
 
@@ -117,115 +106,20 @@ export async function gerarModeloPessoas(ctx) {
 
 /* ─────────── leitura do arquivo → matriz de células ─────────── */
 
-/* célula do exceljs pode ser richText, hyperlink (e-mails!) ou fórmula —
-   reduz tudo para texto/Date/número cru */
-const valorCelula = (v) => {
-  if (v == null) return "";
-  if (v instanceof Date || typeof v === "number" || typeof v === "boolean") return v;
-  if (typeof v === "object") {
-    if (Array.isArray(v.richText)) return v.richText.map((r) => r.text).join("");
-    if (v.text != null) return typeof v.text === "object" ? valorCelula(v.text) : String(v.text);
-    if (v.result != null) return valorCelula(v.result);
-    if (v.hyperlink) return String(v.hyperlink).replace(/^mailto:/, "");
-    return "";
-  }
-  return String(v);
-};
-
+/* a aba "Pessoas" (em qualquer idioma), recortada nas 7 colunas do modelo
+   — o fallback posicional de mapearColunas depende dessa largura fixa */
 async function lerXlsx(file) {
-  const ExcelJS = await carregarExcelJS();
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(await file.arrayBuffer());
-  const nomesPessoas = new Set(traducoesDe("Pessoas").map(norm));
-  const ws = wb.worksheets.find((w) => nomesPessoas.has(norm(w.name)))
-    || wb.worksheets.find((w) => w.state !== "hidden" && w.state !== "veryHidden")
-    || wb.worksheets[0];
-  if (!ws) return [];
-  const matriz = []; // índice = número da linha na planilha - 1 (preserva a numeração real)
-  ws.eachRow({ includeEmpty: false }, (row, n) => {
-    matriz[n - 1] = COLS.map((_, i) => valorCelula(row.getCell(i + 1).value));
-  });
-  return matriz;
-}
-
-async function lerCsv(file) {
-  const buf = await file.arrayBuffer();
-  let texto = new TextDecoder("utf-8").decode(buf);
-  /* Excel pt às vezes grava ANSI — o caractere de substituição denuncia */
-  if (texto.includes("�")) texto = new TextDecoder("windows-1252").decode(buf);
-  if (texto.charCodeAt(0) === 0xFEFF) texto = texto.slice(1);
-  const cab = texto.slice(0, texto.search(/\r|\n/) < 0 ? texto.length : texto.search(/\r|\n/));
-  const sep = (cab.match(/;/g) || []).length >= (cab.match(/,/g) || []).length ? ";" : ",";
-  const linhas = [];
-  let linha = [], campo = "", aspas = false;
-  for (let i = 0; i < texto.length; i++) {
-    const ch = texto[i];
-    if (aspas) {
-      if (ch === '"') { if (texto[i + 1] === '"') { campo += '"'; i++; } else aspas = false; }
-      else campo += ch;
-    } else if (ch === '"') aspas = true;
-    else if (ch === sep) { linha.push(campo); campo = ""; }
-    else if (ch === "\n" || ch === "\r") {
-      if (ch === "\r" && texto[i + 1] === "\n") i++;
-      linha.push(campo); campo = ""; linhas.push(linha); linha = [];
-    } else campo += ch;
-  }
-  if (campo !== "" || linha.length) { linha.push(campo); linhas.push(linha); }
-  return linhas;
+  const matriz = await lerMatrizXlsx(file, traducoesDe("Pessoas"));
+  return matriz.map((linha) => (linha ? COLS.map((_, i) => linha[i] ?? "") : linha));
 }
 
 /* ─────────── coerções e resoluções ─────────── */
-
-/* data da célula: Date (xlsx formatado), serial do Excel (célula "geral")
-   ou texto DD/MM/AAAA / AAAA-MM-DD. Getters UTC — o serial é UTC e usar o
-   fuso local faria a data voltar um dia. */
-function paraISO(v) {
-  if (v == null || v === "") return { iso: "" };
-  if (v instanceof Date) {
-    if (isNaN(v)) return { erro: true };
-    return montaISO(v.getUTCFullYear(), v.getUTCMonth() + 1, v.getUTCDate());
-  }
-  if (typeof v === "number") return paraISO(new Date(Math.round((v - 25569) * 86400000)));
-  const s = String(v).trim();
-  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (m) return montaISO(+m[1], +m[2], +m[3]);
-  m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
-  if (m) return montaISO(+m[3], +m[2], +m[1]);
-  return { erro: true };
-}
-function montaISO(ano, mes, dia) {
-  if (ano < 1900 || ano > 2100) return { erro: true };
-  /* round-trip pega dia inexistente no mês (31/02 viraria 03/03) */
-  const d = new Date(Date.UTC(ano, mes - 1, dia));
-  if (d.getUTCFullYear() !== ano || d.getUTCMonth() !== mes - 1 || d.getUTCDate() !== dia) return { erro: true };
-  return { iso: `${ano}-${pad2(mes)}-${pad2(dia)}` };
-}
-
-const texto = (v) => {
-  if (v instanceof Date) { const r = paraISO(v); return r.iso || ""; }
-  return String(v ?? "").trim();
-};
 
 function resolverPapel(txt) {
   const n = norm(txt);
   if (!n) return { papel: "Morador" };
   const hit = PAPEIS_UI.find((p) => traducoesDe(p).some((tr) => norm(tr) === n));
   return hit ? { papel: hit } : { erro: true };
-}
-
-/* label canônico é "numero-bloco" (ex.: "101-A"); tolera "A-101" e o número
-   puro quando ele é único no condomínio */
-function resolverUnidade(txt, ctx) {
-  const n = norm(txt);
-  if (!n) return { id: null };
-  const porLabel = ctx.unidades.find((u) => norm(u.label) === n);
-  if (porLabel) return { id: porLabel.id };
-  const invertido = n.split("-").reverse().join("-");
-  const porInvertido = ctx.unidades.find((u) => norm(u.label) === invertido);
-  if (porInvertido) return { id: porInvertido.id };
-  const porNumero = ctx.unidades.filter((u) => norm(u.label).split("-")[0] === n);
-  if (porNumero.length === 1) return { id: porNumero[0].id };
-  return { erro: true };
 }
 
 /* aceita o cabeçalho em qualquer um dos 15 idiomas; sem reconhecer as duas

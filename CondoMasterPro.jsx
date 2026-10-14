@@ -27,8 +27,11 @@ import {
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
   salvarPreferencias, importarPessoas, LOCALE_MOEDA, definirPapelAcesso,
+  carregarPlanilhaCobrancas, salvarPlanilhaCobrancas, salvarColunasPlanilha, atualizarCelulaPlanilha,
+  criarLinhaPlanilha, removerLinhaPlanilha, criarCobrancasDaPlanilha,
 } from "./src/lib/api.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
+import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
@@ -2204,6 +2207,9 @@ function Financeiro({ t }) {
 function Cobrancas({ t }) {
   const { db, reload } = useData();
   const S = db.stats;
+  /* duas abas: as cobranças do app e o histórico importado de planilha */
+  const [aba, setAba] = useState(() => { try { return sessionStorage.getItem("cm_cobr_tab") || "cobrancas"; } catch { return "cobrancas"; } });
+  useEffect(() => { try { sessionStorage.setItem("cm_cobr_tab", aba); } catch { /* sem storage */ } }, [aba]);
   const [q, setQ] = useState(""); const [st, setSt] = useState("todos"); const [qr, setQr] = useState(null); const [nova, setNova] = useState(false);
   const [destino, setDestino] = useState(""); // "" = rateio para todas; senão, id da unidade
   const [base, setBase] = useState("fracao"); // fracao (proporcional à área) | igual (partes iguais)
@@ -2259,6 +2265,13 @@ function Cobrancas({ t }) {
   const nAlvo = db.ctx.unidades.filter((u) => u.responsavelId).length;
   return (
     <div className="vfade space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {[["cobrancas", "Cobranças"], ["planilha", "Histórico (planilha)"]].map(([k, l]) => (
+          <button key={k} onClick={() => setAba(k)} className="rounded-xl border px-3 py-1.5 text-xs font-medium"
+            style={{ background: aba === k ? t.goldSoft : "transparent", color: aba === k ? t.gold : t.dim,
+              borderColor: aba === k ? t.border : t.borderSoft }}>{L(l)}</button>))}
+      </div>
+      {aba === "planilha" ? <PlanilhaCobrancas t={t} /> : (<>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard t={t} icon={QrCode} label={`Emitidas em ${S.competencia}`} value={String(S.cobrEmitidas)} />
         <StatCard t={t} icon={CheckCircle2} label="Pagas" value={`${S.cobrPagas} · ${pctPagas}%`} color={t.ok} />
@@ -2390,7 +2403,443 @@ function Cobrancas({ t }) {
               <Btn t={t} kind="primary" type="submit" disabled={gerando}><QrCode size={14} /> {gerando ? "Gerando…" : (destino ? L("Gerar cobrança") : `${L("Gerar")} ${nAlvo} ${L("cobranças")}`)}</Btn></div>
           </form>
         </Modal>)}
+      </>)}
     </div>
+  );
+}
+
+/* ══════════════ HISTÓRICO DE COBRANÇAS POR PLANILHA ══════════════
+   O condomínio sobe a planilha DELE, com as colunas dele: o app espelha as
+   colunas, guarda os valores em jsonb e passa a tratar aquilo como tabela
+   — totais, agrupamento, colunas calculadas e edição célula a célula. Em
+   cima disso, concilia cada linha com as cobranças do app por unidade +
+   competência, e pode criar as que faltam (sem lançar no caixa). */
+const SITUACOES = {
+  confere:     { l: "Confere",        c: "ok" },
+  difere:      { l: "Valor difere",   c: "warn" },
+  so_planilha: { l: "Só na planilha", c: "info" },
+  sem_chave:   { l: "Sem unidade/competência", c: "dim" },
+};
+const PAPEIS_COLUNA = [["", "— nenhum —"], ["unidade", "Unidade"], ["competencia", "Competência"],
+  ["valor", "Valor"], ["pago", "Pago"], ["vencimento", "Vencimento"], ["status", "Status"]];
+const OPS_CALC = [["-", "−"], ["+", "+"], ["*", "×"], ["/", "÷"]];
+
+/* valor da célula para exibição: data em dd/mm/aaaa, dinheiro na moeda de
+   gestão (só nas colunas de valor/pago/calculadas), demais números com
+   separador local */
+const fmtCelula = (v, col) => {
+  if (v === "" || v == null) return "";
+  if (col.tipo === "data" && /^\d{4}-\d{2}-\d{2}$/.test(String(v))) return String(v).split("-").reverse().join("/");
+  if (typeof v === "number") {
+    const dinheiro = col.calculada || ["valor", "pago"].includes(col.papel);
+    return dinheiro ? BRL(v) : v.toLocaleString(LOCALE_MOEDA[MOEDA] || "en-US", { maximumFractionDigits: 2 });
+  }
+  return String(v);
+};
+const ehNumerica = (col) => col.tipo === "numero" || !!col.calculada;
+
+function CelulaEditavel({ t, linha, col, onSalvar }) {
+  const [editando, setEditando] = useState(false);
+  const [v, setV] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const valor = linha.dados?.[col.chave] ?? "";
+  const abrir = () => { setV(valor === "" || valor == null ? "" : String(valor)); setEditando(true); };
+  const fechar = async () => {
+    setEditando(false);
+    if (String(valor ?? "") === v) return;
+    setSalvando(true);
+    try { await onSalvar(normalizarValor(v, col.tipo)); }
+    catch (e) { alert("Não foi possível salvar: " + (e?.message || e)); }
+    finally { setSalvando(false); }
+  };
+  if (editando) return (
+    <input autoFocus value={v} onChange={(e) => setV(e.target.value)} onBlur={fechar}
+      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setEditando(false); }}
+      style={{ ...inputStyle(t), padding: "2px 6px", fontSize: 13 }} />);
+  return (
+    <button onClick={abrir} title={L("Clique para editar")} className="w-full rounded px-1 text-left"
+      style={{ opacity: salvando ? 0.4 : 1, textAlign: ehNumerica(col) ? "right" : "left" }}>
+      {fmtCelula(valor, col) || <span style={{ color: t.dim }}>—</span>}
+    </button>);
+}
+
+function PlanilhaCobrancas({ t }) {
+  const { db, reload } = useData();
+  const [estado, setEstado] = useState(null);   // null = carregando
+  const [erro, setErro] = useState("");
+  const [importar, setImportar] = useState(false);
+  const [q, setQ] = useState("");
+  const [sit, setSit] = useState("todas");
+  const [agrupar, setAgrupar] = useState("");
+  const [pagina, setPagina] = useState(0);
+  const [calc, setCalc] = useState(null);       // construtor de coluna calculada
+  const [criando, setCriando] = useState(false);
+  const [aviso, setAviso] = useState("");
+  const POR_PAGINA = 100;
+
+  const recarregar = useCallback(async () => {
+    setErro("");
+    try { setEstado(await carregarPlanilhaCobrancas(db.ctx)); }
+    catch (e) { setErro(e?.message || String(e)); setEstado({ planilha: null, linhas: [] }); }
+  }, [db.ctx]);
+  useEffect(() => { recarregar(); }, [recarregar]);
+
+  const planilha = estado?.planilha;
+  const colunas = useMemo(() => [...(planilha?.colunas || [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)), [planilha]);
+
+  /* linhas resolvidas (unidade/competência/valor pelo papel das colunas) e
+     conciliadas com as cobranças já carregadas em db.cobr */
+  const { linhas, soSistema } = useMemo(() => {
+    if (!planilha) return { linhas: [], soSistema: [] };
+    const resolvidas = (estado.linhas || []).map((l) => ({ ...l, ...resolverLinha(colunas, l.dados, db.ctx) }));
+    return conciliarPlanilha(resolvidas, db.cobr);
+  }, [estado, planilha, colunas, db.cobr, db.ctx]);
+
+  const filtradas = useMemo(() => {
+    const busca = q.trim().toLowerCase();
+    return linhas.filter((l) => {
+      if (sit !== "todas" && l.situacao !== sit) return false;
+      if (!busca) return true;
+      return Object.values(l.dados || {}).some((v) => String(v).toLowerCase().includes(busca));
+    });
+  }, [linhas, q, sit]);
+  useEffect(() => { setPagina(0); }, [q, sit, agrupar]);
+
+  const valorDe = (l, col) => (col.calculada ? valorCalculado(l.dados, col) : l.dados?.[col.chave]);
+  const somaDe = (rows, col) => rows.reduce((s, l) => s + (paraNumero(valorDe(l, col)) || 0), 0);
+
+  /* agrupamento: a tabela vira o resumo (uma linha por grupo, com soma de
+     cada coluna numérica) — é o "total por unidade/competência" que o
+     gestor procura, sem renderizar milhares de linhas */
+  const grupos = useMemo(() => {
+    if (!agrupar) return null;
+    const col = colunas.find((c) => c.chave === agrupar);
+    if (!col) return null;
+    const mapa = new Map();
+    for (const l of filtradas) {
+      const chave = String(valorDe(l, col) ?? "") || "—";
+      if (!mapa.has(chave)) mapa.set(chave, []);
+      mapa.get(chave).push(l);
+    }
+    return [...mapa.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([valor, rows], i) => ({ id: `g${i}`, grupo: valor, n: rows.length, rows }));
+  }, [agrupar, filtradas, colunas]);
+
+  const paginas = Math.max(1, Math.ceil(filtradas.length / POR_PAGINA));
+  const pagina0 = Math.min(pagina, paginas - 1);
+  const visiveis = filtradas.slice(pagina0 * POR_PAGINA, (pagina0 + 1) * POR_PAGINA);
+  const numericas = colunas.filter(ehNumerica);
+  const faltando = linhas.filter((l) => l.situacao === "so_planilha");
+
+  const salvarCelula = async (linha, chave, valor) => {
+    const nova = await atualizarCelulaPlanilha(linha, chave, valor);
+    setEstado((e) => ({ ...e, linhas: e.linhas.map((x) => (x.id === nova.id ? nova : x)) }));
+  };
+  /* linha avulsa: nasce vazia (sem unidade/competência, logo sem conflito
+     com o dedupe) e é preenchida célula a célula */
+  const adicionarLinha = async () => {
+    try {
+      const ordem = (estado.linhas || []).reduce((m, l) => Math.max(m, l.ordem || 0), 0) + 1;
+      const nova = await criarLinhaPlanilha(db.ctx, planilha.id, { dados: {}, ordem });
+      setEstado((e) => ({ ...e, linhas: [...e.linhas, nova] }));
+      setPagina(Math.ceil(((estado.linhas?.length || 0) + 1) / POR_PAGINA) - 1);
+    } catch (e) { setErro(e?.message || String(e)); }
+  };
+  const excluirLinha = async (linha) => {
+    if (!confirm(L("Remover esta linha da planilha? A cobrança do sistema, se houver, não é afetada."))) return;
+    await removerLinhaPlanilha(linha.id);
+    setEstado((e) => ({ ...e, linhas: e.linhas.filter((x) => x.id !== linha.id) }));
+  };
+  const adicionarCalculada = async (f) => {
+    const titulo = String(f.titulo || "").trim() || "Calculada";
+    const chave = `calc_${Date.now().toString(36)}`;
+    const nova = [...colunas, { chave, titulo, tipo: "numero", papel: null, ordem: colunas.length,
+      calculada: { esq: f.esq, op: f.op, dir: f.dir } }];
+    await salvarColunasPlanilha(planilha.id, nova);
+    setEstado((e) => ({ ...e, planilha: { ...e.planilha, colunas: nova } }));
+    setCalc(null);
+  };
+  const removerColuna = async (col) => {
+    if (!col.calculada) return;
+    const nova = colunas.filter((c) => c.chave !== col.chave).map((c, i) => ({ ...c, ordem: i }));
+    await salvarColunasPlanilha(planilha.id, nova);
+    setEstado((e) => ({ ...e, planilha: { ...e.planilha, colunas: nova } }));
+  };
+  const criarFaltantes = async () => {
+    if (!confirm(`${L("Criar")} ${faltando.length} ${L("cobrança(s) a partir da planilha? Elas entram na lista de cobranças, mas NÃO lançam receita no caixa.")}`)) return;
+    setCriando(true); setErro(""); setAviso("");
+    try {
+      const r = await criarCobrancasDaPlanilha(db.ctx, faltando);
+      await reload();
+      await recarregar();
+      setAviso(`${r.criadas} ${L("cobrança(s) criada(s).")}${r.recusadas.length ? ` ${r.recusadas.length} ${L("linha(s) não puderam ser criadas:")} ${[...new Set(r.recusadas.map((x) => x.motivo))].slice(0, 3).join(" ")}` : ""}`);
+    } catch (e) { setErro(e?.message || String(e)); }
+    finally { setCriando(false); }
+  };
+  const exportar = async () => {
+    const ExcelJS = await carregarExcelJS();
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet(L("Histórico (planilha)"));
+    ws.addRow([...colunas.map((c) => c.titulo), L("Situação")]).font = { bold: true };
+    for (const l of filtradas)
+      ws.addRow([...colunas.map((c) => valorDe(l, c)), L(SITUACOES[l.situacao]?.l || l.situacao)]);
+    colunas.forEach((c, i) => { ws.getColumn(i + 1).width = Math.min(28, Math.max(12, c.titulo.length + 4)); });
+    const buf = await wb.xlsx.writeBuffer();
+    const url = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const a = document.createElement("a"); a.href = url; a.download = "historico-cobrancas.xlsx"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  if (estado === null) return <Skeleton t={t} />;
+  if (estado.indisponivel) return (
+    <EmptyState t={t} icon={FileText} title="Histórico por planilha ainda não habilitado"
+      hint="Rode o arquivo supabase-planilhas.sql no SQL Editor do Supabase (uma vez). Nada mais do app depende dele — o resto continua funcionando normalmente." />);
+  if (!planilha) return (<>
+    <EmptyState t={t} icon={FileText} title="Nenhuma planilha importada ainda"
+      hint="Suba a planilha de histórico do condomínio — com as colunas que ela já tem. O sistema espelha as colunas, soma os valores e cruza cada linha com as cobranças do app."
+      action={<Btn t={t} kind="primary" onClick={() => setImportar(true)}><Upload size={14} /> Importar planilha</Btn>} />
+    {importar && <ImportarPlanilha t={t} planilha={null} onClose={() => setImportar(false)} onPronto={recarregar} />}
+  </>);
+
+  const cols = [
+    ...colunas.map((c) => ({ k: c.chave, l: c.titulo })),
+    { k: "_sit", l: "Situação" }, { k: "_acao", l: "" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard t={t} icon={FileText} label="Linhas na planilha" value={String(linhas.length)} />
+        <StatCard t={t} icon={CheckCircle2} label="Conferem" value={String(linhas.filter((l) => l.situacao === "confere").length)} color={t.ok} />
+        <StatCard t={t} icon={AlertCircle} label="Valor difere" value={String(linhas.filter((l) => l.situacao === "difere").length)} color={t.warn} />
+        <StatCard t={t} icon={Plus} label="Só na planilha" value={String(faltando.length)} color={t.info} />
+      </div>
+
+      <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar em qualquer coluna…"
+        action={<div className="flex flex-wrap gap-2">
+          <Btn t={t} onClick={adicionarLinha}><Plus size={14} /> Linha</Btn>
+          <Btn t={t} onClick={() => setCalc({ titulo: "", esq: numericas[0]?.chave || "", op: "-", dir: numericas[1]?.chave || numericas[0]?.chave || "" })}
+            disabled={numericas.length < 1}><Plus size={14} /> Coluna calculada</Btn>
+          <Btn t={t} onClick={exportar}><Download size={14} /> Exportar</Btn>
+          <Btn t={t} kind="primary" onClick={() => setImportar(true)}><Upload size={14} /> Importar mais</Btn>
+        </div>}>
+        <Sel t={t} value={sit} onChange={setSit} opts={[["todas", "Todas as situações"], ["confere", "Confere"], ["difere", "Valor difere"], ["so_planilha", "Só na planilha"], ["sem_chave", "Sem unidade/competência"]]} />
+        <Sel t={t} value={agrupar} onChange={setAgrupar}
+          opts={[["", "Sem agrupamento"], ...colunas.filter((c) => !c.calculada).map((c) => [c.chave, c.titulo])]} />
+      </Toolbar>
+
+      {erro && <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.danger + "55", color: t.danger }}>{erro}</div>}
+      {aviso && <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.gold }}>{aviso}</div>}
+
+      {faltando.length > 0 && (
+        <Card t={t}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs" style={{ color: t.dim }}>
+              <b style={{ color: t.text }}>{faltando.length}</b> {L("linha(s) da planilha não têm cobrança correspondente no sistema.")}{" "}
+              {L("Criá-las registra o histórico na tela de cobranças — sem lançar receita no caixa.")}
+            </div>
+            <Btn t={t} kind="primary" disabled={criando} onClick={criarFaltantes}>
+              <Plus size={14} /> {criando ? L("Criando…") : `${L("Criar")} ${faltando.length} ${L("cobranças")}`}</Btn>
+          </div>
+        </Card>)}
+
+      {grupos ? (
+        <Tbl t={t} rows={grupos} empty={<EmptyState t={t} icon={FileText} title="Nada para mostrar com esses filtros" hint="Ajuste a busca ou a situação." />}
+          cols={[{ k: "grupo", l: colunas.find((c) => c.chave === agrupar)?.titulo || "Grupo" }, { k: "n", l: "Linhas" },
+            ...numericas.map((c) => ({ k: c.chave, l: c.titulo }))]}
+          renderCell={(g, k) => {
+            if (k === "grupo") return <b>{g.grupo}</b>;
+            if (k === "n") return g.n;
+            const col = numericas.find((c) => c.chave === k);
+            return <span style={{ display: "block", textAlign: "right" }}>{fmtCelula(somaDe(g.rows, col), col)}</span>;
+          }} />
+      ) : (
+        <Tbl t={t} rows={visiveis} cols={cols}
+          empty={<EmptyState t={t} icon={FileText} title="Nada para mostrar com esses filtros" hint="Ajuste a busca ou a situação." />}
+          renderCell={(l, k) => {
+            if (k === "_sit") {
+              const s = SITUACOES[l.situacao] || { l: l.situacao, c: "dim" };
+              return (<span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs"
+                style={{ background: (t[s.c] || t.dim) + "1E", color: t[s.c] || t.dim }}>{L(s.l)}</span>);
+            }
+            if (k === "_acao") return (
+              <div className="flex justify-end">
+                <Btn t={t} kind="danger" className="!px-2 !py-1 text-xs" onClick={() => excluirLinha(l)}><Trash2 size={12} /></Btn>
+              </div>);
+            const col = colunas.find((c) => c.chave === k);
+            if (!col) return null;
+            if (col.calculada) return <span style={{ display: "block", textAlign: "right", color: t.gold }}>{fmtCelula(valorCalculado(l.dados, col), col)}</span>;
+            return <CelulaEditavel t={t} linha={l} col={col} onSalvar={(v) => salvarCelula(l, col.chave, v)} />;
+          }} />)}
+
+      {/* totais do conjunto FILTRADO inteiro, não só da página */}
+      {!grupos && numericas.length > 0 && filtradas.length > 0 && (
+        <Card t={t}>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs">
+            <div style={{ color: t.dim }}>{filtradas.length} {L("linha(s)")}</div>
+            {numericas.map((c) => (
+              <div key={c.chave} className="flex items-center gap-1.5">
+                <span style={{ color: t.dim }}>{c.titulo}:</span>
+                <b style={{ color: t.gold }}>{fmtCelula(somaDe(filtradas, c), c)}</b>
+                <span style={{ color: t.dim }}>({L("média")} {fmtCelula(somaDe(filtradas, c) / filtradas.length, c)})</span>
+                {c.calculada && <button onClick={() => removerColuna(c)} title={L("Remover coluna calculada")}><X size={12} color={t.dim} /></button>}
+              </div>))}
+          </div>
+        </Card>)}
+
+      {!grupos && paginas > 1 && (
+        <div className="flex items-center justify-center gap-3 text-xs" style={{ color: t.dim }}>
+          <Btn t={t} className="!px-2 !py-1" disabled={pagina0 === 0} onClick={() => setPagina(pagina0 - 1)}><ChevronLeft size={13} /></Btn>
+          <span>{pagina0 * POR_PAGINA + 1}–{Math.min((pagina0 + 1) * POR_PAGINA, filtradas.length)} / {filtradas.length}</span>
+          <Btn t={t} className="!px-2 !py-1" disabled={pagina0 >= paginas - 1} onClick={() => setPagina(pagina0 + 1)}><ChevronRight size={13} /></Btn>
+        </div>)}
+
+      {soSistema.length > 0 && (
+        <div className="text-xs" style={{ color: t.dim }}>
+          {soSistema.length} {L("cobrança(s) do sistema não aparecem na planilha (inclusive as do mês corrente).")}
+        </div>)}
+
+      {calc && (
+        <Modal t={t} onClose={() => setCalc(null)}>
+          <ModalHeader t={t} title="Nova coluna calculada" onClose={() => setCalc(null)} />
+          <div className="space-y-3">
+            <Field t={t} label="Nome da coluna">
+              <input value={calc.titulo} onChange={(e) => setCalc({ ...calc, titulo: e.target.value })} placeholder="Saldo" style={inputStyle(t)} /></Field>
+            <div className="flex items-end gap-2">
+              <Field t={t} label="Coluna"><select value={calc.esq} onChange={(e) => setCalc({ ...calc, esq: e.target.value })} style={inputStyle(t)}>
+                {numericas.map((c) => <option key={c.chave} value={c.chave}>{c.titulo}</option>)}</select></Field>
+              <select value={calc.op} onChange={(e) => setCalc({ ...calc, op: e.target.value })} style={{ ...inputStyle(t), width: 70 }}>
+                {OPS_CALC.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+              <Field t={t} label="Coluna"><select value={calc.dir} onChange={(e) => setCalc({ ...calc, dir: e.target.value })} style={inputStyle(t)}>
+                {numericas.map((c) => <option key={c.chave} value={c.chave}>{c.titulo}</option>)}</select></Field>
+            </div>
+            <div className="text-xs" style={{ color: t.dim }}>{L("A coluna é recalculada sozinha a cada mudança — como uma fórmula de planilha.")}</div>
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <Btn t={t} onClick={() => setCalc(null)}>Cancelar</Btn>
+            <Btn t={t} kind="primary" onClick={() => adicionarCalculada(calc)} disabled={!calc.esq || !calc.dir}><Check size={14} /> Criar coluna</Btn>
+          </div>
+        </Modal>)}
+
+      {importar && <ImportarPlanilha t={t} planilha={planilha} onClose={() => setImportar(false)} onPronto={recarregar} />}
+    </div>
+  );
+}
+
+/* Importação: arquivo → conferir o papel de cada coluna → prévia já
+   conciliada → gravar. O papel é o que permite aceitar QUALQUER planilha:
+   sem modelo fixo, é ele que diz onde estão unidade, competência e valor. */
+function ImportarPlanilha({ t, planilha, onClose, onPronto }) {
+  const { db } = useData();
+  const [passo, setPasso] = useState("arquivo");
+  const [erro, setErro] = useState("");
+  const [lendo, setLendo] = useState(false);
+  const [drag, setDrag] = useState(false);
+  const [lido, setLido] = useState(null);
+  const [gravando, setGravando] = useState(false);
+  const [feito, setFeito] = useState(null);
+
+  const receber = async (file) => {
+    if (!file || lendo) return;
+    setErro(""); setLendo(true);
+    try {
+      const r = await lerPlanilhaLivre(file);
+      if (!r.linhas.length) { setErro(r.errosGerais.join(" ") || L("Nenhuma linha preenchida encontrada na planilha.")); return; }
+      /* 2ª carga: colunas já conhecidas mantêm o papel e o tipo definidos antes */
+      const antes = new Map((planilha?.colunas || []).map((c) => [c.chave, c]));
+      const colunas = r.colunas.map((c) => (antes.has(c.chave) ? { ...c, papel: antes.get(c.chave).papel ?? c.papel, tipo: antes.get(c.chave).tipo || c.tipo } : c));
+      setLido({ ...r, colunas, nome: file.name.replace(/\.[^.]+$/, "").slice(0, 120) });
+      setPasso("mapa");
+    } catch (e) { setErro(e?.message || String(e)); }
+    finally { setLendo(false); }
+  };
+
+  const trocarPapel = (chave, papel) => setLido((l) => ({
+    ...l, colunas: l.colunas.map((c) => (c.chave === chave ? { ...c, papel: papel || null } : (c.papel === papel && papel ? { ...c, papel: null } : c))),
+  }));
+
+  const resolvidas = useMemo(() => (lido ? lido.linhas.map((l) => ({ ...l, ...resolverLinha(lido.colunas, l.dados, db.ctx) })) : []), [lido, db.ctx]);
+  const conc = useMemo(() => conciliarPlanilha(resolvidas, db.cobr), [resolvidas, db.cobr]);
+  const conta = (s) => conc.linhas.filter((l) => l.situacao === s).length;
+  const temChave = lido?.colunas.some((c) => c.papel === "unidade") && lido?.colunas.some((c) => c.papel === "competencia");
+
+  const gravar = async () => {
+    setGravando(true); setErro("");
+    try {
+      const r = await salvarPlanilhaCobrancas(db.ctx, { nome: lido.nome, colunas: lido.colunas, linhas: conc.linhas });
+      await onPronto();
+      setFeito(r); setPasso("fim");
+    } catch (e) { setErro(e?.message || String(e)); }
+    finally { setGravando(false); }
+  };
+
+  return (
+    <Modal t={t} onClose={onClose} wide>
+      <ModalHeader t={t} title={planilha ? "Importar mais" : "Importar planilha"} onClose={onClose} />
+
+      {passo === "arquivo" && (
+        <div className="space-y-3">
+          <div onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
+            onDrop={(e) => { e.preventDefault(); setDrag(false); receber(e.dataTransfer.files?.[0]); }}
+            className="rounded-2xl border border-dashed p-6 text-center"
+            style={{ borderColor: drag ? t.gold : t.borderSoft, background: drag ? t.goldSoft : "transparent" }}>
+            <Upload size={22} color={t.dim} className="mx-auto mb-2" />
+            <div className="text-sm font-semibold">{L("Arraste a planilha aqui")}</div>
+            <div className="mt-1 text-xs" style={{ color: t.dim }}>
+              {L(".xlsx ou .csv, com as colunas que você já usa — até 5.000 linhas")}</div>
+            <label className="mt-3 inline-block cursor-pointer rounded-xl px-3 py-2 text-xs font-medium"
+              style={{ background: t.gold, color: "#131313" }}>
+              {lendo ? L("Lendo…") : L("Escolher arquivo")}
+              <input type="file" accept=".xlsx,.csv" className="hidden" disabled={lendo}
+                onChange={(e) => receber(e.target.files?.[0])} />
+            </label>
+          </div>
+          {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
+        </div>)}
+
+      {passo === "mapa" && lido && (
+        <div className="space-y-3">
+          <div className="text-xs" style={{ color: t.dim }}>
+            {lido.colunas.length} {L("coluna(s) e")} {lido.linhas.length} {L("linha(s) lidas.")}{" "}
+            {L("Confira o que cada coluna significa — é isso que permite cruzar com as cobranças do sistema.")}
+          </div>
+          {lido.errosGerais.map((e, i) => <div key={i} className="text-xs" style={{ color: t.warn }}>{e}</div>)}
+          <div className="max-h-56 space-y-1.5 overflow-y-auto">
+            {lido.colunas.map((c) => (
+              <div key={c.chave} className="flex items-center gap-2 rounded-xl border px-2.5 py-1.5" style={{ borderColor: t.borderSoft }}>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-semibold">{c.titulo}</div>
+                  <div className="text-[11px]" style={{ color: t.dim }}>{L({ texto: "Texto", numero: "Número", data: "Data" }[c.tipo])}</div>
+                </div>
+                <select value={c.papel || ""} onChange={(e) => trocarPapel(c.chave, e.target.value)}
+                  style={{ ...inputStyle(t), width: "auto", padding: "4px 8px", fontSize: 12 }}>
+                  {PAPEIS_COLUNA.map(([v, l]) => <option key={v} value={v}>{L(l)}</option>)}
+                </select>
+              </div>))}
+          </div>
+          <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.dim }}>
+            {temChave ? (<>
+              <b style={{ color: t.ok }}>{conta("confere")}</b> {L("conferem")} · <b style={{ color: t.warn }}>{conta("difere")}</b> {L("com valor diferente")} ·{" "}
+              <b style={{ color: t.info }}>{conta("so_planilha")}</b> {L("só na planilha")} · <b>{conta("sem_chave")}</b> {L("sem unidade/competência")}
+            </>) : L("Marque uma coluna como Unidade e outra como Competência para cruzar com as cobranças do sistema. Sem isso, a planilha é importada mesmo assim, só não concilia.")}
+          </div>
+          {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
+          <div className="flex justify-end gap-2">
+            <Btn t={t} onClick={() => { setPasso("arquivo"); setLido(null); }}>Voltar</Btn>
+            <Btn t={t} kind="primary" disabled={gravando} onClick={gravar}>
+              <Check size={14} /> {gravando ? L("Importando…") : `${L("Importar")} ${lido.linhas.length} ${L("linha(s)")}`}</Btn>
+          </div>
+        </div>)}
+
+      {passo === "fim" && feito && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm"><CheckCircle2 size={18} color={t.ok} />
+            <b>{feito.gravadas}</b> {L("linha(s) importadas.")}</div>
+          <div className="text-xs" style={{ color: t.dim }}>
+            {L("Linhas da mesma unidade e competência atualizaram as que já existiam, em vez de duplicar.")}</div>
+          <div className="flex justify-end"><Btn t={t} kind="primary" onClick={onClose}>Fechar</Btn></div>
+        </div>)}
+    </Modal>
   );
 }
 
