@@ -1,6 +1,7 @@
 /* Camada de dados: lê e grava no Supabase e converte para o formato das telas. */
 import { supabase, setAuthToken, getAuthToken, encerrarSessaoServidor, sessaoPronta } from "./supabase";
 import { calcularEncargos, normalizarEncargosCfg } from "./encargos.js";
+import { saldoComAncora } from "./caixa.js";
 import { telExibicao } from "./telefone.js";
 import { jsPDF } from "jspdf";
 
@@ -196,6 +197,9 @@ export async function loadAll(condominioId) {
     logoMenuUrl: condRow.identidade_visual?.logo_menu_url || null, // retangular — cabeçalho do menu
     cor: condRow.identidade_visual?.cor_primaria || null,
     sindico: condRow.regras_internas?.gestao?.sindico || "",
+    /* cargos de gestão adicionados à mão — o portal lista em "Dados do edifício" */
+    cargos: Array.isArray(condRow.regras_internas?.gestao?.cargos)
+      ? condRow.regras_internas.gestao.cargos.filter((x) => x && (x.cargo || x.nome)) : [],
     moeda: condRow.regras_internas?.moeda || "USD",
     pais: condRow.regras_internas?.pais || "", // ISO-2 — DDI e máscara dos telefones
     /* encargos de atraso (multa + juros) — ativo:false até o diretor ligar */
@@ -447,7 +451,10 @@ export async function loadAll(condominioId) {
   /* indicadores */
   const soma = (arr, f) => arr.reduce((s, x) => s + (f(x) ? num(x.valor) : 0), 0);
   const fluxoAtual = porComp[compAtual] || { receita: 0, despesa: 0 };
-  const pagoTotal = lancRaw.reduce((s, l) => s + (l.status === "pago" ? (l.tipo === "receita" ? num(l.valor) : -num(l.valor)) : 0), 0);
+  /* saldo do caixa: soma dos lançamentos pagos — ou, com a âncora manual da
+     aba Gestão (financeiro.caixa = { valor, em }), o valor informado mais o
+     que entrou/saiu DEPOIS daquela data (src/lib/caixa.js) */
+  const pagoTotal = saldoComAncora(lancRaw, condRow.regras_internas?.financeiro?.caixa);
   const cobrAtual = cobrRaw.filter((c) => c.competencia === compAtual);
   const fundoDe = (n) => num(fundos.find((f) => f.nome.toLowerCase().includes(n))?.saldo);
 
@@ -1344,6 +1351,12 @@ export async function obterCondominio(ctx) {
     endereco: e.texto || "", torres: e.torres || "", resumo: e.resumo_unidades || "",
     administradora: g.administradora || "", sindico: g.sindico || "", diretorAdm: g.diretor_adm || "",
     tesouraria: g.tesouraria || "", inicioGestao: g.inicio_gestao || "",
+    /* cargos de gestão adicionados à mão: [{ cargo, nome }] */
+    cargos: Array.isArray(g.cargos) ? g.cargos.filter((x) => x && (x.cargo || x.nome)) : [],
+    /* âncora do caixa: "o caixa em <data> era <valor>" (positivo ou negativo) */
+    caixaValor: Number.isFinite(Number(r.financeiro?.caixa?.valor)) && r.financeiro?.caixa?.em
+      ? Number(r.financeiro.caixa.valor) : null,
+    caixaEm: r.financeiro?.caixa?.em || "",
     silencio: r.silencio || "", mudancas: r.mudancas || "", obras: r.obras || "",
     visitantes: r.visitantes || "", animais: r.animais || "", areas: r.areas_comuns || "",
     moeda: r.moeda || "USD",
@@ -1403,7 +1416,22 @@ export async function salvarCondominio(ctx, f) {
           agencia: f.bancoAgencia || "", obs: f.bancoObs || "" },
       },
       gestao: { administradora: f.administradora || "", sindico: f.sindico || "",
-        diretor_adm: f.diretorAdm || "", tesouraria: f.tesouraria || "", inicio_gestao: f.inicioGestao || "" },
+        diretor_adm: f.diretorAdm || "", tesouraria: f.tesouraria || "", inicio_gestao: f.inicioGestao || "",
+        /* cargos adicionados à mão (hidden cargosJson da aba Gestão): saneados
+           aqui — só { cargo, nome }, sem linhas vazias, com teto defensivo */
+        cargos: (() => {
+          try {
+            return (JSON.parse(f.cargosJson || "[]") || []).slice(0, 30)
+              .map((x) => ({ cargo: String(x?.cargo || "").trim().slice(0, 80), nome: String(x?.nome || "").trim().slice(0, 80) }))
+              .filter((x) => x.cargo || x.nome);
+          } catch { return []; }
+        })(),
+      },
+      /* âncora do caixa: campo vazio remove (o saldo volta a ser só a soma
+         dos lançamentos); o sinal negativo vem no próprio texto (parseBRL) */
+      financeiro: String(f.caixaValor ?? "").trim()
+        ? { caixa: { valor: parseBRL(f.caixaValor), em: f.caixaEm || new Date().toISOString().slice(0, 10) } }
+        : {},
     },
     identidade_visual: { ...identidade, cor_primaria: f.cor || identidade.cor_primaria || "#D4AF37" },
   }).eq("id", ctx.condominioId).select(), "condominios");

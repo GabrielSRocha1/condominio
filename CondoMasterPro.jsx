@@ -1103,7 +1103,7 @@ function Dashboard({ t, role, go = () => {}, leitura = false }) {
           (coluna de max-w-lg) elas espremeriam 4 cards em ~480px e cortariam
           valor e rótulo. Em leitura, a grade fica fixa em coluna estreita. */}
       <div className={`grid grid-cols-2 gap-3${leitura ? "" : " lg:grid-cols-4"}`}>
-        <StatCard t={t} icon={Wallet}     label="Saldo em caixa"       value={BRL(S.saldo)} />
+        <StatCard t={t} icon={Wallet}     label="Saldo em caixa"       value={BRL(S.saldo)} color={S.saldo < 0 ? t.danger : undefined} />
         <StatCard t={t} icon={TrendingUp} label={`${L("Receitas de")} ${S.competencia}`}   value={BRL(S.receitaMes)} trend={trendOf("receita")} color={t.ok} />
         <StatCard t={t} icon={TrendingDown} label={`${L("Despesas de")} ${S.competencia}`} value={BRL(S.despesaMes)} trend={trendOf("despesa")} color={t.info} />
         <StatCard t={t} icon={AlertCircle} label="Inadimplência"       value={S.inadimplencia + "%"} color={t.danger} />
@@ -1276,6 +1276,11 @@ function Condominio({ t, role }) {
     .then((c) => { setCond(c); setLogo(c.logoUrl); setLogoMenu(c.logoMenuUrl); setFormKey((k) => k + 1); })
     .catch((e) => alert("Não foi possível carregar o cadastro: " + (e?.message || e)));
   useEffect(() => { carregar(); }, [db.ctx]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* cargos de gestão adicionados à mão (aba Gestão): cópia de trabalho em
+     state; o hidden cargosJson leva tudo no submit do formulário único */
+  const [cargos, setCargos] = useState([]);
+  useEffect(() => { setCargos(cond?.cargos || []); }, [cond]);
+  const trocarCargo = (i, campo, v) => setCargos((cs) => cs.map((c, j) => (j === i ? { ...c, [campo]: v } : c)));
   const [salvar, saving] = useSubmit(async (f) => {
     await salvarCondominio(db.ctx, f);
     await reload(); // aplica a cor primária (e demais dados) sem precisar sair e entrar
@@ -1374,6 +1379,40 @@ function Condominio({ t, role }) {
             </div>
             <div className="mt-1 text-[11px]" style={{ color: t.dim }}>{L("Definido pela assinatura da licença — o plano acompanha o pagamento feito no checkout.")}</div>
           </Field>)}
+
+          <div className="space-y-3 sm:col-span-2">
+            <div className="pt-1 text-xs font-semibold" style={{ color: t.gold, fontFamily: "'Sora',sans-serif" }}>{L("Cargos de gestão")}</div>
+            {cargos.map((c, i) => (
+              <div key={i} className="flex flex-wrap items-end gap-2 rounded-xl border px-2.5 py-2" style={{ borderColor: t.borderSoft }}>
+                <div className="min-w-[140px] flex-1"><Field t={t} label="Cargo">
+                  <input value={c.cargo || ""} onChange={(e) => trocarCargo(i, "cargo", e.target.value)}
+                    placeholder={L("Ex.: Conselho fiscal")} style={inputStyle(t)} /></Field></div>
+                <div className="min-w-[140px] flex-1"><Field t={t} label="Nome">
+                  <input value={c.nome || ""} onChange={(e) => trocarCargo(i, "nome", e.target.value)}
+                    placeholder={L("Nome de quem ocupa o cargo")} style={inputStyle(t)} /></Field></div>
+                <Btn t={t} kind="danger" className="!px-2 !py-2 text-xs" title={L("Remover cargo")}
+                  onClick={() => setCargos((cs) => cs.filter((_, j) => j !== i))}><Trash2 size={13} /></Btn>
+              </div>))}
+            <Btn t={t} onClick={() => setCargos((cs) => [...cs, { cargo: "", nome: "" }])}><Plus size={14} /> Adicionar cargo</Btn>
+            <input type="hidden" name="cargosJson" value={JSON.stringify(cargos)} />
+            <div className="text-[11px]" style={{ color: t.dim }}>
+              {L("Os cargos aparecem junto aos dados de gestão e no portal do morador, em Dados do edifício.")}</div>
+          </div>
+
+          <div className="space-y-3 sm:col-span-2">
+            <div className="pt-1 text-xs font-semibold" style={{ color: t.gold, fontFamily: "'Sora',sans-serif" }}>{L("Caixa do condomínio")}</div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field t={t} label="Caixa atual">
+                <input name="caixaValor" inputMode="decimal" placeholder="-1.234,56"
+                  defaultValue={cond.caixaValor == null ? "" : String(cond.caixaValor).replace(".", ",")}
+                  style={inputStyle(t)} /></Field>
+              <Field t={t} label="Informado em">
+                <input name="caixaEm" type="date" defaultValue={cond.caixaEm || new Date().toISOString().slice(0, 10)}
+                  style={inputStyle(t)} /></Field>
+            </div>
+            <div className="text-[11px]" style={{ color: t.dim }}>
+              {L("O saldo do painel passa a ser este valor somado ao que entrar e sair depois desta data — use o sinal de menos para caixa negativo. Deixe vazio para somar apenas os lançamentos do app.")}</div>
+          </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2" style={mostra("regras")}>
           <Field t={t} label="Horário de silêncio"><input name="silencio" defaultValue={cond.silencio} placeholder={L("Ex.: 22h — 8h")} style={inputStyle(t)} /></Field>
@@ -4392,6 +4431,11 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                 <ShieldCheck size={15} color={t.gold} className="mt-0.5 shrink-0" />
                 <span className="break-words">{L("Síndico")}: {db.cond.sindico}</span>
               </div>)}
+            {(db.cond?.cargos || []).map((c, i) => (
+              <div key={i} className="flex items-start gap-2 rounded-xl border px-3 py-2" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+                <User size={15} color={t.gold} className="mt-0.5 shrink-0" />
+                <span className="break-words">{c.cargo || L("Cargo")}: {c.nome || "—"}</span>
+              </div>))}
           </div>
           <div className="mt-2 text-[11px]" style={{ color: t.dim }}>
             {L("Use o botão abaixo para copiar o endereço e compartilhar com visitas e entregas.")}</div>
