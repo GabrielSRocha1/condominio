@@ -192,6 +192,7 @@ export default {
   "O acesso entra com os poderes do nível escolhido; o nome do cargo aparece na lista de acessos e no menu de quem entra.": "このアカウントは選んだレベルの権限を持ちます。役職名はアクセス一覧とログインした人のメニューに表示されます。",
   "Entra pelo nome, como morador, já marcado como proprietário — e vê os números do condomínio no portal.": "名前でログインする住民アカウントで、すでに区分所有者に設定済み——ポータルで建物の数字を見られます。",
   "Com letra no número, cada letra tem uma unidade por andar: 1A até 3A sem andar vira 1A, 2A e 3A com o andar espelhando o número; com andares 1 até 3 vira 101A (andar 1), 202A (andar 2) e 303A (andar 3) — as duas faixas precisam ter a mesma quantidade.": "番号に文字がある場合、各文字は1フロアにつき1住戸です。階を指定せず 1A〜3A なら 1A・2A・3A となり、階は番号を反映します。階 1〜3 を指定すると 101A（1階）・202A（2階）・303A（3階）になります——2つの範囲は同じ数である必要があります。",
+  "Limpar filtros": "フィルターをクリア",
   "O saldo do painel passa a ser este valor somado ao que entrar e sair depois desta data — use o sinal de menos para caixa negativo. Deixe vazio para somar apenas os lançamentos do app.": "ダッシュボードの残高は、この金額にこの日付以降の入出金を加えたものになります。マイナスは「−」を付けて入力。空欄ならアプリの記録のみを合算します。",
   "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "ポータルでマンションの数値（残高・収入・支出・滞納）を見られるのは区分所有者だけです。",
   "Nenhuma cobrança para esta unidade ainda.": "この住戸への請求はまだありません。",

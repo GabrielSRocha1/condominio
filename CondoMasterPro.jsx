@@ -2773,6 +2773,10 @@ function PlanilhaCobrancas({ t }) {
         <Sel t={t} value={sit} onChange={setSit} opts={[["todas", "Todas as situações"], ["confere", "Confere"], ["difere", "Valor difere"], ["so_planilha", "Só na planilha"], ["sem_chave", "Sem unidade/competência"]]} />
         <Sel t={t} value={agrupar} onChange={setAgrupar}
           opts={[["", "Sem agrupamento"], ...colunas.filter((c) => !c.calculada).map((c) => [c.chave, c.titulo])]} />
+        {(q || sit !== "todas" || agrupar) && (
+          <Btn t={t} className="!px-2.5 !py-2 text-xs" title={L("Limpar filtros")}
+            onClick={() => { setQ(""); setSit("todas"); setAgrupar(""); setPagina(0); }}>
+            <X size={13} /> Limpar filtros</Btn>)}
       </Toolbar>
 
       {erro && <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.danger + "55", color: t.danger }}>{erro}</div>}

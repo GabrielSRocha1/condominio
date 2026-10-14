@@ -192,6 +192,7 @@ export default {
   "O acesso entra com os poderes do nível escolhido; o nome do cargo aparece na lista de acessos e no menu de quem entra.": "يحصل الوصول على صلاحيات المستوى المختار؛ ويظهر اسم المنصب في قائمة الوصول وفي قائمة من يسجّل الدخول.",
   "Entra pelo nome, como morador, já marcado como proprietário — e vê os números do condomínio no portal.": "يدخل بالاسم كساكن، معلَّمًا كمالك — ويرى أرقام المجمّع في البوابة.",
   "Com letra no número, cada letra tem uma unidade por andar: 1A até 3A sem andar vira 1A, 2A e 3A com o andar espelhando o número; com andares 1 até 3 vira 101A (andar 1), 202A (andar 2) e 303A (andar 3) — as duas faixas precisam ter a mesma quantidade.": "مع حرف في الرقم، لكل حرف وحدة واحدة في كل طابق: من 1A إلى 3A بلا طابق تصبح 1A و2A و3A والطابق يطابق الرقم؛ ومع الطوابق 1 إلى 3 تصبح 101A (ط1) و202A (ط2) و303A (ط3) — ويجب أن يتساوى عدد النطاقين.",
+  "Limpar filtros": "مسح عوامل التصفية",
   "O saldo do painel passa a ser este valor somado ao que entrar e sair depois desta data — use o sinal de menos para caixa negativo. Deixe vazio para somar apenas os lançamentos do app.": "يصبح رصيد اللوحة هذا المبلغ مضافًا إليه ما يدخل ويخرج بعد هذا التاريخ — استخدم إشارة الناقص للرصيد السالب. اتركه فارغًا لجمع قيود التطبيق فقط.",
   "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "المالك فقط يرى أرقام المجمع (الرصيد والإيرادات والمصروفات والتأخر في السداد) في البوابة.",
   "Nenhuma cobrança para esta unidade ainda.": "لا مدفوعات لهذه الوحدة بعد.",
