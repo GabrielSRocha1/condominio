@@ -63,9 +63,11 @@ ok("U6 parseBRL preserva o sinal de menos",
 
 /* ══ E · persistência no banco (RLS) ══ */
 console.log("\n━━ E · gravação pela tela (Manuais) ━━");
-const post = async (rota, body) => {
+const post = async (rota, body, token) => {
   const r = await fetch(`${BASE}/api/${rota}`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}),
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body || {}),
   }).catch(() => null);
   if (!r) return { http: 0 };
   return { http: r.status, ...(await r.json().catch(() => ({}))) };
@@ -105,6 +107,39 @@ if (!login.token || !loginM.token) {
   await admin.from("condominios").update({ regras_internas: original }).eq("id", COND);
   const { data: fim } = await admin.from("condominios").select("regras_internas").eq("id", COND).maybeSingle();
   ok("E4 estado original restaurado", JSON.stringify(fim?.regras_internas) === JSON.stringify(original));
+
+  /* ══ C · acesso com CARGO de gestão e atalho Proprietário ══ */
+  console.log("\n━━ C · cargo no perfil de acesso ━━");
+  const EMAIL_CARGO = "conselho.sonda@teste.condomaster.dev";
+  const NOME_PROP = "Sonda Proprietario Acesso";
+  /* limpeza de execução anterior interrompida */
+  const limparAcesso = async (filtro) => {
+    const lista = await post("auth/acessos", { acao: "listar" }, login.token);
+    for (const a of lista.acessos || []) if (filtro(a)) await post("auth/acessos", { acao: "remover", usuarioId: a.id }, login.token);
+  };
+  await limparAcesso((a) => a.email === EMAIL_CARGO || a.nome === NOME_PROP);
+
+  const c1 = await post("auth/acessos", { acao: "criar", perfil: "tesouraria", email: EMAIL_CARGO, senha: "teste12345", cargo: "Conselho fiscal" }, login.token);
+  ok("C1 acesso de CARGO criado (nível tesouraria + rótulo do cargo)", c1.http === 200 && !!c1.id, c1.error || c1.id);
+  const l1 = await post("auth/acessos", { acao: "listar" }, login.token);
+  const doCargo = (l1.acessos || []).find((a) => a.email === EMAIL_CARGO);
+  ok("C2 lista devolve o cargo do acesso", doCargo?.role === "tesouraria" && doCargo?.cargo === "Conselho fiscal",
+    JSON.stringify({ role: doCargo?.role, cargo: doCargo?.cargo }));
+  const lg = await post("auth/login", { perfil: "tesouraria", email: EMAIL_CARGO, senha: "teste12345" });
+  ok("C3 login do acesso traz o cargo para a sessão (menu lateral)",
+    lg.http === 200 && lg.conta?.cargo === "Conselho fiscal", lg.error || JSON.stringify(lg.conta?.cargo));
+
+  const c2 = await post("auth/acessos", { acao: "criar", perfil: "morador", nome: NOME_PROP, senha: "teste12345", papel: "proprietario" }, login.token);
+  const l2 = await post("auth/acessos", { acao: "listar" }, login.token);
+  const prop = (l2.acessos || []).find((a) => a.nome === NOME_PROP);
+  ok("C4 atalho Proprietário: morador nasce com papel proprietario (vê o dashboard)",
+    c2.http === 200 && prop?.role === "morador" && prop?.papel === "proprietario",
+    c2.error || JSON.stringify({ role: prop?.role, papel: prop?.papel }));
+
+  await limparAcesso((a) => a.email === EMAIL_CARGO || a.nome === NOME_PROP);
+  const l3 = await post("auth/acessos", { acao: "listar" }, login.token);
+  ok("C5 acessos da sonda removidos",
+    !(l3.acessos || []).some((a) => a.email === EMAIL_CARGO || a.nome === NOME_PROP));
 }
 
 console.log(falhas

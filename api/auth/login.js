@@ -127,6 +127,7 @@ export default async function handler(req, res) {
         unidade: vincUnidade?.unidades ? `${vincUnidade.unidades.numero}-${vincUnidade.unidades.blocos?.nome || "?"}` : null,
         papel: vincUnidade?.papel || null, // proprietário vê o dashboard do condomínio no portal
         idioma: conta.preferencias?.idioma || null, // idioma da interface guardado nesta conta
+        cargo: conta.preferencias?.cargo || null, // cargo de gestão (rótulo) definido em Gerenciar Acessos
         temCodigoRecuperacao: await temCodigoPermanente(supabase, conta.id),
       } });
     }
@@ -159,6 +160,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ token, conta: {
       nome, email: f.email, condominioId,
       idioma: data.preferencias?.idioma || null, // idioma da interface guardado nesta conta
+      cargo: data.preferencias?.cargo || null, // cargo de gestão (rótulo) definido em Gerenciar Acessos
       /* só tesouraria usa código; diretor/síndico redefinem por e-mail */
       temCodigoRecuperacao: f.perfil === "tesouraria" ? await temCodigoPermanente(supabase, data.id) : true,
     } });

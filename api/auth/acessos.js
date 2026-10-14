@@ -63,6 +63,7 @@ export default async function handler(req, res) {
       nome:      { tipo: "texto", max: 120 },
       email:     { tipo: "email" },
       senha:     { tipo: "texto", max: 200 },
+      cargo:     { tipo: "texto", max: 80 },
       unidadeId: { tipo: "uuid" },
       usuarioId: { tipo: "uuid" },
     });
@@ -80,9 +81,13 @@ export default async function handler(req, res) {
 
     /* ── listar ── */
     if (f.acao === "listar") {
-      const { data: rows, error } = await supabase.from("usuario_perfis")
-        .select("perfis(nome), usuarios(id, email, pessoas(nome, pessoa_vinculos(papel, unidade_id, unidades(numero, blocos(nome)))))")
+      /* preferencias carrega o CARGO de exibição; sem o alter da coluna
+         (supabase-schema.sql), a consulta é refeita sem ela */
+      const selecionar = (pref) => supabase.from("usuario_perfis")
+        .select(`perfis(nome), usuarios(id, email, ${pref}pessoas(nome, pessoa_vinculos(papel, unidade_id, unidades(numero, blocos(nome)))))`)
         .eq("condominio_id", condominioId);
+      let { data: rows, error } = await selecionar("preferencias, ");
+      if (error && /preferencias/i.test(error.message || "")) ({ data: rows, error } = await selecionar(""));
       if (error) throw new Error(error.message);
       const acessos = (rows || [])
         .filter((r) => r.perfis?.nome && r.perfis.nome !== "diretor" && r.usuarios)
@@ -94,6 +99,7 @@ export default async function handler(req, res) {
             email: u.email.endsWith(".local") ? null : u.email,
             unidade: vinc?.unidades ? `${vinc.unidades.numero}-${vinc.unidades.blocos?.nome || "?"}` : null,
             papel: vinc?.papel || null,
+            cargo: u.preferencias?.cargo || null,
           };
         });
       return res.status(200).json({ acessos });
@@ -206,9 +212,20 @@ export default async function handler(req, res) {
     }).select().single();
     if (eP) throw new Error(eP.message);
 
-    const { data: usuario, error: eU } = await supabase.from("usuarios").insert({
+    /* cargo de gestão (aba Gestão) é só RÓTULO — vive em usuarios.preferencias;
+       o poder do acesso continua sendo o perfil. Sem o alter da coluna,
+       grava sem o cargo (degrada aberto). */
+    const cargo = String(f.cargo || "").trim().slice(0, 80);
+    const semPreferencias = (e) => !!e && /preferencias/i.test(e.message || "") && /does not exist|schema cache|column/i.test(e.message || "");
+    let ins = await supabase.from("usuarios").insert({
       pessoa_id: pessoa.id, email, senha_hash: gerarHashSenha(f.senha),
+      ...(cargo ? { preferencias: { cargo } } : {}),
     }).select("id").single();
+    if (cargo && semPreferencias(ins.error))
+      ins = await supabase.from("usuarios").insert({
+        pessoa_id: pessoa.id, email, senha_hash: gerarHashSenha(f.senha),
+      }).select("id").single();
+    const { data: usuario, error: eU } = ins;
     if (eU) throw new Error(eU.message);
 
     const { data: perfil, error: ePf } = await supabase.from("perfis").select("id").eq("nome", f.perfil).single();

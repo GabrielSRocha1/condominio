@@ -145,7 +145,8 @@ const PROFILES = {
 /* Papel do morador NA UNIDADE (pessoa_vinculos.papel) — eixo separado do
    perfil de acesso, que para todo mundo do portal é "morador". É o papel
    que diz quem é dono, e só o dono vê os números do prédio no portal. */
-const PAPEIS_UNIDADE = [["proprietario", "Proprietário"], ["inquilino", "Inquilino"], ["morador", "Morador"]];
+/* "inquilino" do banco é exibido como "Temporário" — aluguel por dia */
+const PAPEIS_UNIDADE = [["proprietario", "Proprietário"], ["inquilino", "Temporário"], ["morador", "Morador"]];
 const rotuloPapel = (p) => PAPEIS_UNIDADE.find(([k]) => k === p)?.[1] || "Morador";
 
 const NAV = [
@@ -724,7 +725,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang, aviso }) {
       setVerificando(true);
       try {
         const conta = await loginUsuario("morador", { nome, senha: f.senha });
-        if (conta) { setErro(""); aplicarIdiomaDaConta(conta); return entrarNoApp(conta, [role, { nome: conta.nome, unidade: conta.unidade || null, papel: conta.papel || null }, null, conta.condominioId, conta.token]); }
+        if (conta) { setErro(""); aplicarIdiomaDaConta(conta); return entrarNoApp(conta, [role, { nome: conta.nome, unidade: conta.unidade || null, papel: conta.papel || null }, null, conta.condominioId, conta.token, conta.cargo || null]); }
         setErro(L("Nome ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Acessos."));
       } catch (err) {
         setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -748,7 +749,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang, aviso }) {
     setVerificando(true);
     try {
       const conta = await loginUsuario(role, { email, senha: f.senha });
-      if (conta) { setErro(""); aplicarIdiomaDaConta(conta); return entrarNoApp(conta, [role, null, null, conta.condominioId, conta.token]); }
+      if (conta) { setErro(""); aplicarIdiomaDaConta(conta); return entrarNoApp(conta, [role, null, null, conta.condominioId, conta.token, conta.cargo || null]); }
       setErro(L("E-mail ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Acessos."));
     } catch (err) {
       setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -1802,7 +1803,7 @@ function Pessoas({ t }) {
     catch (err) { alert(err?.message || err); }
     finally { setExcluindo(false); }
   };
-  const papeis = ["Proprietário","Inquilino","Morador","Dependente","Diretor","Síndico","Tesouraria","Funcionário","Prestador","Visitante recorrente"];
+  const papeis = ["Proprietário","Temporário","Morador","Dependente","Diretor","Síndico","Tesouraria","Funcionário","Prestador","Visitante recorrente"];
   const rows = db.pessoas.filter((p) => (papel === "todos" || p.papel === papel) && p.nome.toLowerCase().includes(q.toLowerCase()));
   return (
     <div className="vfade">
@@ -3808,6 +3809,15 @@ function GerenciarEmails({ t }) {
   const [gerando, setGerando] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const perfis = ["sindico", "tesouraria", "morador"];
+  /* atalhos do seletor de perfil: "Proprietário" (morador já marcado como
+     dono, que vê o dashboard do condomínio) e os CARGOS criados na aba
+     Gestão — o cargo é rótulo; o PODER é o nível escolhido na hora */
+  const [nivel, setNivel] = useState("tesouraria");
+  const cargosGestao = (db.cond?.cargos || []).filter((c) => c?.cargo);
+  const ehCargoSel = String(perfil).startsWith("cargo:");
+  const cargoSel = ehCargoSel ? (cargosGestao[+perfil.slice(6)]?.cargo || "") : "";
+  const ehProprietarioSel = perfil === "proprietario";
+  const perfilEfetivo = ehProprietarioSel ? "morador" : ehCargoSel ? nivel : perfil;
 
   const recarregar = useCallback(
     () => listarAcessos(db.ctx).then(setUsuarios).catch((e) => setErro(e.message)),
@@ -3818,6 +3828,10 @@ function GerenciarEmails({ t }) {
   const salvar = async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.currentTarget));
+    /* mapeia os atalhos para o acesso real por baixo */
+    if (f.perfil === "proprietario") { f.perfil = "morador"; f.papel = "proprietario"; }
+    else if (String(f.perfil || "").startsWith("cargo:")) { f.cargo = cargoSel; f.perfil = f.nivel || nivel; }
+    delete f.nivel;
     if (f.senha.length < 8) return setErro("A senha deve ter pelo menos 8 caracteres.");
     if (f.perfil === "morador" && !f.unidade) return setErro("Cadastre unidades primeiro na tela Unidades.");
     setSalvando(true);
@@ -3887,6 +3901,7 @@ function GerenciarEmails({ t }) {
                   <div className="truncate text-sm font-semibold">{u.nome || u.email}</div>
                   <div className="text-xs" style={{ color: t.dim }}>{u.unidade ? `${L("Unidade")} ${u.unidade}` : (u.email && u.nome ? u.email : L("Senha protegida por criptografia"))}</div>
                 </div>
+                {u.cargo && <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.surface2, color: t.text }}>{u.cargo}</span>}
                 <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.goldSoft, color: t.gold }}>{PROFILES[u.role]?.label || u.role}</span>
                 {u.role === "morador" && (
                   <select value={u.papel || "morador"} disabled={trocandoPapel === u.id}
@@ -3912,8 +3927,22 @@ function GerenciarEmails({ t }) {
           <form onSubmit={salvar}>
             <div className="space-y-3">
               <Field t={t} label="Perfil de acesso"><select name="perfil" value={perfil} onChange={(e) => { setPerfil(e.target.value); setErro(""); }} style={inputStyle(t)}>
-                {perfis.map((r) => <option key={r} value={r}>{PROFILES[r].label}</option>)}</select></Field>
-              {perfil === "morador" ? (
+                {perfis.map((r) => <option key={r} value={r}>{PROFILES[r].label}</option>)}
+                <option value="proprietario">{L("Proprietário")}</option>
+                {cargosGestao.map((c, i) => <option key={`cargo:${i}`} value={`cargo:${i}`}>{c.cargo}</option>)}
+              </select></Field>
+              {ehCargoSel && (<>
+                <Field t={t} label="Nível de permissão">
+                  <select name="nivel" value={nivel} onChange={(e) => setNivel(e.target.value)} style={inputStyle(t)}>
+                    {perfis.map((r) => <option key={r} value={r}>{PROFILES[r].label}</option>)}
+                  </select></Field>
+                <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.dim }}>
+                  {L("O acesso entra com os poderes do nível escolhido; o nome do cargo aparece na lista de acessos e no menu de quem entra.")}</div>
+              </>)}
+              {ehProprietarioSel && (
+                <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.dim }}>
+                  {L("Entra pelo nome, como morador, já marcado como proprietário — e vê os números do condomínio no portal.")}</div>)}
+              {perfilEfetivo === "morador" ? (
                 <>
                   <Field t={t} label="Nome completo"><input name="nome" required placeholder="Nome que o morador usará para entrar" style={inputStyle(t)} /></Field>
                   <Field t={t} label="Unidade / apartamento">
@@ -3926,11 +3955,14 @@ function GerenciarEmails({ t }) {
                         {L("Cadastre unidades primeiro na tela Unidades.")}</div>
                     )}
                   </Field>
+                  {ehProprietarioSel ? (
+                    <input type="hidden" name="papel" value="proprietario" />
+                  ) : (
                   <Field t={t} label="Papel na unidade">
                     <select name="papel" defaultValue="morador" style={inputStyle(t)}>
                       {PAPEIS_UNIDADE.map(([k, l]) => <option key={k} value={k}>{L(l)}</option>)}
                     </select>
-                  </Field>
+                  </Field>)}
                   <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.dim }}>
                     O morador entrará na tela inicial usando exatamente este nome e a senha abaixo, e verá os dados da unidade escolhida.{" "}
                     {L("Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.")}</div>
@@ -5161,6 +5193,9 @@ export default function App() {
 
   const go = useCallback((s) => { setScreen(s); setSideOpen(false); }, []);
   const nav = NAV.filter((n) => role && n.roles.includes(role));
+  /* cargo de gestão do acesso logado (rótulo do menu lateral) — entra na
+     sessão no login; quem já estava logado o recebe no próximo acesso */
+  const cargoAcesso = lerSessao()?.cargo || null;
 
   /* notificações do sino: pendências reais da sessão, filtradas pelo perfil */
   const [notifOpen, setNotifOpen] = useState(false);
@@ -5249,8 +5284,9 @@ export default function App() {
      exceto nas páginas legais, onde o banner cobriria o próprio texto que o explica */
   const chrome = <>{globalStyle}<CookieBanner t={t} /></>;
 
-  const entrar = useCallback((r, m, d, cId, token) => {
-    salvarSessao({ role: r, morador: m || null, diretor: d ? { nome: d.nome, email: d.email } : null, condominioId: cId || null, token: token || null });
+  const entrar = useCallback((r, m, d, cId, token, cargo) => {
+    salvarSessao({ role: r, morador: m || null, diretor: d ? { nome: d.nome, email: d.email } : null,
+      condominioId: cId || null, token: token || null, cargo: cargo || null });
     setAvisoLogin(null); // o aviso de sessão expirada cumpriu o papel
     setMorador(m || null); setDiretorConta(d || null); setCondId(cId || null); setRole(r);
     setScreen("dashboard");
@@ -5360,10 +5396,10 @@ export default function App() {
               )}
               <div className="flex items-center gap-2.5 rounded-xl px-2 py-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold" style={{ background: t.goldSoft, color: t.gold }}>
-                  {L(PROFILES[role].label)[0]}</div>
+                  {(cargoAcesso || L(PROFILES[role].label))[0]}</div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs font-semibold">{L(PROFILES[role].label)}</div>
-                  <div className="text-[10px]" style={{ color: t.dim }}>{L("Perfil de acesso")}</div>
+                  <div className="truncate text-xs font-semibold">{cargoAcesso || L(PROFILES[role].label)}</div>
+                  <div className="text-[10px]" style={{ color: t.dim }}>{cargoAcesso ? L(PROFILES[role].label) : L("Perfil de acesso")}</div>
                 </div>
                 <button onClick={sair} title="Sair" className="rounded-lg p-1.5" style={{ background: t.surface2 }}><LogOut size={14} color={t.dim} /></button>
               </div>

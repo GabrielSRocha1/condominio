@@ -105,7 +105,8 @@ const q = async (promise, label) => {
 
 /* ─────────── mapas de rótulos ─────────── */
 const PAPEL_LABEL = {
-  proprietario: "Proprietário", coproprietario: "Coproprietário", inquilino: "Inquilino", morador: "Morador",
+  /* "inquilino" no banco é exibido como "Temporário" (aluguel por dia) */
+  proprietario: "Proprietário", coproprietario: "Coproprietário", inquilino: "Temporário", morador: "Morador",
   dependente: "Dependente", sindico: "Síndico", diretor: "Diretor", tesouraria: "Tesouraria",
   conselho_fiscal: "Conselho fiscal", funcionario: "Funcionário", prestador: "Prestador",
   visitante_recorrente: "Visitante recorrente", imobiliaria: "Imobiliária",
@@ -581,6 +582,9 @@ export async function criarAcesso(ctx, f) {
     acao: "criar", perfil: f.perfil, senha: f.senha,
     ...(ehMorador ? { nome: f.nome?.trim(), papel: f.papel || "morador" } : { email: f.email?.trim().toLowerCase() }),
     ...(un ? { unidadeId: un.id } : {}),
+    /* cargo de gestão (criado na aba Gestão) — só rótulo de exibição; o
+       PODER do acesso é o perfil escolhido como nível */
+    ...(f.cargo ? { cargo: String(f.cargo).trim().slice(0, 80) } : {}),
   });
 }
 
@@ -1031,7 +1035,7 @@ export async function importarPessoas(ctx, linhas) {
     throw e;
   }
 
-  const prioridade = (papel) => (papel === "Proprietário" ? 0 : papel === "Inquilino" ? 1 : 2);
+  const prioridade = (papel) => (papel === "Proprietário" ? 0 : papel === "Temporário" ? 1 : 2);
   const vencedores = new Map(); // unidadeId → linha que vira responsável financeiro
   for (const l of novas) {
     if (!l.unidadeId) continue;
