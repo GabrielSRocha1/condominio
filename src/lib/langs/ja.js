@@ -182,6 +182,8 @@ export default {
   "Regime dos juros": "利息方式", "Carência (dias após o vencimento)": "猶予期間（期日後の日数）",
   "Os juros contam por mês virado desde o vencimento — o padrão das planilhas de mora; a multa incide uma única vez assim que o atraso começa. Os percentuais vêm do regulamento do condomínio.": "利息は期日から月が変わるごとに加算（滞納表の標準）。違約金は延滞開始時に一度だけ。割合は管理規約によります。",
   "Original": "元の金額", "Encargos de atraso": "延滞金", "mês(es)": "か月",
+  "Total devido": "支払総額", "Sem encargos (negociado)": "延滞金なし（交渉済み）", "Desconto (%)": "割引（%）",
+  "Outro valor": "任意の金額", "Valor a receber": "受取金額", "Ajuste negociado": "交渉による調整",
   "encargos": "延滞金", "inclui encargos de atraso de": "延滞金を含む：",
   "Cargos de gestão": "管理役職", "Cargo": "役職",
   "Ex.: Conselho fiscal": "例：監査委員", "Nome de quem ocupa o cargo": "役職者の氏名",

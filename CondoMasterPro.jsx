@@ -2007,6 +2007,106 @@ function ImportarPessoas({ t, onClose }) {
   );
 }
 
+/* ══════════════ RECEBER EM DINHEIRO (modal compartilhado) ══════════════
+   Substitui o prompt() nativo: mostra a composição da dívida (original +
+   encargos = total devido) e deixa negociar o valor da baixa — total, sem os
+   encargos, desconto em % ou um valor livre. O ajuste fica carimbado na
+   justificativa (auditoria) e a RPC lança no caixa o valor confirmado. */
+function ReceberModal({ t, c, moeda, onClose, onDepois }) {
+  const [modo, setModo] = useState("total"); // total | sem_encargos | desconto | outro
+  const [pct, setPct] = useState("");        // desconto em %, aceita vírgula
+  const [outroCents, setOutroCents] = useState(null);
+  const devido = c.valorTotal ?? c.valor;
+  const pctNum = Math.min(100, Math.max(0, Number(String(pct).replace(",", ".")) || 0));
+  const valorFinal = Math.round((
+    modo === "sem_encargos" ? c.valor
+    : modo === "desconto" ? devido * (1 - pctNum / 100)
+    : modo === "outro" ? (outroCents ?? 0) / 100
+    : devido) * 100) / 100;
+  const fmtC = (cents) => (cents / 100).toLocaleString(LOCALE_MOEDA[moeda] || "en-US", { style: "currency", currency: moeda });
+  const [confirmar, confirmando] = useSubmit(async (f) => {
+    const ajuste = Math.abs(valorFinal - devido) >= 0.005
+      ? ` — ${L("Ajuste negociado")}: ${BRL(devido)} → ${BRL(valorFinal)}` : "";
+    await confirmarPagamentoManual(c.id, {
+      forma: "dinheiro", valor: valorFinal,
+      pagoEm: new Date(`${f.data}T12:00:00`).toISOString(),
+      justificativa: f.just + ajuste,
+    });
+    await onDepois();
+  });
+  const chips = [["total", "Total devido"],
+    ...(c.encargos > 0 ? [["sem_encargos", "Sem encargos (negociado)"]] : []),
+    ["desconto", "Desconto (%)"], ["outro", "Outro valor"]];
+  return (
+    <Modal t={t} onClose={onClose}>
+      <ModalHeader t={t} title="Registrar recebimento em dinheiro" onClose={onClose} />
+      <form onSubmit={confirmar}>
+        <div className="space-y-3">
+          <div className="rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+            <div><b>{c.unidade}</b> · {c.comp} · {L("vencimento")} {c.vencFull}{c.resp && c.resp !== "—" && <> · {c.resp}</>}</div>
+            <div className="mt-2 space-y-1">
+              <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Original")}</span><span>{BRL(c.valor)}</span></div>
+              {c.encargos > 0 && (
+                <div className="flex justify-between gap-3">
+                  <span style={{ color: t.dim }}>{L("Encargos de atraso")}{c.mesesAtraso > 0 && <> ({c.mesesAtraso} {L("mês(es)")})</>}</span>
+                  <span style={{ color: t.warn }}>+ {BRL(c.encargos)}</span></div>)}
+              <div className="flex justify-between gap-3 border-t pt-1 font-semibold" style={{ borderColor: t.borderSoft }}>
+                <span>{L("Total devido")}</span><span style={{ color: t.gold }}>{BRL(devido)}</span></div>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium" style={{ color: t.dim }}>{L("Valor a receber")}</div>
+            <div className="flex flex-wrap gap-1.5">
+              {chips.map(([k, rotulo]) => (
+                <button key={k} type="button" onClick={() => setModo(k)}
+                  className="rounded-lg px-2.5 py-1.5 text-xs font-medium"
+                  style={{ background: modo === k ? t.goldSoft : "transparent", color: modo === k ? t.gold : t.dim,
+                    border: `1px solid ${modo === k ? t.border : t.borderSoft}` }}>{L(rotulo)}</button>))}
+            </div>
+            {modo === "desconto" && (
+              <div className="flex items-center gap-2 pt-1">
+                <input inputMode="decimal" autoFocus value={pct} placeholder="0" aria-label={L("Desconto (%)")}
+                  onChange={(e) => setPct(e.target.value.replace(/[^\d.,]/g, "").slice(0, 6))}
+                  style={{ ...inputStyle(t), width: 110 }} />
+                <span className="text-sm" style={{ color: t.dim }}>%</span>
+              </div>)}
+            {modo === "outro" && (
+              <div className="pt-1">
+                <input inputMode="numeric" autoFocus placeholder={fmtC(0)} aria-label={L("Outro valor")}
+                  value={outroCents == null ? "" : fmtC(outroCents)}
+                  onChange={(e) => { const dig = e.target.value.replace(/\D/g, "").slice(0, 15); setOutroCents(dig ? parseInt(dig, 10) : null); }}
+                  style={inputStyle(t)} />
+              </div>)}
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5"
+            style={{ background: t.goldSoft, borderColor: t.border }}>
+            <span className="text-xs font-medium" style={{ color: t.dim }}>{L("Valor a receber")}</span>
+            <div className="text-right">
+              <div className="text-lg font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(valorFinal)}</div>
+              {devido > 0 && devido - valorFinal >= 0.005 && (
+                <div className="text-[11px]" style={{ color: t.warn }}>
+                  {L("Ajuste negociado")}: −{BRL(devido - valorFinal)} ({((1 - valorFinal / devido) * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%)</div>)}
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field t={t} label="Data do recebimento">
+              <input name="data" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} style={inputStyle(t)} /></Field>
+            <Field t={t} label="Justificativa (fica na auditoria do pagamento)">
+              <input name="just" required defaultValue={L("Recebimento em dinheiro na administração")} style={inputStyle(t)} /></Field>
+          </div>
+          <div className="text-[11px]" style={{ color: t.dim }}>
+            {L("Ao confirmar: a cobrança é baixada, o pagamento entra na auditoria e a receita cai no caixa como Entrada — tudo em uma única transação.")}</div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Btn t={t} onClick={onClose}>{L("Cancelar")}</Btn>
+            <Btn t={t} kind="primary" type="submit" disabled={confirmando || valorFinal <= 0}>
+              <Check size={14} /> {confirmando ? L("Confirmando…") : L("Confirmar baixa")}</Btn>
+          </div>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 /* ══════════════ FINANCEIRO ══════════════ */
 function Financeiro({ t }) {
   const { db, reload } = useData();
@@ -2051,18 +2151,8 @@ function Financeiro({ t }) {
   const aPagar = db.lanc.filter((l) => l.tipo === "despesa" && l.status === "aberto");
   const pagas = db.lanc.filter((l) => l.tipo === "despesa" && l.status === "pago");
   const aReceber = db.cobr.filter((c) => c.status === "emitida" || c.status === "vencida");
-  /* baixa rápida em dinheiro direto da aba Contas a receber (tesouraria) */
-  const [recebendo, setRecebendo] = useState(null);
-  const receberDinheiro = async (c) => {
-    const just = window.prompt(L("Registrar recebimento em DINHEIRO desta cobrança. Justificativa (auditoria):"), L("Recebimento em dinheiro na administração"));
-    if (just === null) return;
-    setRecebendo(c.id);
-    try {
-      await confirmarPagamentoManual(c.id, { forma: "dinheiro", valor: c.valorTotal ?? c.valor, pagoEm: new Date().toISOString(), justificativa: just });
-      await reload();
-    } catch (err) { alert("Não foi possível dar baixa: " + (err?.message || err)); }
-    finally { setRecebendo(null); }
-  };
+  /* baixa em dinheiro direto da aba Contas a receber — abre o ReceberModal */
+  const [receb, setReceb] = useState(null);
   const compAtual = new Date().toISOString().slice(0, 7);
   const despComp = db.lanc.filter((l) => l.tipo === "despesa" && l.competencia === compAtual && l.status !== "cancelado")
     .reduce((s, l) => s + l.valor, 0);
@@ -2210,10 +2300,10 @@ function Financeiro({ t }) {
               : <b>{BRL(r.valor)}</b>;
             if (k === "status") return <Badge t={t} s={r.status} />;
             if (k === "acao") return (
-              <Btn t={t} kind="soft" disabled={recebendo === r.id} className="!px-2 !py-1 text-xs"
+              <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs"
                 title={L("Registrar recebimento em dinheiro (baixa + Entrada no caixa)")}
-                onClick={(e) => { e.stopPropagation(); receberDinheiro(r); }}>
-                <Banknote size={13} /> {recebendo === r.id ? "Baixando…" : L("Receber")}</Btn>);
+                onClick={(e) => { e.stopPropagation(); setReceb(r); }}>
+                <Banknote size={13} /> {L("Receber")}</Btn>);
             return r[k];
           }} />
       </>) : tab === "rateio" ? (<>
@@ -2258,6 +2348,9 @@ function Financeiro({ t }) {
               return r[k];
             }} />)}
       </>)}
+      {receb && (
+        <ReceberModal t={t} c={receb} moeda={db.cond?.moeda || "USD"} onClose={() => setReceb(null)}
+          onDepois={async () => { await reload(); setReceb(null); }} />)}
       {novo && (
         <Modal t={t} onClose={() => setNovo(false)} wide>
           <ModalHeader t={t} title="Novo lançamento" onClose={() => setNovo(false)} />
@@ -2321,13 +2414,15 @@ function Cobrancas({ t }) {
     catch (err) { alert("Não foi possível gerar o PDF: " + (err?.message || err)); }
     finally { setBaixandoPdf(false); }
   };
-  /* conciliação manual: confirmar informe do morador OU registrar dinheiro */
-  const [conf, setConf] = useState(null); // { c, modo: "informe" | "dinheiro" }
+  /* conciliação manual: conf = confirmar informe do morador; receb = dinheiro
+     (ReceberModal, com valor negociável) */
+  const [conf, setConf] = useState(null); // { c }
+  const [receb, setReceb] = useState(null);
   const EXPLORER_TX = { ethereum: "https://etherscan.io/tx/", bnb: "https://bscscan.com/tx/", polygon: "https://polygonscan.com/tx/", solana: "https://solscan.io/tx/" };
   const [confirmarBaixa, confirmando] = useSubmit(async (f) => {
-    const inf = conf.modo === "informe" ? conf.c.informe : null;
+    const inf = conf.c.informe;
     await confirmarPagamentoManual(conf.c.id, {
-      forma: conf.modo === "dinheiro" ? "dinheiro" : (inf?.forma || "transferencia"),
+      forma: inf?.forma || "transferencia",
       valor: Number(String(f.valor || "").replace(",", ".")) || (conf.c.valorTotal ?? conf.c.valor),
       pagoEm: f.data ? new Date(`${f.data}T12:00:00`).toISOString() : new Date().toISOString(),
       justificativa: f.just, tx: inf?.tx || null, informeId: inf?.id || null,
@@ -2375,10 +2470,10 @@ function Cobrancas({ t }) {
           if (k === "acao") return (<div className="flex justify-end gap-1">
             {(r.status === "informado" || r.status === "divergente") && (
               <Btn t={t} kind="primary" className="!px-2 !py-1 text-xs" title={L("Conferir o pagamento informado pelo morador")}
-                onClick={() => setConf({ c: r, modo: "informe" })}><Check size={13} /> Confirmar</Btn>)}
+                onClick={() => setConf({ c: r })}><Check size={13} /> Confirmar</Btn>)}
             {(r.status === "emitida" || r.status === "vencida") && (
               <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" title={L("Registrar recebimento em dinheiro")}
-                onClick={() => setConf({ c: r, modo: "dinheiro" })}><Banknote size={13} /> Receber</Btn>)}
+                onClick={() => setReceb(r)}><Banknote size={13} /> Receber</Btn>)}
             <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" onClick={() => setQr(r)}><QrCode size={13} /> QR</Btn>
             {r.status !== "pago" && <Btn t={t} className="!px-2 !py-1 text-xs" title={L("Reenvia a cobrança por WhatsApp")} onClick={() => enviarWhats(r)}><Send size={13} /> Reenviar</Btn>}</div>);
           return r[k];
@@ -2403,14 +2498,14 @@ function Cobrancas({ t }) {
         </Modal>)}
       {conf && (
         <Modal t={t} onClose={() => setConf(null)}>
-          <ModalHeader t={t} title={conf.modo === "dinheiro" ? L("Registrar recebimento em dinheiro") : L("Confirmar pagamento informado")} onClose={() => setConf(null)} />
+          <ModalHeader t={t} title={L("Confirmar pagamento informado")} onClose={() => setConf(null)} />
           <form onSubmit={confirmarBaixa}>
             <div className="space-y-3">
               <div className="rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
                 <div><b>{conf.c.unidade}</b> · {conf.c.comp} · {L("valor da cobrança")}: <b style={{ color: t.gold }}>{BRL(conf.c.valor)}</b>
                   {conf.c.encargos > 0 && <> + {L("encargos")} <b style={{ color: t.warn }}>{BRL(conf.c.encargos)}</b> = <b style={{ color: t.gold }}>{BRL(conf.c.valorTotal)}</b></>}
                   {" · "}{L("vencimento")} {conf.c.vencFull}</div>
-                {conf.modo === "informe" && conf.c.informe && (
+                {conf.c.informe && (
                   <div className="mt-1.5 space-y-1" style={{ color: t.dim }}>
                     <div>{L("Informado pelo morador")}: <b style={{ color: t.text }}>{conf.c.informe.forma === "verum_pay" ? L("Cripto") : L("Transferência bancária")}</b>
                       {" · "}{L("valor")} <b style={{ color: Math.abs(conf.c.informe.valor - (conf.c.valorTotal ?? conf.c.valor)) < 0.005 ? t.ok : t.warn }}>{BRL(conf.c.informe.valor)}</b>
@@ -2429,19 +2524,18 @@ function Cobrancas({ t }) {
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field t={t} label="Valor recebido">
                   <MoneyInput t={t} name="valor" moeda={moeda} required
-                    defaultCents={Math.round((conf.modo === "informe" && conf.c.informe && conf.c.informe.forma !== "verum_pay" ? conf.c.informe.valor : (conf.c.valorTotal ?? conf.c.valor)) * 100)} /></Field>
+                    defaultCents={Math.round((conf.c.informe && conf.c.informe.forma !== "verum_pay" ? conf.c.informe.valor : (conf.c.valorTotal ?? conf.c.valor)) * 100)} /></Field>
                 <Field t={t} label="Data do recebimento">
                   <input name="data" type="date" required defaultValue={conf.c.informe?.pagoEm || new Date().toISOString().slice(0, 10)} style={inputStyle(t)} /></Field>
               </div>
               <Field t={t} label="Justificativa (fica na auditoria do pagamento)">
                 <input name="just" required style={inputStyle(t)}
-                  defaultValue={conf.modo === "dinheiro" ? L("Recebimento em dinheiro na administração")
-                    : conf.c.informe?.forma === "verum_pay" ? L("Transação cripto conferida pelo gestor")
+                  defaultValue={conf.c.informe?.forma === "verum_pay" ? L("Transação cripto conferida pelo gestor")
                     : L("Comprovante de transferência conferido")} /></Field>
               <div className="text-[11px]" style={{ color: t.dim }}>
                 {L("Ao confirmar: a cobrança é baixada, o pagamento entra na auditoria e a receita cai no caixa como Entrada — tudo em uma única transação.")}</div>
               <div className="flex items-center justify-between gap-2 pt-1">
-                {conf.modo === "informe" && conf.c.informe
+                {conf.c.informe
                   ? <Btn t={t} onClick={rejeitarInforme}><X size={14} /> {L("Rejeitar")}</Btn> : <span />}
                 <div className="flex gap-2">
                   <Btn t={t} onClick={() => setConf(null)}>{L("Cancelar")}</Btn>
@@ -2451,6 +2545,9 @@ function Cobrancas({ t }) {
             </div>
           </form>
         </Modal>)}
+      {receb && (
+        <ReceberModal t={t} c={receb} moeda={moeda} onClose={() => setReceb(null)}
+          onDepois={async () => { await reload(); setReceb(null); }} />)}
       {nova && (
         <Modal t={t} onClose={() => setNova(false)}>
           <ModalHeader t={t} title="Gerar cobranças da competência" onClose={() => setNova(false)} />

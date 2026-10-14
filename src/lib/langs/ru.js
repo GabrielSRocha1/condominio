@@ -182,6 +182,8 @@ export default {
   "Regime dos juros": "Режим процентов", "Carência (dias após o vencimento)": "Льготный срок (дней после срока)",
   "Os juros contam por mês virado desde o vencimento — o padrão das planilhas de mora; a multa incide uma única vez assim que o atraso começa. Os percentuais vêm do regulamento do condomínio.": "Пени считаются за каждый наступивший месяц со срока оплаты — стандарт таблиц задолженности; штраф начисляется один раз, как только началась просрочка. Проценты — из устава дома.",
   "Original": "Исходная сумма", "Encargos de atraso": "Пени и штраф", "mês(es)": "мес.",
+  "Total devido": "Итого к оплате", "Sem encargos (negociado)": "Без пеней (по договорённости)", "Desconto (%)": "Скидка (%)",
+  "Outro valor": "Другая сумма", "Valor a receber": "Сумма к получению", "Ajuste negociado": "Согласованная корректировка",
   "encargos": "пени", "inclui encargos de atraso de": "включая пени",
   "Cargos de gestão": "Должности управления", "Cargo": "Должность",
   "Ex.: Conselho fiscal": "Напр.: ревизионная комиссия", "Nome de quem ocupa o cargo": "Имя занимающего должность",

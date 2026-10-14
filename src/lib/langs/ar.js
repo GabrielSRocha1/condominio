@@ -182,6 +182,8 @@ export default {
   "Regime dos juros": "نظام الفائدة", "Carência (dias após o vencimento)": "مهلة (أيام بعد الاستحقاق)",
   "Os juros contam por mês virado desde o vencimento — o padrão das planilhas de mora; a multa incide uma única vez assim que o atraso começa. Os percentuais vêm do regulamento do condomínio.": "تُحسب الفوائد عن كل شهر يبدأ منذ الاستحقاق — معيار جداول المتأخرات؛ الغرامة مرة واحدة فور بدء التأخير. النسب من لائحة المجمّع.",
   "Original": "المبلغ الأصلي", "Encargos de atraso": "غرامات التأخير", "mês(es)": "شهر/أشهر",
+  "Total devido": "الإجمالي المستحق", "Sem encargos (negociado)": "بدون غرامات التأخير (متفاوض عليه)", "Desconto (%)": "خصم (%)",
+  "Outro valor": "مبلغ آخر", "Valor a receber": "المبلغ المستلم", "Ajuste negociado": "تسوية متفاوض عليها",
   "encargos": "غرامات", "inclui encargos de atraso de": "يشمل غرامات تأخير قدرها",
   "Cargos de gestão": "مناصب الإدارة", "Cargo": "المنصب",
   "Ex.: Conselho fiscal": "مثال: لجنة المراجعة", "Nome de quem ocupa o cargo": "اسم شاغل المنصب",

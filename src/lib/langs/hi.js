@@ -182,6 +182,8 @@ export default {
   "Regime dos juros": "ब्याज प्रणाली", "Carência (dias após o vencimento)": "रियायत (देय तिथि के बाद दिन)",
   "Os juros contam por mês virado desde o vencimento — o padrão das planilhas de mora; a multa incide uma única vez assim que o atraso começa. Os percentuais vêm do regulamento do condomínio.": "ब्याज देय तिथि से हर शुरू हुए महीने पर गिना जाता है — बकाया शीटों का मानक; जुर्माना देरी शुरू होते ही एक बार लगता है। प्रतिशत भवन-नियमावली से आते हैं।",
   "Original": "मूल राशि", "Encargos de atraso": "विलंब शुल्क", "mês(es)": "माह",
+  "Total devido": "कुल देय", "Sem encargos (negociado)": "विलंब शुल्क के बिना (सहमति से)", "Desconto (%)": "छूट (%)",
+  "Outro valor": "अन्य राशि", "Valor a receber": "प्राप्य राशि", "Ajuste negociado": "सहमति से समायोजन",
   "encargos": "शुल्क", "inclui encargos de atraso de": "विलंब शुल्क शामिल:",
   "Cargos de gestão": "प्रबंधन पद", "Cargo": "पद",
   "Ex.: Conselho fiscal": "उदा.: लेखा समिति", "Nome de quem ocupa o cargo": "पदधारी का नाम",

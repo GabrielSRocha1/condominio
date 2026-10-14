@@ -182,6 +182,8 @@ export default {
   "Regime dos juros": "সুদের ধরন", "Carência (dias após o vencimento)": "রেয়াত (মেয়াদের পরের দিন)",
   "Os juros contam por mês virado desde o vencimento — o padrão das planilhas de mora; a multa incide uma única vez assim que o atraso começa. Os percentuais vêm do regulamento do condomínio.": "মেয়াদ থেকে মাস ঘুরলেই সুদ গণনা হয় — বকেয়া শীটের মান; দেরি শুরু হতেই জরিমানা একবার। শতাংশ ভবনের বিধি থেকে।",
   "Original": "মূল পরিমাণ", "Encargos de atraso": "বিলম্ব মাশুল", "mês(es)": "মাস",
+  "Total devido": "মোট বকেয়া", "Sem encargos (negociado)": "বিলম্ব মাশুল ছাড়া (আলোচনাসাপেক্ষে)", "Desconto (%)": "ছাড় (%)",
+  "Outro valor": "অন্য পরিমাণ", "Valor a receber": "প্রাপ্য পরিমাণ", "Ajuste negociado": "আলোচনাসাপেক্ষ সমন্বয়",
   "encargos": "মাশুল", "inclui encargos de atraso de": "বিলম্ব মাশুলসহ:",
   "Cargos de gestão": "ব্যবস্থাপনা পদ", "Cargo": "পদ",
   "Ex.: Conselho fiscal": "যেমন: নিরীক্ষা কমিটি", "Nome de quem ocupa o cargo": "পদধারীর নাম",

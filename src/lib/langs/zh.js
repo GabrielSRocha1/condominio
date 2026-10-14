@@ -182,6 +182,8 @@ export default {
   "Regime dos juros": "计息方式", "Carência (dias após o vencimento)": "宽限期（到期后天数）",
   "Os juros contam por mês virado desde o vencimento — o padrão das planilhas de mora; a multa incide uma única vez assim que o atraso começa. Os percentuais vêm do regulamento do condomínio.": "利息自到期起按跨月计算——欠费表的通行标准；罚金在逾期开始时一次性收取。百分比来自公寓管理规约。",
   "Original": "原始金额", "Encargos de atraso": "滞纳金", "mês(es)": "个月",
+  "Total devido": "应付总额", "Sem encargos (negociado)": "免滞纳金（协商）", "Desconto (%)": "折扣（%）",
+  "Outro valor": "其他金额", "Valor a receber": "应收金额", "Ajuste negociado": "协商调整",
   "encargos": "滞纳金", "inclui encargos de atraso de": "含滞纳金",
   "Cargos de gestão": "管理职务", "Cargo": "职务",
   "Ex.: Conselho fiscal": "例：监事会", "Nome de quem ocupa o cargo": "担任该职务者的姓名",
