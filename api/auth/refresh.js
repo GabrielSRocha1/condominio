@@ -27,7 +27,7 @@ export default async function handler(req, res) {
     if (!sessao) return res.status(401).json({ error: "Sessão expirada — entre de novo." });
 
     const { data: usuario } = await supabase.from("usuarios")
-      .select("id, email, pessoas(nome, pessoa_vinculos(papel, unidades(numero, blocos(nome)))), usuario_perfis(condominio_id, perfis(nome))")
+      .select("id, email, pessoas(nome, pessoa_vinculos(papel, unidade_id, unidades(numero, blocos(nome)))), usuario_perfis(condominio_id, perfis(nome))")
       .eq("id", sessao.usuario_id).maybeSingle();
     if (!usuario) { await revogarRefresh(supabase, req, res); return res.status(401).json({ error: "Sessão expirada — entre de novo." }); }
 
@@ -44,11 +44,16 @@ export default async function handler(req, res) {
       ...(sessao.perfil === "morador" ? { nome } : { email: usuario.email, nome }),
     }, secret);
 
-    const vincUnidade = (usuario.pessoas?.pessoa_vinculos || []).find((v) => v.papel === "morador");
+    /* o vínculo é achado pela UNIDADE, como em login.js/acessos.js — por
+       papel == 'morador' a unidade sumiria assim que a conta fosse marcada
+       proprietário/inquilino em Gerenciar Acessos */
+    const vincs = usuario.pessoas?.pessoa_vinculos || [];
+    const vincUnidade = vincs.find((v) => v.unidade_id) || vincs[0] || null;
     return res.status(200).json({ token, conta: {
       nome, condominioId: sessao.condominio_id,
       ...(sessao.perfil === "morador"
-        ? { unidade: vincUnidade?.unidades ? `${vincUnidade.unidades.numero}-${vincUnidade.unidades.blocos?.nome || "?"}` : null }
+        ? { unidade: vincUnidade?.unidades ? `${vincUnidade.unidades.numero}-${vincUnidade.unidades.blocos?.nome || "?"}` : null,
+            papel: vincUnidade?.papel || null }
         : { email: usuario.email }),
     } });
   } catch (e) {
