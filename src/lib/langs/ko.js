@@ -183,7 +183,7 @@ export default {
   "Os juros contam por mês virado desde o vencimento — o padrão das planilhas de mora; a multa incide uma única vez assim que o atraso começa. Os percentuais vêm do regulamento do condomínio.": "이자는 만기 후 달이 바뀔 때마다 계산됩니다(체납표 표준). 위약금은 연체 시작 시 한 번만. 비율은 관리규약에서 나옵니다.",
   "Original": "원금", "Encargos de atraso": "연체료", "mês(es)": "개월",
   "Total devido": "총 납부액", "Sem encargos (negociado)": "연체료 제외(협의)", "Desconto (%)": "할인(%)",
-  "Outro valor": "다른 금액", "Valor a receber": "수령 금액", "Ajuste negociado": "협의 조정",
+  "Valor a receber": "수령 금액", "Ajuste negociado": "협의 조정",
   "encargos": "연체료", "inclui encargos de atraso de": "연체료 포함:",
   "Cargos de gestão": "관리 직책", "Cargo": "직책",
   "Ex.: Conselho fiscal": "예: 감사위원회", "Nome de quem ocupa o cargo": "직책 담당자 이름",

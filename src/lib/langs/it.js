@@ -183,7 +183,7 @@ export default {
   "Os juros contam por mês virado desde o vencimento — o padrão das planilhas de mora; a multa incide uma única vez assim que o atraso começa. Os percentuais vêm do regulamento do condomínio.": "Gli interessi contano per mese iniziato dalla scadenza — lo standard dei fogli di morosità; la sanzione si applica una sola volta appena inizia il ritardo. Le percentuali vengono dal regolamento condominiale.",
   "Original": "Originale", "Encargos de atraso": "Oneri di mora", "mês(es)": "mese/i",
   "Total devido": "Totale dovuto", "Sem encargos (negociado)": "Senza oneri di mora (concordato)", "Desconto (%)": "Sconto (%)",
-  "Outro valor": "Altro importo", "Valor a receber": "Importo da ricevere", "Ajuste negociado": "Adeguamento concordato",
+  "Valor a receber": "Importo da ricevere", "Ajuste negociado": "Adeguamento concordato",
   "encargos": "oneri", "inclui encargos de atraso de": "include oneri di mora di",
   "Cargos de gestão": "Cariche di gestione", "Cargo": "Carica",
   "Ex.: Conselho fiscal": "Es.: Revisore dei conti", "Nome de quem ocupa o cargo": "Nome di chi ricopre la carica",

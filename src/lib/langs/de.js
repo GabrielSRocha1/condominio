@@ -183,7 +183,7 @@ export default {
   "Os juros contam por mês virado desde o vencimento — o padrão das planilhas de mora; a multa incide uma única vez assim que o atraso começa. Os percentuais vêm do regulamento do condomínio.": "Zinsen zählen je angebrochenem Monat seit Fälligkeit — der Standard der Schuldentabellen; die Strafe fällt einmalig an, sobald der Verzug beginnt. Die Prozentsätze stammen aus der Gemeinschaftsordnung.",
   "Original": "Original", "Encargos de atraso": "Verzugszuschläge", "mês(es)": "Monat(e)",
   "Total devido": "Fälliger Gesamtbetrag", "Sem encargos (negociado)": "Ohne Verzugszuschläge (ausgehandelt)", "Desconto (%)": "Rabatt (%)",
-  "Outro valor": "Anderer Betrag", "Valor a receber": "Zu erhaltender Betrag", "Ajuste negociado": "Ausgehandelte Anpassung",
+  "Valor a receber": "Zu erhaltender Betrag", "Ajuste negociado": "Ausgehandelte Anpassung",
   "encargos": "Zuschläge", "inclui encargos de atraso de": "enthält Verzugszuschläge von",
   "Cargos de gestão": "Verwaltungsämter", "Cargo": "Amt",
   "Ex.: Conselho fiscal": "z. B.: Rechnungsprüfer", "Nome de quem ocupa o cargo": "Name der Amtsperson",

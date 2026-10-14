@@ -2010,33 +2010,31 @@ function ImportarPessoas({ t, onClose }) {
 /* ══════════════ RECEBER EM DINHEIRO (modal compartilhado) ══════════════
    Substitui o prompt() nativo: mostra a composição da dívida (original +
    encargos = total devido) e deixa negociar o valor da baixa — total, sem os
-   encargos, desconto em % ou um valor livre. O ajuste fica carimbado na
-   justificativa (auditoria) e a RPC lança no caixa o valor confirmado. */
-function ReceberModal({ t, c, moeda, onClose, onDepois }) {
-  const [modo, setModo] = useState("total"); // total | sem_encargos | desconto | outro
+   encargos ou com desconto em %. O ajuste fica carimbado na justificativa
+   (auditoria), a baixa é sempre na data de hoje e a RPC lança no caixa o
+   valor confirmado. */
+function ReceberModal({ t, c, onClose, onDepois }) {
+  const [modo, setModo] = useState("total"); // total | sem_encargos | desconto
   const [pct, setPct] = useState("");        // desconto em %, aceita vírgula
-  const [outroCents, setOutroCents] = useState(null);
   const devido = c.valorTotal ?? c.valor;
   const pctNum = Math.min(100, Math.max(0, Number(String(pct).replace(",", ".")) || 0));
   const valorFinal = Math.round((
     modo === "sem_encargos" ? c.valor
     : modo === "desconto" ? devido * (1 - pctNum / 100)
-    : modo === "outro" ? (outroCents ?? 0) / 100
     : devido) * 100) / 100;
-  const fmtC = (cents) => (cents / 100).toLocaleString(LOCALE_MOEDA[moeda] || "en-US", { style: "currency", currency: moeda });
   const [confirmar, confirmando] = useSubmit(async (f) => {
     const ajuste = Math.abs(valorFinal - devido) >= 0.005
       ? ` — ${L("Ajuste negociado")}: ${BRL(devido)} → ${BRL(valorFinal)}` : "";
     await confirmarPagamentoManual(c.id, {
       forma: "dinheiro", valor: valorFinal,
-      pagoEm: new Date(`${f.data}T12:00:00`).toISOString(),
+      pagoEm: new Date().toISOString(),
       justificativa: f.just + ajuste,
     });
     await onDepois();
   });
   const chips = [["total", "Total devido"],
     ...(c.encargos > 0 ? [["sem_encargos", "Sem encargos (negociado)"]] : []),
-    ["desconto", "Desconto (%)"], ["outro", "Outro valor"]];
+    ["desconto", "Desconto (%)"]];
   return (
     <Modal t={t} onClose={onClose}>
       <ModalHeader t={t} title="Registrar recebimento em dinheiro" onClose={onClose} />
@@ -2070,13 +2068,6 @@ function ReceberModal({ t, c, moeda, onClose, onDepois }) {
                   style={{ ...inputStyle(t), width: 110 }} />
                 <span className="text-sm" style={{ color: t.dim }}>%</span>
               </div>)}
-            {modo === "outro" && (
-              <div className="pt-1">
-                <input inputMode="numeric" autoFocus placeholder={fmtC(0)} aria-label={L("Outro valor")}
-                  value={outroCents == null ? "" : fmtC(outroCents)}
-                  onChange={(e) => { const dig = e.target.value.replace(/\D/g, "").slice(0, 15); setOutroCents(dig ? parseInt(dig, 10) : null); }}
-                  style={inputStyle(t)} />
-              </div>)}
           </div>
           <div className="flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5"
             style={{ background: t.goldSoft, borderColor: t.border }}>
@@ -2088,12 +2079,8 @@ function ReceberModal({ t, c, moeda, onClose, onDepois }) {
                   {L("Ajuste negociado")}: −{BRL(devido - valorFinal)} ({((1 - valorFinal / devido) * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%)</div>)}
             </div>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field t={t} label="Data do recebimento">
-              <input name="data" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} style={inputStyle(t)} /></Field>
-            <Field t={t} label="Justificativa (fica na auditoria do pagamento)">
-              <input name="just" required defaultValue={L("Recebimento em dinheiro na administração")} style={inputStyle(t)} /></Field>
-          </div>
+          <Field t={t} label="Justificativa (fica na auditoria do pagamento)">
+            <input name="just" required defaultValue={L("Recebimento em dinheiro na administração")} style={inputStyle(t)} /></Field>
           <div className="text-[11px]" style={{ color: t.dim }}>
             {L("Ao confirmar: a cobrança é baixada, o pagamento entra na auditoria e a receita cai no caixa como Entrada — tudo em uma única transação.")}</div>
           <div className="flex justify-end gap-2 pt-1">
@@ -2349,7 +2336,7 @@ function Financeiro({ t }) {
             }} />)}
       </>)}
       {receb && (
-        <ReceberModal t={t} c={receb} moeda={db.cond?.moeda || "USD"} onClose={() => setReceb(null)}
+        <ReceberModal t={t} c={receb} onClose={() => setReceb(null)}
           onDepois={async () => { await reload(); setReceb(null); }} />)}
       {novo && (
         <Modal t={t} onClose={() => setNovo(false)} wide>
@@ -2546,7 +2533,7 @@ function Cobrancas({ t }) {
           </form>
         </Modal>)}
       {receb && (
-        <ReceberModal t={t} c={receb} moeda={moeda} onClose={() => setReceb(null)}
+        <ReceberModal t={t} c={receb} onClose={() => setReceb(null)}
           onDepois={async () => { await reload(); setReceb(null); }} />)}
       {nova && (
         <Modal t={t} onClose={() => setNova(false)}>

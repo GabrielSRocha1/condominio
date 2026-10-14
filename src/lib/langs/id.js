@@ -183,7 +183,7 @@ export default {
   "Os juros contam por mês virado desde o vencimento — o padrão das planilhas de mora; a multa incide uma única vez assim que o atraso começa. Os percentuais vêm do regulamento do condomínio.": "Bunga dihitung per bulan berjalan sejak jatuh tempo — standar lembar tunggakan; denda berlaku sekali begitu keterlambatan dimulai. Persentase berasal dari peraturan kondominium.",
   "Original": "Jumlah asli", "Encargos de atraso": "Denda keterlambatan", "mês(es)": "bulan",
   "Total devido": "Total terutang", "Sem encargos (negociado)": "Tanpa denda (hasil negosiasi)", "Desconto (%)": "Diskon (%)",
-  "Outro valor": "Jumlah lain", "Valor a receber": "Jumlah yang diterima", "Ajuste negociado": "Penyesuaian hasil negosiasi",
+  "Valor a receber": "Jumlah yang diterima", "Ajuste negociado": "Penyesuaian hasil negosiasi",
   "encargos": "denda", "inclui encargos de atraso de": "termasuk denda keterlambatan",
   "Cargos de gestão": "Jabatan pengurus", "Cargo": "Jabatan",
   "Ex.: Conselho fiscal": "Mis.: Dewan pengawas", "Nome de quem ocupa o cargo": "Nama pemegang jabatan",

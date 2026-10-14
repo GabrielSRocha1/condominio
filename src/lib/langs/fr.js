@@ -183,7 +183,7 @@ export default {
   "Os juros contam por mês virado desde o vencimento — o padrão das planilhas de mora; a multa incide uma única vez assim que o atraso começa. Os percentuais vêm do regulamento do condomínio.": "Les intérêts comptent par mois entamé depuis l'échéance — le standard des feuilles de dette ; l'amende s'applique une seule fois dès le début du retard. Les pourcentages viennent du règlement de copropriété.",
   "Original": "Original", "Encargos de atraso": "Pénalités de retard", "mês(es)": "mois",
   "Total devido": "Total dû", "Sem encargos (negociado)": "Sans pénalités (négocié)", "Desconto (%)": "Remise (%)",
-  "Outro valor": "Autre montant", "Valor a receber": "Montant à recevoir", "Ajuste negociado": "Ajustement négocié",
+  "Valor a receber": "Montant à recevoir", "Ajuste negociado": "Ajustement négocié",
   "encargos": "pénalités", "inclui encargos de atraso de": "inclut des pénalités de retard de",
   "Cargos de gestão": "Fonctions de gestion", "Cargo": "Fonction",
   "Ex.: Conselho fiscal": "Ex. : Conseil syndical", "Nome de quem ocupa o cargo": "Nom de la personne en fonction",

@@ -183,7 +183,7 @@ export default {
   "Os juros contam por mês virado desde o vencimento — o padrão das planilhas de mora; a multa incide uma única vez assim que o atraso começa. Os percentuais vêm do regulamento do condomínio.": "Faiz, vadeden itibaren her yeni ayda işler — borç tablolarının standardı; ceza gecikme başlar başlamaz bir kez uygulanır. Yüzdeler yönetim planından gelir.",
   "Original": "Asıl tutar", "Encargos de atraso": "Gecikme bedelleri", "mês(es)": "ay",
   "Total devido": "Toplam borç", "Sem encargos (negociado)": "Gecikme bedelsiz (anlaşmalı)", "Desconto (%)": "İndirim (%)",
-  "Outro valor": "Farklı tutar", "Valor a receber": "Alınacak tutar", "Ajuste negociado": "Anlaşmalı düzeltme",
+  "Valor a receber": "Alınacak tutar", "Ajuste negociado": "Anlaşmalı düzeltme",
   "encargos": "bedeller", "inclui encargos de atraso de": "gecikme bedeli dahil:",
   "Cargos de gestão": "Yönetim görevleri", "Cargo": "Görev",
   "Ex.: Conselho fiscal": "Örn.: Denetim kurulu", "Nome de quem ocupa o cargo": "Görevdeki kişinin adı",
