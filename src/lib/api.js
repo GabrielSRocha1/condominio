@@ -1644,7 +1644,15 @@ export async function salvarPlanilhaCobrancas(ctx, { nome, colunas, linhas }) {
     }).select(), "planilhas_cobranca");
   } else {
     const porChave = new Map((planilha.colunas || []).map((c) => [c.chave, c]));
-    for (const c of colunas) if (!porChave.has(c.chave)) porChave.set(c.chave, c);
+    for (const c of colunas) {
+      /* a definição NOVA prevalece (papel/formato/fórmula ajustados no
+         reimport — a tela de importação já reaplica o que a pessoa tinha
+         corrigido); o que ela não traz fica da antiga. Antes era só-adiciona
+         e descartava qualquer correção. */
+      const velha = porChave.get(c.chave);
+      const limpa = Object.fromEntries(Object.entries(c).filter(([, v]) => v !== undefined));
+      porChave.set(c.chave, velha ? { ...velha, ...limpa } : c);
+    }
     const fundidas = [...porChave.values()].map((c, i) => ({ ...c, ordem: i }));
     [planilha] = await q(supabase.from("planilhas_cobranca")
       .update({ colunas: fundidas, atualizado_em: new Date().toISOString() })
@@ -1691,6 +1699,15 @@ export async function criarLinhaPlanilha(ctx, planilhaId, { dados = {}, unidadeI
 export async function removerLinhaPlanilha(id) {
   const { error } = await supabase.from("planilha_cobranca_linhas").delete().eq("id", id);
   if (error) throw new Error("linha da planilha: " + error.message);
+}
+
+/* Exclui a planilha INTEIRA do condomínio — o `on delete cascade` do
+   supabase-planilhas.sql leva as linhas junto. Cobranças já criadas no
+   sistema ficam: a FK é das linhas PARA as cobranças, não o contrário.
+   RLS: tenant_escrita (diretor/síndico/tesouraria) cobre o delete. */
+export async function excluirPlanilhaCobrancas(planilhaId) {
+  const { error } = await supabase.from("planilhas_cobranca").delete().eq("id", planilhaId);
+  if (error) throw new Error("planilha: " + error.message);
 }
 
 /* Cria as cobranças das linhas "só na planilha". Mesmo formato de

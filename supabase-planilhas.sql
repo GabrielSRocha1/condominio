@@ -37,9 +37,16 @@ create table if not exists planilhas_cobranca (
   id             uuid primary key default gen_random_uuid(),
   condominio_id  uuid not null references condominios(id),
   nome           varchar(120) not null,
-  -- [{ chave, titulo, tipo: texto|numero|data, papel, ordem, calculada }]
-  -- papel: unidade|competencia|valor|pago|vencimento|status (ou ausente)
-  -- calculada: { esq, op, dir } — coluna derivada (ex.: Saldo = Valor − Pago)
+  -- [{ chave, titulo, tipo: texto|numero|data, papel, ordem, formato?, calculada? }]
+  -- papel: unidade|competencia|valor|valor_base|percentual_fr|taxa_mora|meses|ano
+  --        |pago|vencimento|status (ou ausente)
+  -- formato: percent|moeda (ausente = automático) — percent em escala humana (10 = 10%)
+  -- calculada v1: { esq, op, dir } — A op B; operando = chave de coluna OU número fixo
+  -- calculada v2: { modelo: "mora", saida: monto|interes|total, base,
+  --   fr|taxa|meses: {col}|{num}, regime: simples|composto, incluiFr,
+  --   verifica?, tol? } — cálculo de expensas + fundo de reserva + juros,
+  --   com os parâmetros do reglamento ajustáveis (meses {col, dinamico:true}:
+  --   célula vazia conta competência→hoje; preenchida trava no digitado)
   colunas        jsonb not null default '[]'::jsonb,
   criado_em      timestamptz not null default now(),
   atualizado_em  timestamptz not null default now(),

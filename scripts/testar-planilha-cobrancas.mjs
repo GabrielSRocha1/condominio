@@ -16,7 +16,7 @@ import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import {
   lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado,
-  carregarExcelJS, normalizarCompetencia, paraNumero,
+  carregarExcelJS, normalizarCompetencia, paraNumero, inferirPapel, mesesAteHoje,
 } from "../src/lib/planilha.js";
 
 const env = Object.fromEntries(
@@ -96,6 +96,189 @@ ok("competência aceita os formatos do mundo real",
   && normalizarCompetencia("9/2026") === "2026-09" && normalizarCompetencia("2026-09-15") === "2026-09");
 ok("número não confunde milhar com decimal",
   paraNumero("1.234") === 1234 && paraNumero("1.23") === 1.23 && paraNumero("1,234.56") === 1234.56);
+
+/* ══ A2 · layout "planilla de mora" — fixture SINTÉTICA com a estrutura e
+   os números do arquivo real (sem nenhum dado pessoal): blocos por ano,
+   cabeçalho em 2 linhas, título mesclado, typos FEBERO/SETIEMBRE, unidade
+   mesclada, CANT. "15\n14", subtotal no meio, escala ÷1000 e UMA célula de
+   juros defasada do CANT (como no arquivo de origem). ══ */
+console.log("\n━━ A2 · planilla de mora (blocos por ano) ━━");
+
+const MES_ES = ["ENERO", "FEBERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SETIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
+const wbM = new ExcelJS.Workbook();
+const wsM = wbM.addWorksheet("Table 1");
+const cel = (ref, v) => { wsM.getCell(ref).value = v; };
+wsM.mergeCells("A1:K1");
+cel("A1", "PLANILLA DE CALCULO DE MORA CON INTERESES PROPIETARIO: TESTE");
+["A2", "B2", "C2", "D2", "J2"].forEach((r, i) => cel(r, ["UNID.", "MESES", "AÑO EXPENSAS", "% F.R.", "CANT."][i]));
+wsM.mergeCells("E2:I2"); cel("E2", "INTERESES MORATORIO");
+["A3", "B3", "D3", "E3", "F3", "G3", "H3", "I3", "J3"].forEach((r, i) =>
+  cel(r, ["UNID.", "MESES", "% F.R.", "EXPENSAS", "EXPENSAS", "10% F.R.", "MONTO", "2,3%", "MESES"][i]));
+cel("C3", 2025);
+for (let m = 0; m < 12; m++) {
+  const L = 4 + m;
+  cel(`B${L}`, MES_ES[m]); cel(`D${L}`, "1,02");
+  for (const col of ["C", "E", "F", "G", "H", "I"]) cel(`${col}${L}`, 0);
+  if (m === 7) { // AGOSTO com dívida — juros defasados do CANT, como no arquivo real
+    cel(`C${L}`, "26.230.835"); cel(`E${L}`, 267.555); cel(`F${L}`, 267.555);
+    cel(`G${L}`, 26.755); cel(`H${L}`, 294.31); cel(`I${L}`, 114.781);
+  }
+  if (m === 5) { wsM.mergeCells(`A${L}:A${L + 1}`); cel(`A${L}`, "3-D"); wsM.mergeCells(`J${L}:J${L + 1}`); cel(`J${L}`, "15\n14"); }
+  else if (m !== 6) cel(`J${L}`, 20 - m);
+}
+wsM.mergeCells("F16:H16"); cel("F16", "Monto total  - Interés 2,3%"); cel("I16", 114.781); // subtotal: pular
+// bloco 2020 SEM a coluna CANT. no cabeçalho (herda do bloco de cima)
+["A18", "B18", "C18", "D18"].forEach((r, i) => cel(r, ["UNIDAD", "MESES", "AÑO EXPENSAS", "% F.R."][i]));
+wsM.mergeCells("E18:I18"); cel("E18", "INTERESES MORATORIO");
+["A19", "B19", "D19", "E19", "F19", "G19", "H19", "I19"].forEach((r, i) =>
+  cel(r, ["UNIDAD", "MESES", "% F.R.", "EXPENSAS", "EXPENSAS", "10% F.R.", "MONTO", "2,3%"][i]));
+cel("C19", 2020);
+for (let m = 0; m < 12; m++) {
+  const L = 20 + m;
+  cel(`B${L}`, MES_ES[m]); cel(`D${L}`, "1,02"); cel(`J${L}`, 80 - m);
+  for (const col of ["C", "E", "F", "G", "H", "I"]) cel(`${col}${L}`, 0);
+  if (m === 4) { // MAYO com dívida — todas as fórmulas consistentes
+    cel(`C${L}`, "24.434.850"); cel(`E${L}`, 249.235); cel(`F${L}`, 249.235);
+    cel(`G${L}`, 24.924); cel(`H${L}`, 274.159); cel(`I${L}`, 479.23);
+  }
+  if (m === 5) { wsM.mergeCells(`A${L}:A${L + 1}`); cel(`A${L}`, "3-D"); }
+}
+wbM.addWorksheet("Hoja2"); // aba vazia, como no arquivo real
+const bufM = await wbM.xlsx.writeBuffer();
+const arqMora = { name: "Planilla de deuda 3-D Teste.xlsx", size: bufM.byteLength, arrayBuffer: async () => bufM };
+
+const mora = await lerPlanilhaLivre(arqMora, { mesesDoArquivo: true });
+ok("A2.1 detecta o layout mora (2 blocos, anos certos)",
+  mora.layout === "mora" && mora.mora?.blocos === 2 && String([...new Set(mora.mora.anos)].sort()) === "2020,2025",
+  `layout ${mora.layout} · blocos ${mora.mora?.blocos} · anos ${mora.mora?.anos}`);
+ok("A2.2 achata só os meses com dívida (zerados fora por padrão)",
+  mora.linhas.length === 2, `${mora.linhas.length} linha(s)`);
+const porComp = Object.fromEntries(mora.linhas.map((l) => [l.dados.competencia, l.dados]));
+const m2020 = porComp["2020-05"], m2025 = porComp["2025-08"];
+ok("A2.3 competência = ano do bloco + mês da linha; unidade da célula mesclada",
+  !!m2020 && !!m2025 && m2020.unidade === "3-D" && m2025.unidade === "3-D",
+  Object.keys(porComp).join(" "));
+ok("A2.4 escala ÷1000 corrigida (e avisada)",
+  m2020?.expensas === 249235 && m2020?.monto === 274159 && m2020?.interes === 479230
+  && m2025?.expensas === 267555 && mora.errosGerais.some((e) => /1\.000/.test(e)),
+  JSON.stringify({ e: m2020?.expensas, m: m2020?.monto, i: m2020?.interes }));
+ok("A2.5 parâmetros do reglamento saem do cabeçalho (10% F.R., 2,3%)",
+  m2020?.pct_fr === 10 && m2020?.taxa_mora === 2.3 && m2020?.meses_atraso === 76,
+  JSON.stringify({ fr: m2020?.pct_fr, taxa: m2020?.taxa_mora, meses: m2020?.meses_atraso }));
+
+const colMora = Object.fromEntries(mora.colunas.map((c) => [c.chave, c]));
+ok("A2.6 papéis e formatos prontos (monto = valor a conciliar; percentuais marcados)",
+  colMora.monto?.papel === "valor" && colMora.expensas?.papel === "valor_base"
+  && colMora.pct_fr?.formato === "percent" && colMora.taxa_mora?.formato === "percent"
+  && colMora.meses_atraso?.papel === "meses");
+const recM = colMora.monto_recalc, recI = colMora.interes_recalc;
+const vMonto = (d) => valorCalculado(d, recM, mora.colunas);
+const vInt = (d) => valorCalculado(d, recI, mora.colunas);
+ok("A2.7 MONTO recalculado bate com o importado (±5) nas duas linhas",
+  !!recM && Math.abs(vMonto(m2020) - m2020.monto) <= 5 && Math.abs(vMonto(m2025) - m2025.monto) <= 5,
+  `2020: ${vMonto(m2020)?.toFixed(1)} vs ${m2020?.monto} · 2025: ${vMonto(m2025)?.toFixed(1)} vs ${m2025?.monto}`);
+const difere2020 = Math.abs(vInt(m2020) - m2020.interes) > 5, difere2025 = Math.abs(vInt(m2025) - m2025.interes) > 5;
+ok("A2.8 INTERÉS: consistente confere; a célula defasada do arquivo acusa 'difere' (exatamente 1)",
+  !!recI && !difere2020 && difere2025,
+  `2020: ${vInt(m2020)?.toFixed(1)} vs ${m2020?.interes} · 2025: ${vInt(m2025)?.toFixed(1)} vs ${m2025?.interes}`);
+
+/* CANT. "15\n14" na célula mesclada: cada linha do par leva o seu número */
+const moraTudo = await lerPlanilhaLivre(arqMora, { mesesDoArquivo: true, incluirZerados: true });
+const porCompT = Object.fromEntries(moraTudo.linhas.map((l) => [l.dados.competencia, l.dados]));
+ok("A2.9 CANT. mesclada '15\\n14' distribui por linha (JUN=15, JUL=14)",
+  porCompT["2025-06"]?.meses_atraso === 15 && porCompT["2025-07"]?.meses_atraso === 14,
+  JSON.stringify({ jun: porCompT["2025-06"]?.meses_atraso, jul: porCompT["2025-07"]?.meses_atraso }));
+
+/* meses DINÂMICOS (padrão): célula vazia → conta da competência até hoje */
+const moraDin = await lerPlanilhaLivre(arqMora, {});
+const dDin = moraDin.linhas.find((l) => l.dados.competencia === "2020-05")?.dados;
+const hojeFixo = new Date(2026, 9, 14); // 14/10/2026 — determinístico
+const esperadoMeses = mesesAteHoje("2020-05", hojeFixo); // 77
+const colsDin = moraDin.colunas;
+const recIDin = colsDin.find((c) => c.chave === "interes_recalc");
+const intDin = valorCalculado(dDin, recIDin, colsDin, { hoje: hojeFixo });
+ok("A2.10 padrão dinâmico: meses vazios contam até hoje (77 p/ 2020-05) e o juro acompanha",
+  dDin?.meses_atraso === "" && esperadoMeses === 77 && Math.abs(intDin - 274158.5 * 0.023 * 77) < 1,
+  `meses ${JSON.stringify(dDin?.meses_atraso)} · ${esperadoMeses} meses · juros ${intDin?.toFixed(1)}`);
+
+/* ══ A3 · cabeçalho de verdade no meio do arquivo (título mesclado) ══ */
+console.log("\n━━ A3 · detecção da linha de cabeçalho ━━");
+const wb3 = new ExcelJS.Workbook();
+const ws3 = wb3.addWorksheet("Liquidacion");
+ws3.mergeCells("A1:D1"); ws3.getCell("A1").value = "CONSORCIO LOS ROBLES - LIQUIDACION DE EXPENSAS";
+ws3.addRow([]); // linha 2 em branco é absorvida
+ws3.getCell("A3").value = "Unidad"; ws3.getCell("B3").value = "Mes";
+ws3.getCell("C3").value = "Expensas"; ws3.getCell("D3").value = "Pagado";
+ws3.getCell("A4").value = "101-A"; ws3.getCell("B4").value = "01/2024";
+ws3.getCell("C4").value = 450; ws3.getCell("D4").value = 450;
+const buf3 = await wb3.xlsx.writeBuffer();
+const lido3 = await lerPlanilhaLivre({ name: "liq.xlsx", size: buf3.byteLength, arrayBuffer: async () => buf3 });
+const pt3 = Object.fromEntries(lido3.colunas.map((c) => [c.titulo, c]));
+ok("A3.1 pula o título mesclado e acha o cabeçalho real (linha 3)",
+  lido3.layout === "plano" && lido3.cabecalhoNa === 3 && lido3.colunas.length === 4 && lido3.linhas.length === 1,
+  `cabeçalho na ${lido3.cabecalhoNa} · ${lido3.colunas.length} col · ${lido3.linhas.length} linha`);
+ok("A3.2 vocabulário ES no caminho plano (Expensas→valor_base, Pagado→pago)",
+  pt3.Unidad?.papel === "unidade" && pt3.Mes?.papel === "competencia"
+  && pt3.Expensas?.papel === "valor_base" && pt3.Pagado?.papel === "pago",
+  lido3.colunas.map((c) => `${c.titulo}→${c.papel || "—"}`).join(" "));
+const res3 = resolverLinha(lido3.colunas, lido3.linhas[0].dados, { unidades: [{ id: "u1", label: "101-A" }] });
+ok("A3.3 sem coluna de valor final, a cota (valor_base) concilia", res3.valor === 450, String(res3.valor));
+
+/* ══ A4 · csv com linha-título curta não decapita colunas ══ */
+const csvTxt = "LIQUIDACION 2024\nUnidad;Mes;Expensas\n101-A;01/2024;450;400\n102-A;02/2024;300;0\n";
+const bufCsv = new TextEncoder().encode(csvTxt).buffer;
+const lido4 = await lerPlanilhaLivre({ name: "liq.csv", size: bufCsv.byteLength, arrayBuffer: async () => bufCsv });
+ok("A4 csv: título curto pulado e coluna além do cabeçalho sobrevive",
+  lido4.cabecalhoNa === 2 && lido4.colunas.length === 4 && lido4.linhas[0].dados[lido4.colunas[3].chave] === 400,
+  `cabeçalho na ${lido4.cabecalhoNa} · ${lido4.colunas.length} col`);
+
+/* ══ A5 · percentual: texto "10%" e célula % do Excel (0,023 + numFmt) ══ */
+const wb5 = new ExcelJS.Workbook();
+const ws5 = wb5.addWorksheet("P");
+ws5.addRow(["Unidad", "Mes", "% F.R.", "Interés"]);
+ws5.addRow(["101-A", "01/2024", "10%", 0]);
+ws5.getCell("D2").value = 0.023; ws5.getCell("D2").numFmt = "0.0%";
+ws5.addRow(["102-A", "02/2024", "10%", 0]);
+ws5.getCell("D3").value = 0.05; ws5.getCell("D3").numFmt = "0%";
+const buf5 = await wb5.xlsx.writeBuffer();
+const lido5 = await lerPlanilhaLivre({ name: "p.xlsx", size: buf5.byteLength, arrayBuffer: async () => buf5 });
+const pt5 = Object.fromEntries(lido5.colunas.map((c) => [c.titulo, c]));
+ok("A5 percentual: papel + formato + escala humana (10% → 10; 0,023+numFmt → 2.3)",
+  pt5["% F.R."]?.papel === "percentual_fr" && pt5["% F.R."]?.formato === "percent"
+  && pt5["Interés"]?.papel === "taxa_mora" && pt5["Interés"]?.formato === "percent"
+  && lido5.linhas[0].dados[pt5["% F.R."].chave] === 10
+  && lido5.linhas[0].dados[pt5["Interés"].chave] === 2.3,
+  JSON.stringify({ fr: lido5.linhas[0].dados[pt5["% F.R."]?.chave], tx: lido5.linhas[0].dados[pt5["Interés"]?.chave] }));
+
+/* ══ A6 · vocabulário ES de cobrança e os falsos positivos barrados ══ */
+ok("A6 papéis ES (e 'Morador'/'Cantina' NÃO viram papel por substring)",
+  inferirPapel("EXPENSAS") === "valor_base" && inferirPapel("AÑO EXPENSAS") === "ano"
+  && inferirPapel("INTERESES MORATORIO") === "taxa_mora" && inferirPapel("CANT.") === "meses"
+  && inferirPapel("% F.R.") === "percentual_fr" && inferirPapel("MONTO") === "valor"
+  && inferirPapel("Cuota") === "valor_base" && inferirPapel("Morador") === null && inferirPapel("Cantina") === null,
+  ["EXPENSAS", "AÑO EXPENSAS", "INTERESES MORATORIO", "CANT.", "Morador", "Cantina"].map((s) => `${s}→${inferirPapel(s) || "—"}`).join(" "));
+
+/* ══ A7 · calculada: recursão, ciclo e constante ══ */
+const colsRec = [
+  { chave: "a", titulo: "A", tipo: "numero" },
+  { chave: "dobro", calculada: { esq: "a", op: "*", dir: 2 } },
+  { chave: "quadruplo", calculada: { esq: "dobro", op: "*", dir: 2 } },
+  { chave: "cx", calculada: { esq: "cy", op: "+", dir: 1 } },
+  { chave: "cy", calculada: { esq: "cx", op: "+", dir: 1 } },
+];
+ok("A7 calculada sobre calculada resolve em cadeia; ciclo não trava; constante vale",
+  valorCalculado({ a: 10 }, colsRec[2], colsRec) === 40
+  /* no ciclo, a referência circular resolve como null (0) no ponto da volta:
+     cy = 0+1 = 1 → cx = 1+1 = 2 — determinístico, sem estourar a pilha */
+  && valorCalculado({ a: 10 }, colsRec[3], colsRec) === 2
+  && valorCalculado({ a: 10 }, colsRec[1], colsRec) === 20,
+  `quadruplo ${valorCalculado({ a: 10 }, colsRec[2], colsRec)} · ciclo ${valorCalculado({ a: 10 }, colsRec[3], colsRec)}`);
+
+/* ══ A8 · competência ES que faltava ══ */
+ok("A8 'ene/dic' e ano de 2 dígitos com mês textual",
+  normalizarCompetencia("ene/2024") === "2024-01" && normalizarCompetencia("dic-2023") === "2023-12"
+  && normalizarCompetencia("ene/24") === "2024-01" && normalizarCompetencia("setiembre 2026") === "2026-09",
+  ["ene/2024", "dic-2023", "ene/24", "setiembre 2026"].map((s) => `${s}→${normalizarCompetencia(s) || "—"}`).join(" "));
 
 /* ══ B · banco, pelo caminho do navegador (anon + JWT, com RLS) ══ */
 console.log("\n━━ B · gravação e conciliação no banco ━━");
@@ -225,10 +408,19 @@ if (!login.token) {
             `escrita ${eM ? "bloqueada" : "PERMITIDA"} · leitura ${leu?.length ? "ok" : "bloqueada"}`);
         }
 
-        /* limpeza */
+        /* excluir a planilha INTEIRA: morador não consegue (RLS silencia o
+           delete em 0 linhas); o DIRETOR consegue — e a exclusão é a própria
+           limpeza da sonda (cascade nas linhas) */
+        if (loginM.token) {
+          await clienteApp(loginM.token).from("planilhas_cobranca").delete().eq("id", pl.id);
+          const { data: aindaLa } = await app.from("planilhas_cobranca").select("id").eq("id", pl.id).maybeSingle();
+          ok("morador não exclui a planilha (tenant_escrita)", !!aindaLa, aindaLa ? "planilha intacta" : "FOI EXCLUÍDA");
+        }
         await admin.from("planilha_cobranca_linhas").update({ cobranca_id: null }).eq("planilha_id", pl.id);
+        const { error: eDel } = await app.from("planilhas_cobranca").delete().eq("id", pl.id);
+        const { data: sumiu } = await app.from("planilhas_cobranca").select("id").eq("id", pl.id).maybeSingle();
+        ok("diretor exclui a planilha inteira", !eDel && !sumiu, eDel?.message || (sumiu ? "ainda existe" : "ok"));
         await admin.from("cobrancas").delete().eq("condominio_id", COND).in("competencia", COMP_TESTE);
-        await admin.from("planilhas_cobranca").delete().eq("id", pl.id);
         const { count: sobrou } = await admin.from("planilha_cobranca_linhas")
           .select("id", { count: "exact", head: true }).eq("planilha_id", pl.id);
         ok("limpeza: cenário da sonda removido (cascade nas linhas)", sobrou === 0, `${sobrou} linha(s) restante(s)`);

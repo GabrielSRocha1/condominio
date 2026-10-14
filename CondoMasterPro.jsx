@@ -28,10 +28,10 @@ import {
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
   salvarPreferencias, importarPessoas, LOCALE_MOEDA, definirPapelAcesso,
   carregarPlanilhaCobrancas, salvarPlanilhaCobrancas, salvarColunasPlanilha, atualizarCelulaPlanilha,
-  criarLinhaPlanilha, removerLinhaPlanilha, criarCobrancasDaPlanilha,
+  criarLinhaPlanilha, removerLinhaPlanilha, criarCobrancasDaPlanilha, excluirPlanilhaCobrancas,
 } from "./src/lib/api.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
-import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
+import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado, valorDaColuna, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
@@ -2425,17 +2425,21 @@ const SITUACOES = {
   sem_chave:   { l: "Sem unidade/competência", c: "dim" },
 };
 const PAPEIS_COLUNA = [["", "— nenhum —"], ["unidade", "Unidade"], ["competencia", "Competência"],
-  ["valor", "Valor"], ["pago", "Pago"], ["vencimento", "Vencimento"], ["status", "Status"]];
+  ["valor", "Valor"], ["valor_base", "Valor base (expensas)"], ["percentual_fr", "% fundo de reserva"],
+  ["taxa_mora", "Taxa de mora (%)"], ["meses", "Meses (qtde.)"], ["ano", "Ano"],
+  ["pago", "Pago"], ["vencimento", "Vencimento"], ["status", "Status"]];
 const OPS_CALC = [["-", "−"], ["+", "+"], ["*", "×"], ["/", "÷"]];
+const FORMATOS_COLUNA = [["", "Automático"], ["percent", "Percentual (%)"], ["moeda", "Moeda"]];
 
-/* valor da célula para exibição: data em dd/mm/aaaa, dinheiro na moeda de
-   gestão (só nas colunas de valor/pago/calculadas), demais números com
-   separador local */
+/* valor da célula para exibição: data em dd/mm/aaaa, percentual com o "%",
+   dinheiro na moeda de gestão (colunas de valor/pago/calculadas ou formato
+   "moeda"), demais números com separador local */
 const fmtCelula = (v, col) => {
   if (v === "" || v == null) return "";
   if (col.tipo === "data" && /^\d{4}-\d{2}-\d{2}$/.test(String(v))) return String(v).split("-").reverse().join("/");
   if (typeof v === "number") {
-    const dinheiro = col.calculada || ["valor", "pago"].includes(col.papel);
+    if (col.formato === "percent") return `${v.toLocaleString(LOCALE_MOEDA[MOEDA] || "en-US", { maximumFractionDigits: 2 })}%`;
+    const dinheiro = col.formato === "moeda" || col.calculada || ["valor", "pago"].includes(col.papel);
     return dinheiro ? BRL(v) : v.toLocaleString(LOCALE_MOEDA[MOEDA] || "en-US", { maximumFractionDigits: 2 });
   }
   return String(v);
@@ -2476,7 +2480,8 @@ function PlanilhaCobrancas({ t }) {
   const [sit, setSit] = useState("todas");
   const [agrupar, setAgrupar] = useState("");
   const [pagina, setPagina] = useState(0);
-  const [calc, setCalc] = useState(null);       // construtor de coluna calculada
+  const [calc, setCalc] = useState(null);       // construtor/editor de coluna calculada
+  const [gerCols, setGerCols] = useState(null);  // cópia de trabalho do "Gerenciar colunas"
   const [criando, setCriando] = useState(false);
   const [aviso, setAviso] = useState("");
   const POR_PAGINA = 100;
@@ -2509,7 +2514,9 @@ function PlanilhaCobrancas({ t }) {
   }, [linhas, q, sit]);
   useEffect(() => { setPagina(0); }, [q, sit, agrupar]);
 
-  const valorDe = (l, col) => (col.calculada ? valorCalculado(l.dados, col) : l.dados?.[col.chave]);
+  /* valorDaColuna resolve calculada-sobre-calculada em cadeia — o caminho
+     único para render, totais, agrupamento e exportação */
+  const valorDe = (l, col) => valorDaColuna(l.dados, col, colunas);
   const somaDe = (rows, col) => rows.reduce((s, l) => s + (paraNumero(valorDe(l, col)) || 0), 0);
 
   /* agrupamento: a tabela vira o resumo (uma linha por grupo, com soma de
@@ -2554,20 +2561,70 @@ function PlanilhaCobrancas({ t }) {
     await removerLinhaPlanilha(linha.id);
     setEstado((e) => ({ ...e, linhas: e.linhas.filter((x) => x.id !== linha.id) }));
   };
-  const adicionarCalculada = async (f) => {
+  /* cria OU edita (f.chave presente) uma coluna calculada — A op B (com
+     constantes) ou o modelo de mora, com os parâmetros do reglamento */
+  const salvarCalculada = async (f) => {
     const titulo = String(f.titulo || "").trim() || "Calculada";
-    const chave = `calc_${Date.now().toString(36)}`;
-    const nova = [...colunas, { chave, titulo, tipo: "numero", papel: null, ordem: colunas.length,
-      calculada: { esq: f.esq, op: f.op, dir: f.dir } }];
+    const chave = f.chave || `calc_${Date.now().toString(36)}`;
+    const calculada = f.modo === "mora"
+      ? {
+          modelo: "mora", saida: f.saida || "total", base: f.base,
+          fr: f.frCol ? { col: f.frCol } : { num: paraNumero(f.frNum) ?? 0 },
+          taxa: f.taxaCol ? { col: f.taxaCol } : { num: paraNumero(f.taxaNum) ?? 0 },
+          meses: f.mesesCol ? { col: f.mesesCol, dinamico: true } : { dinamico: true },
+          regime: f.regime === "composto" ? "composto" : "simples", incluiFr: true,
+          ...(f.verifica ? { verifica: f.verifica, tol: paraNumero(f.tol) ?? 1 } : {}),
+        }
+      : { esq: f.esq === "__num" ? (paraNumero(f.esqNum) ?? 0) : f.esq, op: f.op,
+          dir: f.dir === "__num" ? (paraNumero(f.dirNum) ?? 0) : f.dir };
+    const existente = colunas.find((c) => c.chave === chave);
+    const def = { chave, titulo, tipo: "numero", papel: existente?.papel ?? null,
+      ordem: existente?.ordem ?? colunas.length, ...(existente?.formato ? { formato: existente.formato } : {}), calculada };
+    const nova = existente ? colunas.map((c) => (c.chave === chave ? def : c)) : [...colunas, def];
     await salvarColunasPlanilha(planilha.id, nova);
     setEstado((e) => ({ ...e, planilha: { ...e.planilha, colunas: nova } }));
     setCalc(null);
+  };
+  /* abre o modal pré-preenchido a partir da definição persistida */
+  const editarCalculada = (col) => {
+    const c = col.calculada;
+    setCalc(c.modelo === "mora"
+      ? { chave: col.chave, titulo: col.titulo, modo: "mora", saida: c.saida || "total", base: c.base || "",
+          frCol: c.fr?.col || "", frNum: c.fr?.num ?? "", taxaCol: c.taxa?.col || "", taxaNum: c.taxa?.num ?? "",
+          mesesCol: c.meses?.col || "", regime: c.regime || "simples", verifica: c.verifica || "", tol: c.tol ?? 1 }
+      : { chave: col.chave, titulo: col.titulo, modo: "ab",
+          esq: typeof c.esq === "number" ? "__num" : c.esq, esqNum: typeof c.esq === "number" ? c.esq : "",
+          op: c.op, dir: typeof c.dir === "number" ? "__num" : c.dir, dirNum: typeof c.dir === "number" ? c.dir : "" });
   };
   const removerColuna = async (col) => {
     if (!col.calculada) return;
     const nova = colunas.filter((c) => c.chave !== col.chave).map((c, i) => ({ ...c, ordem: i }));
     await salvarColunasPlanilha(planilha.id, nova);
     setEstado((e) => ({ ...e, planilha: { ...e.planilha, colunas: nova } }));
+  };
+  /* Gerenciar colunas: edita papel/formato numa cópia e grava de uma vez */
+  const trocarGer = (chave, campo, valor) => setGerCols((g) => g.map((c) => {
+    if (c.chave === chave) return { ...c, [campo]: valor || (campo === "papel" ? null : undefined) };
+    if (campo === "papel" && valor && c.papel === valor) return { ...c, papel: null }; // papel é único
+    return c;
+  }));
+  const salvarGerCols = async () => {
+    const nova = gerCols.map((c, i) => {
+      const limpa = { ...c, ordem: i };
+      if (!limpa.formato) delete limpa.formato;
+      return limpa;
+    });
+    await salvarColunasPlanilha(planilha.id, nova);
+    setEstado((e) => ({ ...e, planilha: { ...e.planilha, colunas: nova } }));
+    setGerCols(null);
+  };
+  const excluirPlanilha = async () => {
+    if (!confirm(L("Excluir a planilha inteira? Todas as linhas importadas serão removidas. As cobranças já criadas no sistema não são afetadas."))) return;
+    setErro("");
+    try {
+      await excluirPlanilhaCobrancas(planilha.id);
+      setEstado({ planilha: null, linhas: [] });
+    } catch (e) { setErro(e?.message || String(e)); }
   };
   const criarFaltantes = async () => {
     if (!confirm(`${L("Criar")} ${faltando.length} ${L("cobrança(s) a partir da planilha? Elas entram na lista de cobranças, mas NÃO lançam receita no caixa.")}`)) return;
@@ -2622,9 +2679,15 @@ function PlanilhaCobrancas({ t }) {
       <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar em qualquer coluna…"
         action={<div className="flex flex-wrap gap-2">
           <Btn t={t} onClick={adicionarLinha}><Plus size={14} /> Linha</Btn>
-          <Btn t={t} onClick={() => setCalc({ titulo: "", esq: numericas[0]?.chave || "", op: "-", dir: numericas[1]?.chave || numericas[0]?.chave || "" })}
+          <Btn t={t} onClick={() => setCalc({ titulo: "", modo: "ab", esq: numericas[0]?.chave || "", op: "-", dir: numericas[1]?.chave || numericas[0]?.chave || "", esqNum: "", dirNum: "",
+            saida: "total", base: colunas.find((c) => c.papel === "valor_base")?.chave || numericas[0]?.chave || "",
+            frCol: colunas.find((c) => c.papel === "percentual_fr")?.chave || "", frNum: 10,
+            taxaCol: colunas.find((c) => c.papel === "taxa_mora")?.chave || "", taxaNum: "",
+            mesesCol: colunas.find((c) => c.papel === "meses")?.chave || "", regime: "simples", verifica: "", tol: 1 })}
             disabled={numericas.length < 1}><Plus size={14} /> Coluna calculada</Btn>
+          <Btn t={t} onClick={() => setGerCols(colunas.map((c) => ({ ...c })))}><ListChecks size={14} /> Colunas</Btn>
           <Btn t={t} onClick={exportar}><Download size={14} /> Exportar</Btn>
+          <Btn t={t} kind="danger" onClick={excluirPlanilha}><Trash2 size={14} /> Excluir planilha</Btn>
           <Btn t={t} kind="primary" onClick={() => setImportar(true)}><Upload size={14} /> Importar mais</Btn>
         </div>}>
         <Sel t={t} value={sit} onChange={setSit} opts={[["todas", "Todas as situações"], ["confere", "Confere"], ["difere", "Valor difere"], ["so_planilha", "Só na planilha"], ["sem_chave", "Sem unidade/competência"]]} />
@@ -2672,7 +2735,19 @@ function PlanilhaCobrancas({ t }) {
               </div>);
             const col = colunas.find((c) => c.chave === k);
             if (!col) return null;
-            if (col.calculada) return <span style={{ display: "block", textAlign: "right", color: t.gold }}>{fmtCelula(valorCalculado(l.dados, col), col)}</span>;
+            if (col.calculada) {
+              const v = valorDe(l, col);
+              /* coluna com `verifica` compara o recalculado com o importado:
+                 verde = confere (dentro da tolerância), âmbar = difere */
+              let cor = t.gold, titulo;
+              const imp = col.calculada.verifica != null ? paraNumero(l.dados?.[col.calculada.verifica]) : null;
+              if (imp != null && typeof v === "number") {
+                const bate = Math.abs(v - imp) <= (col.calculada.tol ?? 1);
+                cor = bate ? t.ok : t.warn;
+                titulo = `${L("importado")}: ${fmtCelula(imp, col)} · ${L("recalculado")}: ${fmtCelula(v, col)}`;
+              }
+              return <span title={titulo} style={{ display: "block", textAlign: "right", color: cor }}>{fmtCelula(v, col)}</span>;
+            }
             return <CelulaEditavel t={t} linha={l} col={col} onSalvar={(v) => salvarCelula(l, col.chave, v)} />;
           }} />)}
 
@@ -2684,8 +2759,12 @@ function PlanilhaCobrancas({ t }) {
             {numericas.map((c) => (
               <div key={c.chave} className="flex items-center gap-1.5">
                 <span style={{ color: t.dim }}>{c.titulo}:</span>
-                <b style={{ color: t.gold }}>{fmtCelula(somaDe(filtradas, c), c)}</b>
-                <span style={{ color: t.dim }}>({L("média")} {fmtCelula(somaDe(filtradas, c) / filtradas.length, c)})</span>
+                {c.formato === "percent" ? ( /* somar percentuais é ruído — só a média informa */
+                  <b style={{ color: t.gold }}>{fmtCelula(somaDe(filtradas, c) / filtradas.length, c)}</b>
+                ) : (<>
+                  <b style={{ color: t.gold }}>{fmtCelula(somaDe(filtradas, c), c)}</b>
+                  <span style={{ color: t.dim }}>({L("média")} {fmtCelula(somaDe(filtradas, c) / filtradas.length, c)})</span>
+                </>)}
                 {c.calculada && <button onClick={() => removerColuna(c)} title={L("Remover coluna calculada")}><X size={12} color={t.dim} /></button>}
               </div>))}
           </div>
@@ -2703,25 +2782,111 @@ function PlanilhaCobrancas({ t }) {
           {soSistema.length} {L("cobrança(s) do sistema não aparecem na planilha (inclusive as do mês corrente).")}
         </div>)}
 
-      {calc && (
+      {calc && (() => {
+        const selCol = (valor, onChange, extras = []) => (
+          <select value={valor} onChange={onChange} style={inputStyle(t)}>
+            {extras.map(([v, l]) => <option key={v} value={v}>{L(l)}</option>)}
+            {numericas.filter((c) => c.chave !== calc.chave).map((c) => <option key={c.chave} value={c.chave}>{c.titulo}</option>)}
+          </select>);
+        /* parâmetro constante-OU-coluna (fundo/taxa): coluna escolhida vence;
+           sem coluna, vale o número digitado */
+        const paramPctl = (rotulo, colKey, numKey) => (
+          <div className="flex items-end gap-2">
+            <Field t={t} label={rotulo} className="flex-1">
+              {selCol(calc[colKey], (e) => setCalc({ ...calc, [colKey]: e.target.value }), [["", "Número fixo"]])}</Field>
+            {!calc[colKey] && <input value={calc[numKey]} onChange={(e) => setCalc({ ...calc, [numKey]: e.target.value })}
+              placeholder="10" style={{ ...inputStyle(t), width: 90 }} />}
+          </div>);
+        return (
         <Modal t={t} onClose={() => setCalc(null)}>
-          <ModalHeader t={t} title="Nova coluna calculada" onClose={() => setCalc(null)} />
+          <ModalHeader t={t} title={calc.chave ? "Editar coluna calculada" : "Nova coluna calculada"} onClose={() => setCalc(null)} />
           <div className="space-y-3">
             <Field t={t} label="Nome da coluna">
               <input value={calc.titulo} onChange={(e) => setCalc({ ...calc, titulo: e.target.value })} placeholder="Saldo" style={inputStyle(t)} /></Field>
-            <div className="flex items-end gap-2">
-              <Field t={t} label="Coluna"><select value={calc.esq} onChange={(e) => setCalc({ ...calc, esq: e.target.value })} style={inputStyle(t)}>
-                {numericas.map((c) => <option key={c.chave} value={c.chave}>{c.titulo}</option>)}</select></Field>
-              <select value={calc.op} onChange={(e) => setCalc({ ...calc, op: e.target.value })} style={{ ...inputStyle(t), width: 70 }}>
-                {OPS_CALC.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-              <Field t={t} label="Coluna"><select value={calc.dir} onChange={(e) => setCalc({ ...calc, dir: e.target.value })} style={inputStyle(t)}>
-                {numericas.map((c) => <option key={c.chave} value={c.chave}>{c.titulo}</option>)}</select></Field>
-            </div>
-            <div className="text-xs" style={{ color: t.dim }}>{L("A coluna é recalculada sozinha a cada mudança — como uma fórmula de planilha.")}</div>
+            <Field t={t} label="Tipo de fórmula">
+              <select value={calc.modo} onChange={(e) => setCalc({ ...calc, modo: e.target.value })} style={inputStyle(t)}>
+                <option value="ab">{L("Entre duas colunas (A − B)")}</option>
+                <option value="mora">{L("Cálculo de mora")}</option>
+              </select></Field>
+
+            {calc.modo === "mora" ? (<>
+              <Field t={t} label="Resultado">
+                <select value={calc.saida} onChange={(e) => setCalc({ ...calc, saida: e.target.value })} style={inputStyle(t)}>
+                  <option value="monto">{L("Principal (base + fundo)")}</option>
+                  <option value="interes">{L("Juros de mora")}</option>
+                  <option value="total">{L("Principal + juros")}</option>
+                </select></Field>
+              <Field t={t} label="Base (valor da cota)">{selCol(calc.base, (e) => setCalc({ ...calc, base: e.target.value }))}</Field>
+              {paramPctl(L("Fundo de reserva (%)"), "frCol", "frNum")}
+              {paramPctl(L("Taxa de mora mensal (%)"), "taxaCol", "taxaNum")}
+              <Field t={t} label="Meses em atraso">
+                {selCol(calc.mesesCol, (e) => setCalc({ ...calc, mesesCol: e.target.value }), [["", "Dinâmico (contar até hoje)"]])}</Field>
+              {calc.mesesCol && <div className="text-xs" style={{ color: t.dim }}>
+                {L("Célula vazia conta até hoje; preenchida, trava no número digitado.")}</div>}
+              <div className="flex gap-2">
+                <Field t={t} label="Regime" className="flex-1">
+                  <select value={calc.regime} onChange={(e) => setCalc({ ...calc, regime: e.target.value })} style={inputStyle(t)}>
+                    <option value="simples">{L("Juros simples")}</option>
+                    <option value="composto">{L("Juros compostos")}</option>
+                  </select></Field>
+                <Field t={t} label="Comparar com a coluna" className="flex-1">
+                  {selCol(calc.verifica, (e) => setCalc({ ...calc, verifica: e.target.value }), [["", "— não comparar —"]])}</Field>
+              </div>
+              <div className="text-xs" style={{ color: t.dim }}>
+                {L("Os percentuais vêm do regulamento do condomínio — ajuste aqui quando mudarem.")}</div>
+            </>) : (<>
+              <div className="flex items-end gap-2">
+                <Field t={t} label="Coluna">{selCol(calc.esq, (e) => setCalc({ ...calc, esq: e.target.value }), [["__num", "Número fixo"]])}</Field>
+                <select value={calc.op} onChange={(e) => setCalc({ ...calc, op: e.target.value })} style={{ ...inputStyle(t), width: 70 }}>
+                  {OPS_CALC.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+                <Field t={t} label="Coluna">{selCol(calc.dir, (e) => setCalc({ ...calc, dir: e.target.value }), [["__num", "Número fixo"]])}</Field>
+              </div>
+              <div className="flex gap-2">
+                {calc.esq === "__num" && <input value={calc.esqNum} onChange={(e) => setCalc({ ...calc, esqNum: e.target.value })} placeholder="100" style={{ ...inputStyle(t), width: 110 }} />}
+                {calc.dir === "__num" && <input value={calc.dirNum} onChange={(e) => setCalc({ ...calc, dirNum: e.target.value })} placeholder="100" style={{ ...inputStyle(t), width: 110, marginLeft: "auto" }} />}
+              </div>
+              <div className="text-xs" style={{ color: t.dim }}>{L("A coluna é recalculada sozinha a cada mudança — como uma fórmula de planilha.")}</div>
+            </>)}
           </div>
           <div className="mt-5 flex justify-end gap-2">
             <Btn t={t} onClick={() => setCalc(null)}>Cancelar</Btn>
-            <Btn t={t} kind="primary" onClick={() => adicionarCalculada(calc)} disabled={!calc.esq || !calc.dir}><Check size={14} /> Criar coluna</Btn>
+            <Btn t={t} kind="primary" onClick={() => salvarCalculada(calc)}
+              disabled={calc.modo === "mora" ? !calc.base : (!calc.esq || !calc.dir)}>
+              <Check size={14} /> {calc.chave ? L("Salvar") : L("Criar coluna")}</Btn>
+          </div>
+        </Modal>);
+      })()}
+
+      {gerCols && (
+        <Modal t={t} onClose={() => setGerCols(null)} wide>
+          <ModalHeader t={t} title="Gerenciar colunas" onClose={() => setGerCols(null)} />
+          <div className="mb-3 text-xs" style={{ color: t.dim }}>
+            {L("Confira o que cada coluna significa — é isso que permite cruzar com as cobranças do sistema.")}</div>
+          <div className="max-h-80 space-y-1.5 overflow-y-auto">
+            {gerCols.map((c) => (
+              <div key={c.chave} className="flex flex-wrap items-center gap-2 rounded-xl border px-2.5 py-1.5" style={{ borderColor: t.borderSoft }}>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-semibold" style={c.calculada ? { color: t.gold } : undefined}>{c.titulo}</div>
+                  <div className="text-[11px]" style={{ color: t.dim }}>
+                    {c.calculada ? L("Calculada") : L({ texto: "Texto", numero: "Número", data: "Data" }[c.tipo])}</div>
+                </div>
+                <select value={c.papel || ""} onChange={(e) => trocarGer(c.chave, "papel", e.target.value)}
+                  style={{ ...inputStyle(t), width: "auto", padding: "4px 8px", fontSize: 12 }}>
+                  {PAPEIS_COLUNA.map(([v, l]) => <option key={v} value={v}>{L(l)}</option>)}
+                </select>
+                <select value={c.formato || ""} onChange={(e) => trocarGer(c.chave, "formato", e.target.value)}
+                  style={{ ...inputStyle(t), width: "auto", padding: "4px 8px", fontSize: 12 }}>
+                  {FORMATOS_COLUNA.map(([v, l]) => <option key={v} value={v}>{L(l)}</option>)}
+                </select>
+                {c.calculada && (<>
+                  <Btn t={t} className="!px-2 !py-1 text-xs" onClick={() => { setGerCols(null); editarCalculada(colunas.find((x) => x.chave === c.chave) || c); }}>{L("Editar")}</Btn>
+                  <Btn t={t} kind="danger" className="!px-2 !py-1 text-xs" onClick={() => setGerCols((g) => g.filter((x) => x.chave !== c.chave))}><Trash2 size={12} /></Btn>
+                </>)}
+              </div>))}
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <Btn t={t} onClick={() => setGerCols(null)}>Cancelar</Btn>
+            <Btn t={t} kind="primary" onClick={salvarGerCols}><Check size={14} /> {L("Salvar")}</Btn>
           </div>
         </Modal>)}
 
@@ -2743,15 +2908,27 @@ function ImportarPlanilha({ t, planilha, onClose, onPronto }) {
   const [gravando, setGravando] = useState(false);
   const [feito, setFeito] = useState(null);
 
-  const receber = async (file) => {
+  const [arquivo, setArquivo] = useState(null);  // guardado para reler com outras opções
+  const [opcoes, setOpcoes] = useState({});      // unidade, incluirZerados, mesesDoArquivo, layout, linhaCabecalho
+
+  const receber = async (file, extra) => {
     if (!file || lendo) return;
+    const opts = { ...opcoes, ...(extra || {}) };
     setErro(""); setLendo(true);
     try {
-      const r = await lerPlanilhaLivre(file);
+      const r = await lerPlanilhaLivre(file, opts);
       if (!r.linhas.length) { setErro(r.errosGerais.join(" ") || L("Nenhuma linha preenchida encontrada na planilha.")); return; }
-      /* 2ª carga: colunas já conhecidas mantêm o papel e o tipo definidos antes */
+      /* 2ª carga: colunas já conhecidas mantêm papel, tipo, formato e
+         fórmula definidos antes — correção da pessoa vence a inferência */
       const antes = new Map((planilha?.colunas || []).map((c) => [c.chave, c]));
-      const colunas = r.colunas.map((c) => (antes.has(c.chave) ? { ...c, papel: antes.get(c.chave).papel ?? c.papel, tipo: antes.get(c.chave).tipo || c.tipo } : c));
+      const colunas = r.colunas.map((c) => {
+        const a = antes.get(c.chave);
+        if (!a) return c;
+        return { ...c, papel: a.papel ?? c.papel, tipo: a.tipo || c.tipo,
+          ...((a.formato ?? c.formato) ? { formato: a.formato ?? c.formato } : {}),
+          ...((a.calculada ?? c.calculada) ? { calculada: a.calculada ?? c.calculada } : {}) };
+      });
+      setArquivo(file); setOpcoes(opts);
       setLido({ ...r, colunas, nome: file.name.replace(/\.[^.]+$/, "").slice(0, 120) });
       setPasso("mapa");
     } catch (e) { setErro(e?.message || String(e)); }
@@ -2808,6 +2985,39 @@ function ImportarPlanilha({ t, planilha, onClose, onPronto }) {
             {L("Confira o que cada coluna significa — é isso que permite cruzar com as cobranças do sistema.")}
           </div>
           {lido.errosGerais.map((e, i) => <div key={i} className="text-xs" style={{ color: t.warn }}>{e}</div>)}
+
+          {lido.layout === "mora" && (
+            <div className="space-y-2 rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.border, background: t.goldSoft }}>
+              <div>
+                <b style={{ color: t.gold }}>{L("Planilla de mora detectada")}</b>{" — "}
+                {lido.mora.blocos} {L("bloco(s) por ano")}{lido.mora.anos?.length ? `: ${[...new Set(lido.mora.anos)].sort().join(", ")}` : ""}.{" "}
+                {opcoes.mesesDoArquivo
+                  ? L("Meses em atraso: os números do arquivo (travados).")
+                  : L("Meses em atraso: contados até hoje (dinâmico).")}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <Field t={t} label="Unidade deste arquivo">
+                  <input value={opcoes.unidade ?? lido.mora.unidade ?? ""} placeholder="101-A"
+                    onChange={(e) => setOpcoes((o) => ({ ...o, unidade: e.target.value }))}
+                    onBlur={() => receber(arquivo, {})} style={{ ...inputStyle(t), width: 130 }} /></Field>
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={!!opcoes.incluirZerados}
+                    onChange={(e) => receber(arquivo, { incluirZerados: e.target.checked })} /> {L("Incluir meses zerados")}</label>
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={!!opcoes.mesesDoArquivo}
+                    onChange={(e) => receber(arquivo, { mesesDoArquivo: e.target.checked })} /> {L("Meses em atraso do arquivo")}</label>
+                <button type="button" className="text-xs font-semibold underline" style={{ color: t.dim }}
+                  onClick={() => receber(arquivo, { layout: "plano" })}>{L("Tratar como tabela simples")}</button>
+              </div>
+            </div>)}
+
+          {lido.layout === "plano" && (lido.previa?.length || 0) > 1 && (
+            <Field t={t} label="Linha do cabeçalho">
+              <select value={lido.cabecalhoNa} style={inputStyle(t)}
+                onChange={(e) => receber(arquivo, { linhaCabecalho: +e.target.value, layout: "plano" })}>
+                {lido.previa.map((p) => (
+                  <option key={p.n} value={p.n}>{p.n}: {(p.cels.filter(Boolean).slice(0, 4).join(" · ") || "—").slice(0, 70)}</option>))}
+              </select></Field>)}
           <div className="max-h-56 space-y-1.5 overflow-y-auto">
             {lido.colunas.map((c) => (
               <div key={c.chave} className="flex items-center gap-2 rounded-xl border px-2.5 py-1.5" style={{ borderColor: t.borderSoft }}>
@@ -2829,7 +3039,7 @@ function ImportarPlanilha({ t, planilha, onClose, onPronto }) {
           </div>
           {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
           <div className="flex justify-end gap-2">
-            <Btn t={t} onClick={() => { setPasso("arquivo"); setLido(null); }}>Voltar</Btn>
+            <Btn t={t} onClick={() => { setPasso("arquivo"); setLido(null); setArquivo(null); setOpcoes({}); }}>Voltar</Btn>
             <Btn t={t} kind="primary" disabled={gravando} onClick={gravar}>
               <Check size={14} /> {gravando ? L("Importando…") : `${L("Importar")} ${lido.linhas.length} ${L("linha(s)")}`}</Btn>
           </div>
