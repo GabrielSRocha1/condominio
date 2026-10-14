@@ -2620,7 +2620,9 @@ function PlanilhaCobrancas({ t }) {
   const pagina0 = Math.min(pagina, paginas - 1);
   const visiveis = filtradas.slice(pagina0 * POR_PAGINA, (pagina0 + 1) * POR_PAGINA);
   const numericas = colunas.filter(ehNumerica);
-  const faltando = linhas.filter((l) => l.situacao === "so_planilha");
+  /* candidatas a virar cobrança: só as NÃO PAGAS de verdade — linha sem
+     cobrança correspondente E com valor devido (meses zerados ficam fora) */
+  const faltando = linhas.filter((l) => l.situacao === "so_planilha" && Number(l.valor) > 0);
 
   const salvarCelula = async (linha, chave, valor) => {
     const nova = await atualizarCelulaPlanilha(linha, chave, valor);
@@ -2707,7 +2709,7 @@ function PlanilhaCobrancas({ t }) {
     } catch (e) { setErro(e?.message || String(e)); }
   };
   const criarFaltantes = async () => {
-    if (!confirm(`${L("Criar")} ${faltando.length} ${L("cobrança(s) a partir da planilha? Elas entram na lista de cobranças, mas NÃO lançam receita no caixa.")}`)) return;
+    if (!confirm(`${L("Criar")} ${faltando.length} ${L("cobrança(s) a partir da planilha? Elas entram na lista de cobranças, mas NÃO lançam receita no caixa.")}\n${L("Unidades sem responsável financeiro ganharão um responsável provisório — troque depois na tela Unidades.")}`)) return;
     setCriando(true); setErro(""); setAviso("");
     try {
       const r = await criarCobrancasDaPlanilha(db.ctx, faltando);

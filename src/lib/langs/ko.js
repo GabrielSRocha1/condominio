@@ -192,6 +192,7 @@ export default {
   "O acesso entra com os poderes do nível escolhido; o nome do cargo aparece na lista de acessos e no menu de quem entra.": "이 계정은 선택한 수준의 권한을 가집니다. 직책 이름은 접근 목록과 로그인한 사람의 메뉴에 표시됩니다.",
   "Entra pelo nome, como morador, já marcado como proprietário — e vê os números do condomínio no portal.": "이름으로 로그인하는 입주민 계정으로, 이미 소유자로 표시되어 포털에서 건물 수치를 봅니다.",
   "Com letra no número, cada letra tem uma unidade por andar: 1A até 3A sem andar vira 1A, 2A e 3A com o andar espelhando o número; com andares 1 até 3 vira 101A (andar 1), 202A (andar 2) e 303A (andar 3) — as duas faixas precisam ter a mesma quantidade.": "번호에 문자가 있으면 문자마다 층당 한 세대입니다. 층 없이 1A~3A면 1A·2A·3A가 되고 층은 번호를 따릅니다. 층 1~3과 함께면 101A(1층)·202A(2층)·303A(3층)가 됩니다 — 두 범위의 개수가 같아야 합니다.",
+  "Unidades sem responsável financeiro ganharão um responsável provisório — troque depois na tela Unidades.": "재정 책임자가 없는 세대에는 임시 책임자가 생성됩니다 — 나중에 세대 화면에서 교체하세요.",
   "Limpar filtros": "필터 지우기",
   "O saldo do painel passa a ser este valor somado ao que entrar e sair depois desta data — use o sinal de menos para caixa negativo. Deixe vazio para somar apenas os lançamentos do app.": "대시보드 잔액은 이 금액에 이 날짜 이후의 입출금을 더한 값이 됩니다. 음수는 − 기호를 사용하세요. 비우면 앱 기록만 합산합니다.",
   "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "포털에서 관리단의 수치(잔액, 수입, 지출, 연체)는 소유자만 볼 수 있습니다.",

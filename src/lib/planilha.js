@@ -714,6 +714,20 @@ export function resolverUnidade(txt, ctx) {
   if (porInvertido) return { id: porInvertido.id };
   const porNumero = ctx.unidades.filter((u) => norm(u.label).split("-")[0] === n);
   if (porNumero.length === 1) return { id: porNumero[0].id };
+  /* último recurso: forma COMPACTA (só letras e números) — a planilla real
+     escreve "3-D" e a unidade cadastrada é "3D"; separador não pode impedir
+     o casamento. Só resolve com candidato ÚNICO. */
+  const compacta = (s) => norm(s).replace(/[^a-z0-9]+/g, "");
+  const alvo = compacta(txt);
+  if (alvo) {
+    const numeroDe = (u) => {
+      const lab = norm(u.label);
+      const blo = u.bloco != null ? norm(String(u.bloco)) : "";
+      return blo && lab.endsWith(`-${blo}`) ? lab.slice(0, lab.length - blo.length - 1) : lab.split("-")[0];
+    };
+    const cands = ctx.unidades.filter((u) => compacta(numeroDe(u)) === alvo || compacta(u.label) === alvo);
+    if (cands.length === 1) return { id: cands[0].id };
+  }
   return { erro: true };
 }
 

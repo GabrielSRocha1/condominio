@@ -16,7 +16,7 @@ import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import {
   lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado,
-  carregarExcelJS, normalizarCompetencia, paraNumero, inferirPapel, mesesAteHoje,
+  carregarExcelJS, normalizarCompetencia, paraNumero, inferirPapel, mesesAteHoje, resolverUnidade,
 } from "../src/lib/planilha.js";
 
 const env = Object.fromEntries(
@@ -273,6 +273,30 @@ ok("A7 calculada sobre calculada resolve em cadeia; ciclo não trava; constante 
   && valorCalculado({ a: 10 }, colsRec[3], colsRec) === 2
   && valorCalculado({ a: 10 }, colsRec[1], colsRec) === 20,
   `quadruplo ${valorCalculado({ a: 10 }, colsRec[2], colsRec)} · ciclo ${valorCalculado({ a: 10 }, colsRec[3], colsRec)}`);
+
+/* ══ A9 · resolução de unidade tolerante a separadores ══
+   O caso real: a planilla escreve "3-D" e a unidade cadastrada é "3D"
+   (bloco A) — o hífen não pode impedir o casamento, mas ambiguidade não
+   resolve. Os formatos exatos de sempre continuam na frente. */
+{
+  const ctxSep = { unidades: [
+    { id: "u3d", label: "3D-A", bloco: "A" },
+    { id: "u1a", label: "1A-A", bloco: "A" },
+    { id: "u101", label: "101-A", bloco: "A" },
+  ] };
+  const r = (t) => resolverUnidade(t, ctxSep);
+  ok("A9 '3-D', '3 D' e '3d' casam com a unidade 3D; formatos exatos intactos",
+    r("3-D").id === "u3d" && r("3 D").id === "u3d" && r("3d").id === "u3d"
+    && r("101-A").id === "u101" && r("1A").id === "u1a" && r("A-101").id === "u101",
+    ["3-D", "3 D", "101-A", "1A"].map((t) => `${t}→${r(t).id || "erro"}`).join(" "));
+  const ctxAmb = { unidades: [{ id: "x1", label: "3D-A", bloco: "A" }, { id: "x2", label: "3D-B", bloco: "B" }] };
+  ok("A9b '3-D' ambíguo (3D nos blocos A e B) não resolve", !!resolverUnidade("3-D", ctxAmb).erro);
+  const linhaSep = resolverLinha(
+    [{ chave: "u", titulo: "Unid.", tipo: "texto", papel: "unidade" }, { chave: "c", titulo: "Mes", tipo: "texto", papel: "competencia" }, { chave: "v", titulo: "Monto", tipo: "numero", papel: "valor" }],
+    { u: "3-D", c: "2020-05", v: 274159 }, ctxSep);
+  ok("A9c linha da planilha com '3-D' resolve e concilia",
+    linhaSep.unidadeId === "u3d" && linhaSep.competencia === "2020-05" && linhaSep.valor === 274159);
+}
 
 /* ══ A8 · competência ES que faltava ══ */
 ok("A8 'ene/dic' e ano de 2 dígitos com mês textual",

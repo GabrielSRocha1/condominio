@@ -1752,12 +1752,34 @@ export async function criarCobrancasDaPlanilha(ctx, linhas) {
   const hoje = new Date().toISOString().slice(0, 10);
   const recusadas = [];
   const aCriar = [];
+  const provisorios = new Map(); // unidadeId → pessoaId criada nesta chamada
   for (const l of linhas) {
     const u = ctx.unidades.find((x) => x.id === l.unidadeId);
     if (!u) { recusadas.push({ linha: l, motivo: "Unidade não reconhecida." }); continue; }
     if (!u.responsavelId) {
-      recusadas.push({ linha: l, motivo: `${u.label}: sem responsável financeiro — defina a pessoa na tela Pessoas ou o morador em Gerenciar Acessos.` });
-      continue;
+      /* unidade sem responsável financeiro: cria UMA pessoa provisória por
+         unidade (decisão de produto — o diretor troca pelo nome real depois,
+         na tela Unidades), no mesmo padrão do gerar-cobranças manual */
+      try {
+        let pid = provisorios.get(u.id);
+        if (!pid) {
+          const [pessoa] = await q(supabase.from("pessoas").insert({
+            condominio_id: ctx.condominioId, nome: `Responsável ${u.label}`, tipo_pessoa: "fisica",
+            cpf_cnpj: `P-${crypto.randomUUID().slice(0, 12)}`, // placeholder até completar o cadastro
+          }).select(), "pessoas");
+          await q(supabase.from("pessoa_vinculos").insert({
+            condominio_id: ctx.condominioId, pessoa_id: pessoa.id, unidade_id: u.id,
+            papel: "morador", inicio: hoje,
+          }).select(), "pessoa_vinculos");
+          await q(supabase.from("unidades").update({ responsavel_financeiro_id: pessoa.id }).eq("id", u.id).select(), "unidades");
+          pid = pessoa.id;
+          provisorios.set(u.id, pid);
+        }
+        u.responsavelId = pid; // o ctx em memória acompanha
+      } catch (e) {
+        recusadas.push({ linha: l, motivo: `${u.label}: não foi possível criar o responsável provisório (${e?.message || e}).` });
+        continue;
+      }
     }
     if (!l.competencia) { recusadas.push({ linha: l, motivo: "Competência não reconhecida." }); continue; }
     const valor = num(l.valor);
@@ -1782,11 +1804,15 @@ export async function criarCobrancasDaPlanilha(ctx, linhas) {
         throw new Error("Alguma dessas competências já tem cobrança ordinária na unidade — recarregue a tela e tente de novo.");
       throw new Error("cobranças: " + error.message);
     }
-    /* devolve o vínculo para a linha: a planilha passa a apontar a cobrança */
+    /* devolve o vínculo para a linha: a planilha passa a apontar a cobrança.
+       Grava também o unidade_id resolvido (a importação pode ter deixado
+       null quando o formato não casava — ex.: "3-D" vs unidade "3D");
+       sem q(): se o unique do dedupe reclamar, a linha fica como estava */
     const porChave = new Map((data || []).map((c) => [`${c.unidade_id}|${c.competencia}`, c.id]));
     for (const x of lote) {
       const id = porChave.get(`${x.row.unidade_id}|${x.row.competencia}`);
-      if (id) await supabase.from("planilha_cobranca_linhas").update({ cobranca_id: id }).eq("id", x.linhaId);
+      if (id) await supabase.from("planilha_cobranca_linhas")
+        .update({ cobranca_id: id, unidade_id: x.row.unidade_id }).eq("id", x.linhaId);
     }
     criadas += data?.length || 0;
   }
