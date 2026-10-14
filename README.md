@@ -60,7 +60,12 @@ idiomas, instalável como PWA.
 | `testar-recuperacao.mjs` | sondas da recuperação de senha — código (Etapa 4) e link por e-mail (Etapa 5) |
 | `testar-idioma-moeda.mjs` | sondas do idioma por IP, da preferência no banco e da semente de moeda |
 | `testar-dlocal.mjs` | sondas da Fase 0 da dLocal Go: credenciais, colaborações de split e matriz país × moeda (`--live` só lê) |
-| `testar-planilha-cobrancas.mjs` | sondas do histórico por planilha: leitura de colunas livres, conciliação, dedupe e a prova de que o histórico não entra no caixa |
+| `testar-planilha-cobrancas.mjs` | sondas do histórico por planilha: colunas livres, layout "planilla de mora" (blocos por ano), conciliação, resolução de unidade tolerante, dedupe e a prova de que o histórico não entra no caixa |
+| `testar-manuais-seed.mjs` / `testar-manuais-fluxo.mjs` | monta o condomínio TESTE Manuais e roda o fluxo completo de pagamento (cripto, informado, divergente, dinheiro, idempotência) |
+| `testar-refresh-race.mjs` | sondas da rotação atômica do refresh token: corrida de renovação sem derrubar a família e o anti-roubo intacto |
+| `testar-encargos.mjs` | sondas dos encargos de atraso (multa + juros): motor puro, RLS da configuração, informe pelo valor devido e o caixa com encargos |
+| `testar-caixa-cargos.mjs` | sondas do caixa com âncora (±), dos cargos de gestão e do cargo no perfil de acesso |
+| `testar-unidades-lote.mjs` | sondas da criação de unidades em lote: faixas, letras (andar espelhado e um por andar) e validações |
 | `relatorio-seguranca.mjs` | auditoria semanal (sessões, eventos, anomalias) |
 | `emergencia-sessoes.mjs` | resposta a incidente: revoga sessões em massa |
 | `verificar-segredos-bundle.mjs` | confere que nenhum segredo vazou no build |
