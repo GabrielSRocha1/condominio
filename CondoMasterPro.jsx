@@ -5022,7 +5022,11 @@ export default function App() {
       {chrome}
       <div className="flex">
         {/* SIDEBAR */}
-        <aside className={`fixed inset-y-0 left-0 z-40 w-60 border-r transition-transform lg:static lg:translate-x-0 ${sideOpen ? "translate-x-0" : "-translate-x-full"}`}
+        {/* no desktop o aside é sticky com a altura da viewport (não mais static
+            esticando com a página): o <nav> interno, flex-1 + overflow-y-auto,
+            ganha altura de verdade e o menu rola sozinho, fixo ao lado do
+            conteúdo. No mobile segue como gaveta fixed. */}
+        <aside className={`fixed inset-y-0 left-0 z-40 w-60 border-r transition-transform lg:sticky lg:top-0 lg:bottom-auto lg:h-screen lg:self-start lg:translate-x-0 ${sideOpen ? "translate-x-0" : "-translate-x-full"}`}
           style={{ background: t.sidebar, borderColor: t.borderSoft }}>
           <div className="flex h-full flex-col p-4">
             <div className="mb-6 max-w-[190px] px-1">
