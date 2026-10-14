@@ -15,6 +15,7 @@
 import { stripeClient, supabaseAdmin, corpoJson, lerClaims, integracaoStripe, totalComRepasse, appFee, paraMenorUnidade, deMenorUnidade } from "./_lib/comum.js";
 import { corpoValidado } from "../_lib/validar.js";
 import { limitar, origemBloqueada, prepararIdempotencia, logSeguro } from "../_lib/seguranca.js";
+import { calcularEncargos } from "../../src/lib/encargos.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -57,7 +58,7 @@ export default async function handler(req, res) {
       return res.status(409).json({ error: "Esta cobrança não está aberta para pagamento." });
 
     const { data: cond } = await supabase.from("condominios")
-      .select("nome_fantasia, regras_internas").eq("id", condominioId).maybeSingle();
+      .select("nome_fantasia, regras_internas, encargos_atraso").eq("id", condominioId).maybeSingle();
     const moeda = cond?.regras_internas?.moeda || "USD";
 
     const integ = await integracaoStripe(supabase, condominioId);
@@ -73,9 +74,14 @@ export default async function handler(req, res) {
       return res.status(409).json({ error: "Pix está disponível apenas para contas do Brasil." });
 
     const valor = Number(cobranca.valor_original);
+    /* encargos de atraso do DIA — o MESMO motor da UI (src/lib/encargos.js);
+       cfg desligada ou cobrança no prazo → zero e nada muda no checkout */
+    const enc = calcularEncargos(cobranca, cond?.encargos_atraso);
     const baseCentavos = paraMenorUnidade(valor, contaMoeda);
+    const encCentavos = Math.max(0, paraMenorUnidade(enc.total, contaMoeda) - baseCentavos);
+    const devido = deMenorUnidade(baseCentavos + encCentavos, contaMoeda);
     const repasse = cond?.regras_internas?.pagamentos?.stripe_repasse === true;
-    const taxaCentavos = repasse ? Math.max(0, totalComRepasse(valor, metodo, contaMoeda) - baseCentavos) : 0;
+    const taxaCentavos = repasse ? Math.max(0, totalComRepasse(devido, metodo, contaMoeda) - baseCentavos - encCentavos) : 0;
 
     const unidade = cobranca.unidades
       ? `${cobranca.unidades.numero}${cobranca.unidades.blocos?.nome ? `-${cobranca.unidades.blocos.nome}` : ""}` : "";
@@ -89,6 +95,14 @@ export default async function handler(req, res) {
       },
       quantity: 1,
     }];
+    if (encCentavos > 0) line_items.push({
+      price_data: {
+        currency: contaMoeda.toLowerCase(),
+        product_data: { name: `Encargos de atraso${enc.meses > 0 ? ` (${enc.meses} mês(es) de mora)` : ""}` },
+        unit_amount: encCentavos,
+      },
+      quantity: 1,
+    });
     if (taxaCentavos > 0) line_items.push({
       price_data: {
         currency: contaMoeda.toLowerCase(),
@@ -106,11 +120,13 @@ export default async function handler(req, res) {
       ...(ehBRL ? { payment_method_types: [metodo] } : {}),
       line_items,
       payment_intent_data: {
-        /* taxa da plataforma: 1% do valor de face, teto de 1 unidade da moeda */
-        application_fee_amount: paraMenorUnidade(appFee(valor), contaMoeda),
+        /* taxa da plataforma: 1% do valor devido (com encargos), teto de 1 unidade da moeda */
+        application_fee_amount: paraMenorUnidade(appFee(devido), contaMoeda),
         description: `Cobrança condominial ${compBR} · ${cond?.nome_fantasia || ""}`.trim(),
       },
-      metadata: { cobranca_id: cobranca.id, condominio_id: condominioId },
+      /* valor_caixa = principal + encargos (SEM a taxa de conveniência) —
+         é o que o webhook manda a RPC lançar como receita no caixa */
+      metadata: { cobranca_id: cobranca.id, condominio_id: condominioId, valor_caixa: String(devido) },
       ...(ehBRL && metodo === "pix" ? { payment_method_options: { pix: { expires_after_seconds: 3600 } } } : {}),
       success_url: `${origem}/?pagamento=ok&cobranca=${cobranca.id}`,
       cancel_url: `${origem}/`,
@@ -122,8 +138,9 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       checkoutUrl: session.url,
-      total: deMenorUnidade(baseCentavos + taxaCentavos, contaMoeda),
+      total: deMenorUnidade(baseCentavos + encCentavos + taxaCentavos, contaMoeda),
       taxa: deMenorUnidade(taxaCentavos, contaMoeda),
+      encargos: deMenorUnidade(encCentavos, contaMoeda),
     });
   } catch (e) {
     logSeguro("[stripe/checkout-cobranca]", e);

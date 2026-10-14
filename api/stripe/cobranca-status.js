@@ -4,7 +4,7 @@
    pela MESMA RPC idempotente do webhook (registrar_pagamento_stripe) — é o
    caminho do polling do retorno ?pagamento=ok e o fallback quando o webhook
    não alcança o ambiente (npm run dev). Devolve { paga }. */
-import { stripeClient, supabaseAdmin, corpoJson, lerClaims, integracaoStripe, deMenorUnidade } from "./_lib/comum.js";
+import { stripeClient, supabaseAdmin, corpoJson, lerClaims, integracaoStripe, deMenorUnidade, registrarPagamentoStripe } from "./_lib/comum.js";
 import { corpoValidado } from "../_lib/validar.js";
 import { logSeguro, origemBloqueada } from "../_lib/seguranca.js";
 
@@ -49,13 +49,13 @@ export default async function handler(req, res) {
       const pi = await stripe.paymentIntents.retrieve(session.payment_intent, {}, { stripeAccount: accountId }).catch(() => null);
       chargeId = typeof pi?.latest_charge === "string" ? pi.latest_charge : pi?.latest_charge?.id || null;
     }
-    const { data: resultado, error: eRpc } = await supabase.rpc("registrar_pagamento_stripe", {
+    const { data: resultado, error: eRpc } = await registrarPagamentoStripe(supabase, {
       p_cobranca_id: cobranca.id,
       p_valor_pago: deMenorUnidade(session.amount_total, session.currency),
       p_pago_em: new Date().toISOString(),
       p_payment_intent: String(session.payment_intent || session.id),
       p_charge: chargeId,
-    });
+    }, session.metadata?.valor_caixa != null ? Number(session.metadata.valor_caixa) : null);
     if (eRpc) throw new Error(eRpc.message);
     return res.status(200).json({ paga: resultado?.ok !== false });
   } catch (e) {

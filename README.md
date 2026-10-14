@@ -32,7 +32,10 @@ idiomas, instalável como PWA.
       para diretor/síndico (Etapa 5 — exige as envs `SMTP_HOST/PORT/USER/PASS`;
       detalhes no `SEGURANCA.md`)
 
-   5. `supabase-planilhas.sql` — histórico de cobranças importado de
+   5. `supabase-encargos.sql` — baixas lançam no caixa o valor recebido
+      (principal + encargos de atraso); sem ele o app funciona e o caixa
+      segue lançando só o valor original
+   6. `supabase-planilhas.sql` — histórico de cobranças importado de
       planilha (tabelas `planilhas_cobranca` e `planilha_cobranca_linhas`,
       com as próprias policies). Opcional: sem ele, só a aba
       "Histórico (planilha)" da tela Cobranças fica indisponível.

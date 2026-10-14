@@ -224,6 +224,19 @@ export const totalComRepasse = (valor, metodo, moeda = "BRL") => {
 };
 
 /* linha "conta conectada" do condomínio (provedor stripe) — null se não há */
+/* registrar_pagamento_stripe com o parâmetro novo p_valor_caixa (principal +
+   encargos, SEM a taxa de conveniência — o que entra como receita no caixa).
+   Se o supabase-encargos.sql ainda não rodou, a função antiga não conhece o
+   parâmetro (PGRST202) e a chamada repete sem ele — degrada aberto: o caixa
+   segue lançando o valor_original, como sempre. */
+export async function registrarPagamentoStripe(supabase, params, valorCaixa) {
+  if (valorCaixa != null && Number.isFinite(valorCaixa)) {
+    const r = await supabase.rpc("registrar_pagamento_stripe", { ...params, p_valor_caixa: valorCaixa });
+    if (!r.error || !(r.error.code === "PGRST202" || /p_valor_caixa/i.test(r.error.message || ""))) return r;
+  }
+  return supabase.rpc("registrar_pagamento_stripe", params);
+}
+
 export async function integracaoStripe(supabase, condominioId) {
   const { data, error } = await supabase.from("integracoes_pagamento")
     .select("id, credenciais, ativa")

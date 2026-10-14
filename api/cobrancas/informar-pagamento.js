@@ -19,6 +19,7 @@ import { supabaseAdmin, corpoJson, lerClaims } from "../stripe/_lib/comum.js";
 import { verificarTransacao } from "../_lib/cripto.js";
 import { corpoValidado } from "../_lib/validar.js";
 import { limitar, origemBloqueada, prepararIdempotencia, logSeguro } from "../_lib/seguranca.js";
+import { calcularEncargos } from "../../src/lib/encargos.js";
 
 const MAX_ARQUIVO = 4 * 1024 * 1024; // 4 MB
 const EXT_OK = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
@@ -77,8 +78,12 @@ export default async function handler(req, res) {
       return res.status(409).json({ error: "Já existe um pagamento informado aguardando confirmação para esta cobrança." });
 
     const { data: cond } = await supabase.from("condominios")
-      .select("regras_internas").eq("id", cobranca.condominio_id).maybeSingle();
-    const valorCobranca = Number(cobranca.valor_original);
+      .select("regras_internas, encargos_atraso").eq("id", cobranca.condominio_id).maybeSingle();
+    /* o DEVIDO de hoje: valor original + encargos de atraso, pelo MESMO
+       motor da UI (src/lib/encargos.js). Cfg desligada → o original de
+       sempre. Vale para o alvo da cripto, a baixa automática e a decisão
+       de divergência do comprovante. */
+    const valorCobranca = calcularEncargos(cobranca, cond?.encargos_atraso).total;
 
     /* ───────────────────────── CRIPTO (hash on-chain) ───────────────────── */
     if (forma === "verum_pay") {

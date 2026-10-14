@@ -8,7 +8,7 @@
      registrar_pagamento_stripe: INSERT pagamentos (idempotente por payment
      intent) + cobranca → paga/paga_em_atraso + receita "Entrada" no caixa.
    Teste local: stripe listen --forward-connect-to localhost:5173/api/stripe/webhook-connect */
-import { stripeClient, supabaseAdmin, envVal, lerCorpoBruto, deMenorUnidade } from "./_lib/comum.js";
+import { stripeClient, supabaseAdmin, envVal, lerCorpoBruto, deMenorUnidade, registrarPagamentoStripe } from "./_lib/comum.js";
 
 export const config = { api: { bodyParser: false } }; // a assinatura exige o corpo bruto
 
@@ -65,13 +65,13 @@ export default async function handler(req, res) {
         chargeId = typeof pi?.latest_charge === "string" ? pi.latest_charge : pi?.latest_charge?.id || null;
       }
 
-      const { data: resultado, error } = await supabase.rpc("registrar_pagamento_stripe", {
+      const { data: resultado, error } = await registrarPagamentoStripe(supabase, {
         p_cobranca_id: cobrancaId,
         p_valor_pago: deMenorUnidade(session.amount_total, session.currency),
         p_pago_em: new Date().toISOString(),
         p_payment_intent: String(session.payment_intent || session.id),
         p_charge: chargeId,
-      });
+      }, session.metadata?.valor_caixa != null ? Number(session.metadata.valor_caixa) : null);
       if (error) {
         /* 500 → a Stripe reentrega (a RPC é idempotente, reprocessar é seguro) */
         console.error("[stripe/webhook-connect] registrar_pagamento_stripe:", error.message);

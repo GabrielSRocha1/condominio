@@ -1,5 +1,6 @@
 /* Camada de dados: lê e grava no Supabase e converte para o formato das telas. */
 import { supabase, setAuthToken, getAuthToken, encerrarSessaoServidor, sessaoPronta } from "./supabase";
+import { calcularEncargos, normalizarEncargosCfg } from "./encargos.js";
 import { telExibicao } from "./telefone.js";
 import { jsPDF } from "jspdf";
 
@@ -176,7 +177,7 @@ export async function loadAll(condominioId) {
     q(supabase.from("acessos_portaria").select("*, unidades(numero, blocos(nome))").eq("condominio_id", cid).order("ocorrido_em", { ascending: false }).limit(20), "acessos_portaria"),
     q(supabase.from("documentos").select("*, unidades(numero, blocos(nome))").eq("condominio_id", cid).is("deletado_em", null).order("criado_em", { ascending: false }), "documentos"),
     q(supabase.from("pagamentos").select("valor_pago, pago_em, cobrancas(unidades(numero, blocos(nome)))").eq("condominio_id", cid).order("pago_em", { ascending: false }).limit(3), "pagamentos"),
-    q(supabase.from("condominios").select("nome_fantasia, cnpj, endereco, identidade_visual, regras_internas").eq("id", cid), "condominios"),
+    q(supabase.from("condominios").select("nome_fantasia, cnpj, endereco, identidade_visual, regras_internas, encargos_atraso").eq("id", cid), "condominios"),
   ]);
 
   /* pagamentos informados pelo morador aguardando confirmação (tabela
@@ -197,6 +198,10 @@ export async function loadAll(condominioId) {
     sindico: condRow.regras_internas?.gestao?.sindico || "",
     moeda: condRow.regras_internas?.moeda || "USD",
     pais: condRow.regras_internas?.pais || "", // ISO-2 — DDI e máscara dos telefones
+    /* encargos de atraso (multa + juros) — ativo:false até o diretor ligar */
+    encargos: normalizarEncargosCfg(condRow.encargos_atraso),
+    /* % do fundo de reserva embutido ao GERAR cobranças (0 = desligado) */
+    fundoReservaPct: Math.max(0, num(condRow.regras_internas?.cobranca?.fundo_reserva_pct)),
 
     pagamentos: (() => {
       const pg = condRow.regras_internas?.pagamentos || {};
@@ -216,10 +221,18 @@ export async function loadAll(condominioId) {
   const uLabelTipo = (u) => (u ? `${TIPO_UNIDADE[u.tipo] || "Unidade"} ${u.numero}${u.blocos?.nome ? ` — Bloco ${u.blocos.nome}` : ""}` : "—");
   const unidadeById = Object.fromEntries(unidadesRaw.map((u) => [u.id, u]));
 
+  /* status "vencida" é DERIVADO aqui (não existe job que marque): emitida
+     com vencimento no passado conta como vencida em TODA a leitura do app */
+  const hoje = new Date();
+  const hojeISO = hoje.toISOString().slice(0, 10);
+  const statusEfetivo = (c) => (c.status === "emitida" && c.vencimento < hojeISO ? "vencida" : c.status);
+
   /* unidades */
   const cobrPorUnidade = {};
   cobrRaw.forEach((c) => {
-    if (c.status === "vencida") cobrPorUnidade[c.unidade_id] = (cobrPorUnidade[c.unidade_id] || 0) + num(c.valor_original) + num(c.encargos);
+    if (statusEfetivo(c) === "vencida")
+      cobrPorUnidade[c.unidade_id] = (cobrPorUnidade[c.unidade_id] || 0)
+        + num(c.valor_original) + calcularEncargos(c, cond.encargos, hoje).encargos;
   });
   const unidades = unidadesRaw.map((u) => ({
     id: u.id, num: u.numero, bloco: u.blocos?.nome || "?", andar: u.andar,
@@ -260,11 +273,15 @@ export async function loadAll(condominioId) {
   const informePorCobranca = Object.fromEntries(informesRaw.map((i) => [i.cobranca_id, i]));
   const cobr = cobrRaw.map((c) => {
     const inf = informePorCobranca[c.id];
+    const efetivo = statusEfetivo(c);
+    /* encargos do DIA (multa + juros × meses) — zero com a cfg desligada */
+    const enc = calcularEncargos({ ...c, status: efetivo }, cond.encargos, hoje);
     return {
       id: c.id, comp: compBR(c.competencia), unidade: uLabel(c.unidades),
       resp: primeiroNome(c.pessoas?.nome), respId: c.responsavel_id || null, valor: num(c.valor_original),
+      encargos: enc.encargos, mesesAtraso: enc.meses, valorTotal: enc.total,
       venc: ddmm(c.vencimento), vencFull: ddmmyyyy(c.vencimento),
-      status: COBR_STATUS_UI[c.status] || c.status, tx: c.provider_charge_id || "—",
+      status: COBR_STATUS_UI[efetivo] || efetivo, tx: c.provider_charge_id || "—",
       unidadeId: c.unidade_id, competencia: c.competencia,
       /* informe pendente do morador (transferência/cripto) — o gestor confirma */
       informe: inf ? {
@@ -277,7 +294,6 @@ export async function loadAll(condominioId) {
 
   /* multas — ciclo: pendente (síndico) → aprovada (aguardando envio) →
      entregue → encerrada (advertência) | paga/vencida (multa, pela cobrança) */
-  const hojeISO = new Date().toISOString().slice(0, 10);
   const multas = multasRaw.map((m) => {
     const anteriores = multasRaw.filter((x) => x.id !== m.id && x.unidade_id === m.unidade_id && x.ocorrida_em < m.ocorrida_em).length;
     const cobrancaM = m.cobranca_id ? cobrRaw.find((c) => c.id === m.cobranca_id) : null;
@@ -369,7 +385,8 @@ export async function loadAll(condominioId) {
   /* boletos do morador (demo: unidade 102) */
   const unidMorador = unidadesRaw.find((u) => u.numero === "102") || unidadesRaw[0];
   const boletos = cobr.filter((c) => c.unidadeId === unidMorador?.id)
-    .map((c) => ({ id: c.id, comp: c.comp, desc: "Taxa condominial", valor: c.valor, venc: c.vencFull, status: c.status }));
+    .map((c) => ({ id: c.id, comp: c.comp, desc: "Taxa condominial", valor: c.valor, venc: c.vencFull, status: c.status,
+      encargos: c.encargos, mesesAtraso: c.mesesAtraso, valorTotal: c.valorTotal }));
 
   /* gráficos */
   const porComp = {};
@@ -384,7 +401,6 @@ export async function loadAll(condominioId) {
 
   /* evolução diária: um ponto para cada dia, agrupado por mês (chave AAAA-MM).
      O mês corrente sempre existe no mapa, mesmo sem lançamentos. */
-  const hoje = new Date();
   const mesAtualReal = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
   const porDiaMes = {};
   lancRaw.forEach((l) => {
@@ -423,7 +439,7 @@ export async function loadAll(condominioId) {
   cobrRaw.forEach((c) => {
     const b = (cobrPorComp[c.competencia] ||= { total: 0, vencido: 0 });
     b.total += num(c.valor_original);
-    if (c.status === "vencida") b.vencido += num(c.valor_original);
+    if (statusEfetivo(c) === "vencida") b.vencido += num(c.valor_original);
   });
   const inadim = Object.keys(cobrPorComp).sort().slice(-6)
     .map((c) => ({ m: mesLabel(c), pct: Math.round((cobrPorComp[c].vencido / (cobrPorComp[c].total || 1)) * 1000) / 10 }));
@@ -443,8 +459,9 @@ export async function loadAll(condominioId) {
     fundoReserva: fundoDe("reserva"), fundoObras: fundoDe("obra"),
     cobrEmitidas: cobrAtual.length,
     cobrPagas: cobrAtual.filter((c) => c.status === "paga" || c.status === "paga_em_atraso").length,
-    cobrAguardando: cobrAtual.filter((c) => c.status === "emitida" || c.status === "rascunho").length,
-    cobrVencidasValor: cobrAtual.reduce((s, c) => s + (c.status === "vencida" ? num(c.valor_original) : 0), 0),
+    cobrAguardando: cobrAtual.filter((c) => statusEfetivo(c) === "emitida" || c.status === "rascunho").length,
+    cobrVencidasValor: cobrAtual.reduce((s, c) => s + (statusEfetivo(c) === "vencida"
+      ? num(c.valor_original) + calcularEncargos(c, cond.encargos, hoje).encargos : 0), 0),
     multasAno: multasRaw.length,
     multasEmDefesa: multasRaw.filter((m) => m.status === "em_defesa" || m.status === "registrada").length,
     multasArrecadado: multasRaw.reduce((s, m) => s + (m.status === "aprovada" || m.status === "lancada" ? num(m.valor) : 0), 0),
@@ -473,6 +490,7 @@ export async function loadAll(condominioId) {
   /* contexto para escritas */
   const ctx = {
     condominioId: cid, condominioNome: principal.nome_fantasia, moeda: cond.moeda, pais: cond.pais,
+    encargos: cond.encargos, fundoReservaPct: cond.fundoReservaPct,
     usuarioId: usuarios[0]?.usuario_id || null,
     blocos, categorias,
     unidades: unidadesRaw.map((u) => {
@@ -500,7 +518,7 @@ export async function loadAll(condominioId) {
     /* segmentos reais para os destinatários de comunicados */
     tiposUnidade: [...new Set(unidadesRaw.map((u) => u.tipo))],
     andares: [...new Set(unidadesRaw.map((u) => u.andar).filter((a) => a != null))].sort((a, b) => a - b),
-    unidadesVencidas: new Set(cobrRaw.filter((c) => c.status === "vencida").map((c) => c.unidade_id)),
+    unidadesVencidas: new Set(cobrRaw.filter((c) => statusEfetivo(c) === "vencida").map((c) => c.unidade_id)),
     operacionais: vinculos.filter((v) => v.papel === "funcionario" || v.papel === "prestador")
       .map((v) => ({ id: v.id, label: `${pessoasRaw.find((p) => p.id === v.pessoa_id)?.nome} (${PAPEL_LABEL[v.papel].toLowerCase()})` })),
     maxOS: Math.max(0, ...chamadosRaw.map((c) => Number((c.numero || "").replace(/\D/g, "")) || 0)),
@@ -1244,10 +1262,15 @@ export async function criarDocumento(ctx, f) {
 /* Baixa a cobrança em PDF timbrado (botão Baixar do popup de QR da tela Cobranças) */
 export async function baixarPdfCobranca(ctx, c) {
   const valor = fmtMoeda(c.valor, ctx.moeda);
+  /* cobrança em atraso com encargos ativos: o documento detalha a mora */
+  const encargos = Number(c.encargos) > 0
+    ? ` Encargos de atraso até a presente data: ${fmtMoeda(c.encargos, ctx.moeda)}` +
+      `${c.mesesAtraso > 0 ? ` (${c.mesesAtraso} mês(es) de mora)` : ""}, totalizando ${fmtMoeda(c.valorTotal, ctx.moeda)}.`
+    : "";
   const arquivo = await gerarPdfTimbrado(ctx, {
     tipo: "Cobrança condominial",
     titulo: `Cobrança ${c.comp} — Unidade ${c.unidade}`,
-    corpo: `Cobrança condominial da competência ${c.comp}, no valor de ${valor}, com vencimento em ${c.vencFull}. Situação atual: ${c.status}. ${c.tx && c.tx !== "—" ? `Transação Verum Pay: ${c.tx} — baixa automática confirmada.` : "O pagamento pode ser feito pelo QR Code disponível no portal do morador."}`,
+    corpo: `Cobrança condominial da competência ${c.comp}, no valor de ${valor}, com vencimento em ${c.vencFull}.${encargos} Situação atual: ${c.status}. ${c.tx && c.tx !== "—" ? `Transação Verum Pay: ${c.tx} — baixa automática confirmada.` : "O pagamento pode ser feito pelo QR Code disponível no portal do morador."}`,
     rodape: `Unidade ${c.unidade}${c.resp ? ` · Responsável: ${c.resp}` : ""}`,
   });
   const url = URL.createObjectURL(arquivo);
@@ -1325,6 +1348,9 @@ export async function obterCondominio(ctx) {
     visitantes: r.visitantes || "", animais: r.animais || "", areas: r.areas_comuns || "",
     moeda: r.moeda || "USD",
     pais: r.pais || "", // ISO-2 — DDI e máscara dos telefones (semeado pelo IP na criação)
+    /* encargos de atraso (coluna própria) + % do fundo de reserva na emissão */
+    encargos: normalizarEncargosCfg(c.encargos_atraso),
+    fundoReservaPct: Math.max(0, Number(r.cobranca?.fundo_reserva_pct) || 0),
     verumWallet: pg.verum_wallet || pg.cripto || "",
     dinheiro: pg.dinheiro !== false, // padrão: aceita dinheiro
     stripeRepasse: pg.stripe_repasse === true, // taxa do pagamento online repassada ao morador
@@ -1340,17 +1366,28 @@ export async function obterCondominio(ctx) {
 
 export async function salvarCondominio(ctx, f) {
   const identidade = await obterIdentidade(ctx); // preserva o logo já enviado
+  const pct = (v) => Math.max(0, Number(String(v ?? "").replace(",", ".")) || 0);
   await q(supabase.from("condominios").update({
     nome_fantasia: f.nome, razao_social: f.razao || f.nome, cnpj: f.cnpj,
     inscricao_municipal: f.inscricao || null,
     tipo: COND_TIPO_ENUM[f.tipo] || "residencial", porte: COND_PORTE_ENUM[f.porte] || "medio",
     endereco: { texto: f.endereco || "", torres: f.torres || "", resumo_unidades: f.resumo || "" },
+    /* encargos de atraso em coluna própria (o schema sempre a teve);
+       ativo:false = nada muda em lugar nenhum */
+    encargos_atraso: {
+      ativo: f.encAtivo === "on",
+      multa_pct: pct(f.encMulta), juros_am_pct: pct(f.encJuros),
+      regime: f.encRegime === "composto" ? "composto" : "simples",
+      carencia_dias: Math.max(0, Math.trunc(Number(f.encCarencia) || 0)),
+    },
     /* gestão descritiva vive dentro de regras_internas.gestao (sem migração de schema) */
     regras_internas: {
       silencio: f.silencio || "", mudancas: f.mudancas || "", obras: f.obras || "",
       visitantes: f.visitantes || "", animais: f.animais || "", areas_comuns: f.areas || "",
       moeda: f.moeda || "USD",
       pais: f.pais || "", // ISO-2 do seletor "País do condomínio" (Dados gerais)
+      /* % do fundo de reserva embutido ao GERAR cobranças (0 = desligado) */
+      cobranca: { fundo_reserva_pct: pct(f.frPct) },
       /* meios de pagamento das cobranças: carteira Verum Wallet + dados bancários
          em campos separados (IBAN/SWIFT) para funcionar em qualquer país */
       pagamentos: {
@@ -1539,6 +1576,10 @@ export async function gerarCobrancas(ctx, f) {
   if (!total) throw new Error("Informe o valor da cobrança.");
   const competencia = f.competencia || new Date().toISOString().slice(0, 7);
   const vencimento = f.vencimento || `${competencia}-10`;
+  /* fundo de reserva embutido na emissão (como o MONTO da planilla):
+     valor × (1 + FR%) quando o % está configurado; 0 = sem mudança */
+  const frPct = Math.max(0, Number(ctx.fundoReservaPct) || 0);
+  const comFundo = (v) => (frPct > 0 ? Math.round(v * (1 + frPct / 100) * 100) / 100 : v);
 
   /* cobrança direcionada: uma unidade específica, identificada pela pessoa responsável */
   if (f.unidade) {
@@ -1566,7 +1607,7 @@ export async function gerarCobrancas(ctx, f) {
       throw new Error("Esta unidade não tem responsável financeiro nem morador vinculado. Cadastre a pessoa na tela Pessoas ou o morador em Gerenciar Acessos.");
     await q(supabase.from("cobrancas").insert({
       condominio_id: ctx.condominioId, unidade_id: u.id, responsavel_id: responsavelId,
-      competencia, tipo: "extra", valor_original: total, vencimento, status: "emitida",
+      competencia, tipo: "extra", valor_original: comFundo(total), vencimento, status: "emitida",
     }).select(), "cobrancas");
     return 1;
   }
@@ -1593,7 +1634,7 @@ export async function gerarCobrancas(ctx, f) {
   const rows = alvo.map((u, i) => ({
     condominio_id: ctx.condominioId, unidade_id: u.id, responsavel_id: u.responsavelId,
     competencia, tipo: "ordinaria",
-    valor_original: valores[i],
+    valor_original: comFundo(valores[i]),
     vencimento, status: "emitida",
   }));
   const { error } = await supabase.from("cobrancas").insert(rows);

@@ -1205,7 +1205,7 @@ function Dashboard({ t, role, go = () => {}, leitura = false }) {
             const semResp = db.chamados.find((c) => c.status === "aberto" && c.resp === "—");
             const alertas = [
               multaPend && [Gavel, `${L("Multa")} ${multaPend.num} ${L("aguarda decisão do síndico")}`, "danger", "multas"],
-              vencidas.length > 0 && [QrCode, `${vencidas.length} ${L("cobrança(s) vencida(s) somando")} ` + BRL(vencidas.reduce((s, c) => s + c.valor, 0)), "warn", "cobrancas"],
+              vencidas.length > 0 && [QrCode, `${vencidas.length} ${L("cobrança(s) vencida(s) somando")} ` + BRL(vencidas.reduce((s, c) => s + (c.valorTotal ?? c.valor), 0)), "warn", "cobrancas"],
               semResp && [Wrench, `${semResp.num} (${semResp.cat.toLowerCase()}) ${L("sem responsável designado")}`, "warn", "chamados"],
             ].filter(Boolean);
             const podeVer = (s) => NAV.some((n) => n.id === s && n.roles.includes(role));
@@ -1462,6 +1462,35 @@ function Condominio({ t, role }) {
             <Field t={t} label="Observações"><input name="bancoObs" defaultValue={cond.bancoObs} placeholder={L("Ex.: enviar comprovante à administração")} style={inputStyle(t)} /></Field>
           </div>
           <div className="text-xs" style={{ color: t.dim }}>{L("Estes dados são exibidos ao morador como opções para pagamento das cobranças. Preencha só o que se aplica ao seu país — IBAN e SWIFT/BIC tornam a conta acessível internacionalmente.")}</div>
+
+          <div className="pt-1 text-xs font-semibold" style={{ color: t.gold, fontFamily: "'Sora',sans-serif" }}>{L("Cobranças e encargos de atraso")}</div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field t={t} label="Fundo de reserva embutido ao gerar (%)">
+              <input name="frPct" defaultValue={cond.fundoReservaPct || ""} placeholder="10" inputMode="decimal" style={inputStyle(t)} /></Field>
+          </div>
+          <div className="text-[11px]" style={{ color: t.dim }}>
+            {L("Com o % preenchido, cada cobrança gerada nasce com o fundo de reserva embutido — valor × (1 + %). Vazio ou 0 = desligado; as cobranças já emitidas não mudam.")}</div>
+          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2.5" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+            <span className="text-sm">{L("Cobrar encargos de atraso (multa + juros)")}
+              <span className="block text-[11px]" style={{ color: t.dim }}>
+                {L("Cobrança vencida passa a somar multa única e juros por mês — na tela, no portal do morador, no PDF e no valor a pagar de todos os meios. Desligado: nada muda.")}</span></span>
+            <input type="checkbox" name="encAtivo" defaultChecked={cond.encargos?.ativo} className="h-4 w-4 shrink-0" style={{ accentColor: t.gold }} />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field t={t} label="Multa por atraso (%)">
+              <input name="encMulta" defaultValue={cond.encargos?.multa_pct ?? ""} placeholder="2" inputMode="decimal" style={inputStyle(t)} /></Field>
+            <Field t={t} label="Juros de mora ao mês (%)">
+              <input name="encJuros" defaultValue={cond.encargos?.juros_am_pct ?? ""} placeholder="2,3" inputMode="decimal" style={inputStyle(t)} /></Field>
+            <Field t={t} label="Regime dos juros">
+              <select name="encRegime" defaultValue={cond.encargos?.regime || "simples"} style={inputStyle(t)}>
+                <option value="simples">{L("Juros simples")}</option>
+                <option value="composto">{L("Juros compostos")}</option>
+              </select></Field>
+            <Field t={t} label="Carência (dias após o vencimento)">
+              <input name="encCarencia" defaultValue={cond.encargos?.carencia_dias ?? 0} inputMode="numeric" style={inputStyle(t)} /></Field>
+          </div>
+          <div className="text-[11px]" style={{ color: t.dim }}>
+            {L("Os juros contam por mês virado desde o vencimento — o padrão das planilhas de mora; a multa incide uma única vez assim que o atraso começa. Os percentuais vêm do regulamento do condomínio.")}</div>
         </div>
         <div className="space-y-3" style={mostra("visual")}>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -1665,7 +1694,7 @@ function Unidades({ t, role }) {
               return itens.length === 0 ? vazio(L("nenhuma cobrança registrada para esta unidade.")) : (
                 <div className="mt-3 space-y-1.5">{itens.map((c) => linha(c.id, <>
                   <b>{c.comp}</b><span style={{ color: t.dim }}>{L("venc.")} {c.vencFull}</span>
-                  <span className="ml-auto font-semibold">{BRL(c.valor)}</span><Badge t={t} s={c.status} /></>))}</div>);
+                  <span className="ml-auto font-semibold">{BRL(c.valorTotal ?? c.valor)}</span><Badge t={t} s={c.status} /></>))}</div>);
             }
             if (hist === "multas") {
               const itens = db.multas.filter((m) => m.unidadeId === sel.id);
@@ -1987,7 +2016,7 @@ function Financeiro({ t }) {
     if (just === null) return;
     setRecebendo(c.id);
     try {
-      await confirmarPagamentoManual(c.id, { forma: "dinheiro", valor: c.valor, pagoEm: new Date().toISOString(), justificativa: just });
+      await confirmarPagamentoManual(c.id, { forma: "dinheiro", valor: c.valorTotal ?? c.valor, pagoEm: new Date().toISOString(), justificativa: just });
       await reload();
     } catch (err) { alert("Não foi possível dar baixa: " + (err?.message || err)); }
     finally { setRecebendo(null); }
@@ -2128,13 +2157,15 @@ function Financeiro({ t }) {
           }} />
       </>) : tab === "receber" ? (<>
         <div className="text-xs" style={{ color: t.dim }}>
-          {L("Cobranças emitidas e ainda não pagas pelas unidades.")} {L("Total em aberto:")} <b style={{ color: t.text }}>{BRL(aReceber.reduce((s, c) => s + c.valor, 0))}</b></div>
+          {L("Cobranças emitidas e ainda não pagas pelas unidades.")} {L("Total em aberto:")} <b style={{ color: t.text }}>{BRL(aReceber.reduce((s, c) => s + (c.valorTotal ?? c.valor), 0))}</b></div>
         <Tbl t={t} cols={[{k:"comp",l:"Competência"},{k:"unidade",l:"Unidade"},{k:"resp",l:"Responsável"},{k:"valor",l:"Valor"},{k:"vencFull",l:"Vencimento"},{k:"status",l:"Status"},{k:"acao",l:""}]}
           rows={aReceber}
           empty={<EmptyState t={t} icon={CheckCircle2} title="Nada consta — nenhuma cobrança em aberto"
             hint="Todas as cobranças emitidas foram pagas. Gere novas cobranças na tela Cobranças QR." />}
           renderCell={(r, k) => {
-            if (k === "valor") return <b>{BRL(r.valor)}</b>;
+            if (k === "valor") return r.encargos > 0
+              ? <b title={`${L("Original")}: ${BRL(r.valor)} · ${L("Encargos de atraso")}: ${BRL(r.encargos)}`} style={{ cursor: "help", color: t.warn }}>{BRL(r.valorTotal)}</b>
+              : <b>{BRL(r.valor)}</b>;
             if (k === "status") return <Badge t={t} s={r.status} />;
             if (k === "acao") return (
               <Btn t={t} kind="soft" disabled={recebendo === r.id} className="!px-2 !py-1 text-xs"
@@ -2167,7 +2198,7 @@ function Financeiro({ t }) {
           {uniExtrato && (
             <div className="text-xs" style={{ color: t.dim }}>
               {L("Pago:")} <b style={{ color: t.ok }}>{BRL(extrato.filter((c) => c.status === "pago").reduce((s, c) => s + c.valor, 0))}</b>{" · "}
-              {L("Em aberto:")} <b style={{ color: t.warn }}>{BRL(extrato.filter((c) => c.status === "emitida" || c.status === "vencida").reduce((s, c) => s + c.valor, 0))}</b></div>)}
+              {L("Em aberto:")} <b style={{ color: t.warn }}>{BRL(extrato.filter((c) => c.status === "emitida" || c.status === "vencida").reduce((s, c) => s + (c.valorTotal ?? c.valor), 0))}</b></div>)}
         </div>
         {!uniExtrato ? (
           <EmptyState t={t} icon={Search} title="Escolha uma unidade"
@@ -2178,7 +2209,9 @@ function Financeiro({ t }) {
             empty={<EmptyState t={t} icon={FileText} title="Nada consta para esta unidade"
               hint="Nenhuma cobrança foi emitida para esta unidade até agora." />}
             renderCell={(r, k) => {
-              if (k === "valor") return <b>{BRL(r.valor)}</b>;
+              if (k === "valor") return r.encargos > 0
+                ? <b title={`${L("Original")}: ${BRL(r.valor)} · ${L("Encargos de atraso")}: ${BRL(r.encargos)}`} style={{ cursor: "help", color: t.warn }}>{BRL(r.valorTotal)}</b>
+                : <b>{BRL(r.valor)}</b>;
               if (k === "status") return <Badge t={t} s={r.status} />;
               return r[k];
             }} />)}
@@ -2236,7 +2269,7 @@ function Cobrancas({ t }) {
     return telParaWhats(p?.telRaw || "", db.cond?.pais || geoCache()?.pais || "BR");
   };
   const enviarWhats = (c) => {
-    const msg = `Olá${c.resp && c.resp !== "—" ? `, ${c.resp}` : ""}! ${L("Cobrança do condomínio")} ${db.cond?.nome || ""} — ${L("competência")} ${c.comp}, ${L("valor")} ${BRL(c.valor)}, ${L("vencimento")} ${c.vencFull}. ${L("Você pode pagar pelo QR Code no portal do morador.")}`;
+    const msg = `Olá${c.resp && c.resp !== "—" ? `, ${c.resp}` : ""}! ${L("Cobrança do condomínio")} ${db.cond?.nome || ""} — ${L("competência")} ${c.comp}, ${L("valor")} ${BRL(c.valorTotal ?? c.valor)}${c.encargos > 0 ? ` (${L("inclui encargos de atraso de")} ${BRL(c.encargos)})` : ""}, ${L("vencimento")} ${c.vencFull}. ${L("Você pode pagar pelo QR Code no portal do morador.")}`;
     window.open(`https://wa.me/${telDe(c)}?text=${encodeURIComponent(msg)}`, "_blank");
   };
   const [baixandoPdf, setBaixandoPdf] = useState(false);
@@ -2253,7 +2286,7 @@ function Cobrancas({ t }) {
     const inf = conf.modo === "informe" ? conf.c.informe : null;
     await confirmarPagamentoManual(conf.c.id, {
       forma: conf.modo === "dinheiro" ? "dinheiro" : (inf?.forma || "transferencia"),
-      valor: Number(String(f.valor || "").replace(",", ".")) || conf.c.valor,
+      valor: Number(String(f.valor || "").replace(",", ".")) || (conf.c.valorTotal ?? conf.c.valor),
       pagoEm: f.data ? new Date(`${f.data}T12:00:00`).toISOString() : new Date().toISOString(),
       justificativa: f.just, tx: inf?.tx || null, informeId: inf?.id || null,
     });
@@ -2292,7 +2325,10 @@ function Cobrancas({ t }) {
           hint="Gere as cobranças do mês: cada unidade recebe a sua no portal do morador, com pagamento online (Pix/cartão) e pelos meios cadastrados do condomínio."
           action={<Btn t={t} kind="primary" onClick={() => setNova(true)} data-tour="cobr-gerar"><Plus size={14} /> Gerar cobranças do mês</Btn>} />}
         renderCell={(r, k) => {
-          if (k === "valor") return <b>{BRL(r.valor)}</b>;
+          if (k === "valor") return r.encargos > 0
+            ? <b title={`${L("Original")}: ${BRL(r.valor)} · ${L("Encargos de atraso")}: ${BRL(r.encargos)} (${r.mesesAtraso} ${L("mês(es)")})`}
+                style={{ cursor: "help", color: t.warn }}>{BRL(r.valorTotal)}</b>
+            : <b>{BRL(r.valor)}</b>;
           if (k === "status") return <Badge t={t} s={r.status} />;
           if (k === "acao") return (<div className="flex justify-end gap-1">
             {(r.status === "informado" || r.status === "divergente") && (
@@ -2311,7 +2347,7 @@ function Cobrancas({ t }) {
           <div className="flex flex-col items-center gap-3 text-center">
             <QRMock seed={qr.id + qr.unidade} />
             <div>
-              <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valor)}</div>
+              <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valorTotal ?? qr.valor)}</div>
               <div className="text-xs" style={{ color: t.dim }}>Vencimento {qr.venc} · QR único desta cobrança</div>
             </div>
             <Badge t={t} s={qr.status} />
@@ -2329,11 +2365,13 @@ function Cobrancas({ t }) {
           <form onSubmit={confirmarBaixa}>
             <div className="space-y-3">
               <div className="rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
-                <div><b>{conf.c.unidade}</b> · {conf.c.comp} · {L("valor da cobrança")}: <b style={{ color: t.gold }}>{BRL(conf.c.valor)}</b> · {L("vencimento")} {conf.c.vencFull}</div>
+                <div><b>{conf.c.unidade}</b> · {conf.c.comp} · {L("valor da cobrança")}: <b style={{ color: t.gold }}>{BRL(conf.c.valor)}</b>
+                  {conf.c.encargos > 0 && <> + {L("encargos")} <b style={{ color: t.warn }}>{BRL(conf.c.encargos)}</b> = <b style={{ color: t.gold }}>{BRL(conf.c.valorTotal)}</b></>}
+                  {" · "}{L("vencimento")} {conf.c.vencFull}</div>
                 {conf.modo === "informe" && conf.c.informe && (
                   <div className="mt-1.5 space-y-1" style={{ color: t.dim }}>
                     <div>{L("Informado pelo morador")}: <b style={{ color: t.text }}>{conf.c.informe.forma === "verum_pay" ? L("Cripto") : L("Transferência bancária")}</b>
-                      {" · "}{L("valor")} <b style={{ color: Math.abs(conf.c.informe.valor - conf.c.valor) < 0.005 ? t.ok : t.warn }}>{BRL(conf.c.informe.valor)}</b>
+                      {" · "}{L("valor")} <b style={{ color: Math.abs(conf.c.informe.valor - (conf.c.valorTotal ?? conf.c.valor)) < 0.005 ? t.ok : t.warn }}>{BRL(conf.c.informe.valor)}</b>
                       {conf.c.informe.pagoEm ? <> · {L("em")} {conf.c.informe.pagoEm.split("-").reverse().join("/")}</> : null}</div>
                     {conf.c.informe.comprovanteUrl && (
                       <a href={conf.c.informe.comprovanteUrl} target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>
@@ -2349,7 +2387,7 @@ function Cobrancas({ t }) {
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field t={t} label="Valor recebido">
                   <MoneyInput t={t} name="valor" moeda={moeda} required
-                    defaultCents={Math.round((conf.modo === "informe" && conf.c.informe && conf.c.informe.forma !== "verum_pay" ? conf.c.informe.valor : conf.c.valor) * 100)} /></Field>
+                    defaultCents={Math.round((conf.modo === "informe" && conf.c.informe && conf.c.informe.forma !== "verum_pay" ? conf.c.informe.valor : (conf.c.valorTotal ?? conf.c.valor)) * 100)} /></Field>
                 <Field t={t} label="Data do recebimento">
                   <input name="data" type="date" required defaultValue={conf.c.informe?.pagoEm || new Date().toISOString().slice(0, 10)} style={inputStyle(t)} /></Field>
               </div>
@@ -3980,8 +4018,11 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
   const minhasEntregas = db.acessos.filter((a) => a.tipo === "entrega" && a.destino === unidade);
   const agoraLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
   const boletos = morador?.unidade
-    ? db.cobr.filter((c) => c.unidade === unidade).map((c) => ({ id: c.id, comp: c.comp, desc: "Taxa condominial", valor: c.valor, venc: c.vencFull, status: c.status }))
+    ? db.cobr.filter((c) => c.unidade === unidade).map((c) => ({ id: c.id, comp: c.comp, desc: "Taxa condominial", valor: c.valor, venc: c.vencFull, status: c.status,
+        encargos: c.encargos, mesesAtraso: c.mesesAtraso, valorTotal: c.valorTotal }))
     : db.boletos;
+  /* valor a pagar HOJE (original + encargos de atraso, quando ativos) */
+  const devido = (b) => b?.valorTotal ?? b?.valor ?? 0;
   const pend = boletos.find((b) => b.status === "vencida") || boletos.find((b) => b.status === "emitida");
   const abertas = boletos.filter((b) => b.status === "vencida" || b.status === "emitida").length;
   const minhasMultasLista = db.multas.filter((m) => m.unidade === unidade);
@@ -3992,8 +4033,8 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
   const minhasEncomendas = db.acessos.filter((a) => a.tipo === "entrega" && a.destino === unidade).length;
   /* notificações do sino: tudo o que pede atenção do morador, clicável */
   const notifs = useMemo(() => [
-    ...boletos.filter((b) => b.status === "vencida").map((b) => ({ txt: `${L("Cobrança de")} ${b.comp} ${L("vencida")} — ${BRL(b.valor)}`, c: "danger", go: () => setTab("pagamentos") })),
-    ...boletos.filter((b) => b.status === "emitida").map((b) => ({ txt: `${L("Nova cobrança de")} ${b.comp} — ${BRL(b.valor)} · ${L("vence em")} ${b.venc}`, c: "warn", go: () => setTab("pagamentos") })),
+    ...boletos.filter((b) => b.status === "vencida").map((b) => ({ txt: `${L("Cobrança de")} ${b.comp} ${L("vencida")} — ${BRL(devido(b))}`, c: "danger", go: () => setTab("pagamentos") })),
+    ...boletos.filter((b) => b.status === "emitida").map((b) => ({ txt: `${L("Nova cobrança de")} ${b.comp} — ${BRL(devido(b))} · ${L("vence em")} ${b.venc}`, c: "warn", go: () => setTab("pagamentos") })),
     ...minhasMultasLista.filter((m) => m.status === "pendente").map((m) => ({ txt: `${m.valor > 0 ? L("Multa") : L("Advertência")} ${m.num} — ${L("prazo de defesa até")} ${m.prazo}`, c: "warn", go: () => setMulta(m) })),
     ...meusChamadosLista.filter((c) => c.status === "aberto" || c.status === "andamento").map((c) => ({ txt: `${L("Chamada de manutenção")} ${c.num} ${c.status === "andamento" ? L("em andamento") : L("aberta")} — ${c.desc}`, c: "info" })),
     ...db.comunic.slice(0, 2).map((c) => ({ txt: `${L("Comunicado")}: ${c.titulo}`, c: "info", go: () => setAviso(c) })),
@@ -4020,7 +4061,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
     try {
       const r = await informarPagamentoCobranca({
         cobrancaId: qr.id, forma: "transferencia",
-        valorInformado: Number(String(fd.get("valor") || "").replace(",", ".")) || qr.valor,
+        valorInformado: Number(String(fd.get("valor") || "").replace(",", ".")) || (qr.valorTotal ?? qr.valor),
         pagoEm: fd.get("data") || undefined, arquivo,
       });
       setEnvioInforme({ msg: r.divergente
@@ -4111,7 +4152,8 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                   <div className="flex-1">
                     <div className="text-sm font-semibold">
                       {pend.status === "vencida" ? `${L("Cobrança de")} ${pend.comp} ${L("vencida")}` : `${L("Nova cobrança de")} ${pend.comp}`}</div>
-                    <div className="text-xs" style={{ color: t.dim }}>{BRL(pend.valor)} · {pend.status === "vencida" ? L("venceu em") : L("vence em")} {pend.venc}</div>
+                    <div className="text-xs" style={{ color: t.dim }}>{BRL(devido(pend))} · {pend.status === "vencida" ? L("venceu em") : L("vence em")} {pend.venc}
+                      {pend.encargos > 0 && <span className="block" style={{ color: t.warn }}>{L("inclui encargos de atraso de")} {BRL(pend.encargos)}</span>}</div>
                   </div>
                   <Btn t={t} kind="primary" onClick={() => setQr(pend)}><QrCode size={14} /> Pagar</Btn>
                 </div>
@@ -4191,7 +4233,8 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                     <div className="text-xs" style={{ color: t.dim }}>Vencimento {b.venc}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-sm font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{BRL(b.valor)}</div>
+                    <div className="text-sm font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{BRL(devido(b))}
+                      {b.encargos > 0 && <span className="block text-[10px] font-normal" style={{ color: t.warn }}>{BRL(b.valor)} + {L("encargos")} {BRL(b.encargos)}</span>}</div>
                     <Badge t={t} s={b.status} />
                   </div>
                   {b.status !== "pago"
@@ -4367,7 +4410,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
           {formaPag === null && (
             <div className="space-y-2">
               <div className="text-center">
-                <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valor)}</div>
+                <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valorTotal ?? qr.valor)}</div>
                 <div className="text-xs" style={{ color: t.dim }}>{qr.desc} · {qr.comp} · {L("vencimento")} {qr.venc}</div>
               </div>
               <div className="pt-1 text-xs" style={{ color: t.dim }}>{L("Escolha como deseja pagar:")}</div>
@@ -4409,8 +4452,8 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
           {formaPag === "qr" && (
             <div className="flex flex-col items-center gap-3 text-center">
               {/* QR dinâmico: chave pública da carteira do condomínio + valor desta cobrança */}
-              <QRReal value={`verum:${pagto.verumWallet}?amount=${Number(qr.valor).toFixed(2)}&currency=${db.cond?.moeda || "USD"}&ref=${qr.id}`} size={180} />
-              <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valor)}</div>
+              <QRReal value={`verum:${pagto.verumWallet}?amount=${Number(qr.valorTotal ?? qr.valor).toFixed(2)}&currency=${db.cond?.moeda || "USD"}&ref=${qr.id}`} size={180} />
+              <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valorTotal ?? qr.valor)}</div>
               <div className="text-xs" style={{ color: t.dim }}>{L("Escaneie com a")}{" "}<a href="https://verumcrypto.com" target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>Verum Wallet</a>{" "}{L("para pagar — o QR já contém a carteira do condomínio e o valor desta cobrança.")}</div>
               <div className="flex flex-wrap justify-center gap-2">
                 <Btn t={t} onClick={() => setFormaPag(null)}><ChevronLeft size={14} /> {L("Voltar")}</Btn>
@@ -4432,7 +4475,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
           {formaPag === "dinheiro" && (
             <div className="space-y-2">
               <div className="text-center">
-                <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valor)}</div>
+                <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valorTotal ?? qr.valor)}</div>
                 <div className="text-xs" style={{ color: t.dim }}>{qr.desc} · {qr.comp} · {L("vencimento")} {qr.venc}</div>
               </div>
               <div className="rounded-xl border px-3 py-3 text-xs leading-relaxed" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
@@ -4445,7 +4488,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
           {(formaPag === "verum" || formaPag === "banco") && (
             <div className="space-y-2">
               <div className="text-center">
-                <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valor)}</div>
+                <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valorTotal ?? qr.valor)}</div>
                 <div className="text-xs" style={{ color: t.dim }}>
                   {formaPag === "verum"
                     ? <>{L("Envie o valor para a carteira")}{" "}<a href="https://verumcrypto.com" target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>Verum Wallet</a>{" "}{L("do condomínio:")}</>
@@ -4482,7 +4525,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                   <FileField t={t} name="comprovante" accept="application/pdf,image/*" hint={L("Anexar comprovante (PDF/JPG/PNG, até 4 MB)")} />
                   <div className="grid grid-cols-2 gap-2">
                     <Field t={t} label="Valor pago">
-                      <MoneyInput t={t} name="valor" moeda={db.cond?.moeda || "USD"} required defaultCents={Math.round(qr.valor * 100)} /></Field>
+                      <MoneyInput t={t} name="valor" moeda={db.cond?.moeda || "USD"} required defaultCents={Math.round((qr.valorTotal ?? qr.valor) * 100)} /></Field>
                     <Field t={t} label="Data do pagamento">
                       <input name="data" type="date" defaultValue={new Date().toISOString().slice(0, 10)} style={inputStyle(t)} /></Field>
                   </div>
@@ -5085,7 +5128,7 @@ export default function App() {
     const paraEnviar = (db.multas || []).filter((m) => m.status === "aprovada_envio");
     if (paraEnviar.length) n.push({ txt: `${paraEnviar.length} ${L("penalidade(s) aprovada(s) aguardando envio ao responsável")}`, c: "warn", s: "multas" });
     const vencidas = (db.cobr || []).filter((c) => c.status === "vencida");
-    if (vencidas.length) n.push({ txt: `${vencidas.length} ${L("cobrança(s) vencida(s) somando")} ${BRL(vencidas.reduce((s, c) => s + c.valor, 0))}`, c: "warn", s: "cobrancas" });
+    if (vencidas.length) n.push({ txt: `${vencidas.length} ${L("cobrança(s) vencida(s) somando")} ${BRL(vencidas.reduce((s, c) => s + (c.valorTotal ?? c.valor), 0))}`, c: "warn", s: "cobrancas" });
     const informados = (db.cobr || []).filter((c) => c.status === "informado");
     if (informados.length) n.push({ txt: `${informados.length} ${L("pagamento(s) informado(s) pelo morador aguardando confirmação")}`, c: "info", s: "cobrancas" });
     const divergentes = (db.cobr || []).filter((c) => c.status === "divergente");

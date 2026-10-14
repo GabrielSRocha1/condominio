@@ -97,6 +97,12 @@ create table condominios (
   --   (campos IBAN/SWIFT deixam o modelo global — funciona em qualquer país)
   regras_internas     jsonb,
   identidade_visual   jsonb,
+  -- encargos de atraso (tela Condomínio → Meios de pagamento):
+  --   { ativo: false, multa_pct: 2, juros_am_pct: 1,
+  --     regime: "simples"|"composto", carencia_dias: 0 }
+  -- `ativo` ausente/false = nada muda (o default histórico não liga nada);
+  -- o cálculo vive em src/lib/encargos.js (meses-calendário desde o
+  -- vencimento, estilo planilla; multa única assim que o atraso começa)
   encargos_atraso     jsonb not null default '{"multa_pct":2,"juros_am_pct":1}'::jsonb,
   sindico_pessoa_id   uuid,
   ativo               boolean not null default true,
@@ -755,7 +761,8 @@ create or replace function public.registrar_pagamento_stripe(
   p_valor_pago     numeric,
   p_pago_em        timestamptz,
   p_payment_intent varchar,
-  p_charge         varchar
+  p_charge         varchar,
+  p_valor_caixa    numeric default null  -- principal + encargos (sem taxa de conveniência)
 ) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -800,13 +807,13 @@ begin
                            competencia, forma_pagamento, status, origem_tipo, origem_id)
     values (c.condominio_id, 'receita', v_cat,
             'Cobrança ' || substr(c.competencia, 6, 2) || '/' || substr(c.competencia, 1, 4) || ' paga online (Stripe)',
-            c.valor_original, p_pago_em::date, c.competencia,
+            coalesce(p_valor_caixa, c.valor_original), p_pago_em::date, c.competencia,
             'stripe', 'pago', 'cobranca', c.id);
 
   return jsonb_build_object('ok', true, 'status', v_status);
 end $$;
 
-revoke all on function public.registrar_pagamento_stripe(uuid, numeric, timestamptz, varchar, varchar)
+revoke all on function public.registrar_pagamento_stripe(uuid, numeric, timestamptz, varchar, varchar, numeric)
   from public, anon, authenticated;
 
 -- Baixa manual/reconciliada — transacional e idempotente.
@@ -898,7 +905,7 @@ begin
                            competencia, forma_pagamento, status, origem_tipo, origem_id)
     values (c.condominio_id, 'receita', v_cat,
             'Cobrança ' || substr(c.competencia, 6, 2) || '/' || substr(c.competencia, 1, 4) || ' paga (' || v_forma_rotulo || ')',
-            c.valor_original, p_pago_em::date, c.competencia,
+            coalesce(p_valor, c.valor_original), p_pago_em::date, c.competencia,
             p_forma, 'pago', 'cobranca', c.id);
 
   return jsonb_build_object('ok', true, 'status', v_status);
