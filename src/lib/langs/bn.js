@@ -191,6 +191,7 @@ export default {
   "Temporário": "অস্থায়ী", "Nível de permissão": "অনুমতির স্তর",
   "O acesso entra com os poderes do nível escolhido; o nome do cargo aparece na lista de acessos e no menu de quem entra.": "অ্যাক্সেস নির্বাচিত স্তরের ক্ষমতা পায়; পদের নাম অ্যাক্সেস তালিকা ও লগইনকারীর মেনুতে দেখা যায়।",
   "Entra pelo nome, como morador, já marcado como proprietário — e vê os números do condomínio no portal.": "নামে লগইন, বাসিন্দা হিসেবে, আগে থেকেই মালিক চিহ্নিত — এবং পোর্টালে ভবনের হিসাব দেখে।",
+  "Com letra no número, cada letra tem uma unidade por andar: 1A até 3A sem andar vira 1A, 2A e 3A com o andar espelhando o número; com andares 1 até 3 vira 101A (andar 1), 202A (andar 2) e 303A (andar 3) — as duas faixas precisam ter a mesma quantidade.": "নম্বরে অক্ষর থাকলে প্রতিটি অক্ষরের তলা-প্রতি একটি ইউনিট: তলা ছাড়া 1A থেকে 3A হয় 1A, 2A, 3A — তলা নম্বরের সমান; তলা 1 থেকে 3 সহ হয় 101A (তলা 1), 202A (2), 303A (3) — দুই পরিসরের সংখ্যা সমান হতে হবে।",
   "O saldo do painel passa a ser este valor somado ao que entrar e sair depois desta data — use o sinal de menos para caixa negativo. Deixe vazio para somar apenas os lançamentos do app.": "ড্যাশবোর্ডের ব্যালান্স = এই পরিমাণ + এই তারিখের পরের আয়-ব্যয়। ঋণাত্মকের জন্য − চিহ্ন দিন। খালি রাখলে শুধু অ্যাপের এন্ট্রি যোগ হবে।",
   "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "পোর্টালে কেবল মালিক কনডোমিনিয়ামের হিসাব (ব্যালান্স, আয়, ব্যয় ও বকেয়া) দেখতে পান।",
   "Nenhuma cobrança para esta unidade ainda.": "এই ইউনিটের জন্য এখনো কোনো বিল নেই।",

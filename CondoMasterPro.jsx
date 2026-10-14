@@ -1775,7 +1775,9 @@ function Unidades({ t, role }) {
               {L("Preencha \"Até o número\" para criar várias unidades de uma vez: 1 até 100 cria 1, 2… 100; 1D até 4D cria 1D, 2D, 3D e 4D. Números que já existem no bloco são pulados. Tipo, status e área valem para todas.")}</div>
             <div className="mt-1 text-xs" style={{ color: t.dim }}>
               {L("Preencha também \"Até o andar\" para criar por andares: andares 1 até 12 com unidades 1 até 4 criam 101–104, 201–204 … 1201–1204 — o andar de cada unidade é preenchido automaticamente.")}</div>
-            <div className="mt-1 text-xs" style={{ color: t.dim }}>O responsável financeiro é vinculado depois, na tela Pessoas (papel proprietário/inquilino).</div>
+            <div className="mt-1 text-xs" style={{ color: t.dim }}>
+              {L("Com letra no número, cada letra tem uma unidade por andar: 1A até 3A sem andar vira 1A, 2A e 3A com o andar espelhando o número; com andares 1 até 3 vira 101A (andar 1), 202A (andar 2) e 303A (andar 3) — as duas faixas precisam ter a mesma quantidade.")}</div>
+            <div className="mt-1 text-xs" style={{ color: t.dim }}>O responsável financeiro é vinculado depois, na tela Pessoas (papel proprietário/temporário).</div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovo(false)}>Cancelar</Btn>
               <Btn t={t} kind="primary" type="submit" disabled={saving}><Check size={14} /> {saving ? "Salvando…" : "Criar unidade"}</Btn></div>
           </form>
