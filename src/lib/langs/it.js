@@ -186,6 +186,7 @@ export default {
   "Valor a receber": "Importo da ricevere", "Ajuste negociado": "Adeguamento concordato",
   "Recibo": "Ricevuta", "Recibo de pagamento": "Ricevuta di pagamento", "Taxa condominial": "Quota condominiale",
   "Transferência": "Bonifico", "Débito automático": "Addebito diretto", "Online (Stripe)": "Online (Stripe)", "Cripto (Verum Pay)": "Cripto (Verum Pay)",
+  "A receber (em aberto)": "Da ricevere (aperto)", "A pagar (em aberto)": "Da pagare (aperto)",
   "encargos": "oneri", "inclui encargos de atraso de": "include oneri di mora di",
   "Cargos de gestão": "Cariche di gestione", "Cargo": "Carica",
   "Ex.: Conselho fiscal": "Es.: Revisore dei conti", "Nome de quem ocupa o cargo": "Nome di chi ricopre la carica",

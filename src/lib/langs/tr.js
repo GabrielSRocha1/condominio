@@ -186,6 +186,7 @@ export default {
   "Valor a receber": "Alınacak tutar", "Ajuste negociado": "Anlaşmalı düzeltme",
   "Recibo": "Makbuz", "Recibo de pagamento": "Ödeme makbuzu", "Taxa condominial": "Aidat",
   "Transferência": "Havale", "Débito automático": "Otomatik ödeme", "Online (Stripe)": "Çevrimiçi (Stripe)", "Cripto (Verum Pay)": "Kripto (Verum Pay)",
+  "A receber (em aberto)": "Alacaklar (açık)", "A pagar (em aberto)": "Borçlar (açık)",
   "encargos": "bedeller", "inclui encargos de atraso de": "gecikme bedeli dahil:",
   "Cargos de gestão": "Yönetim görevleri", "Cargo": "Görev",
   "Ex.: Conselho fiscal": "Örn.: Denetim kurulu", "Nome de quem ocupa o cargo": "Görevdeki kişinin adı",

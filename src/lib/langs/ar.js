@@ -186,6 +186,7 @@ export default {
   "Valor a receber": "المبلغ المستلم", "Ajuste negociado": "تسوية متفاوض عليها",
   "Recibo": "إيصال", "Recibo de pagamento": "إيصال الدفع", "Taxa condominial": "رسوم العمارة",
   "Transferência": "تحويل بنكي", "Débito automático": "خصم تلقائي", "Online (Stripe)": "عبر الإنترنت (Stripe)", "Cripto (Verum Pay)": "عملة رقمية (Verum Pay)",
+  "A receber (em aberto)": "مستحقات القبض (مفتوحة)", "A pagar (em aberto)": "مستحقات الدفع (مفتوحة)",
   "encargos": "غرامات", "inclui encargos de atraso de": "يشمل غرامات تأخير قدرها",
   "Cargos de gestão": "مناصب الإدارة", "Cargo": "المنصب",
   "Ex.: Conselho fiscal": "مثال: لجنة المراجعة", "Nome de quem ocupa o cargo": "اسم شاغل المنصب",

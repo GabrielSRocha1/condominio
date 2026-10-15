@@ -2229,8 +2229,8 @@ function Financeiro({ t }) {
   return (
     <div className="vfade space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard t={t} icon={TrendingUp}  label={`A receber (${S.competencia})`} value={BRL(S.aReceber)} color={t.ok} />
-        <StatCard t={t} icon={TrendingDown} label={`A pagar (${S.competencia})`}  value={BRL(S.aPagar)}  color={t.warn} />
+        <StatCard t={t} icon={TrendingUp}  label="A receber (em aberto)" value={BRL(S.aReceber)} color={t.ok} />
+        <StatCard t={t} icon={TrendingDown} label="A pagar (em aberto)"  value={BRL(S.aPagar)}  color={t.warn} />
         <StatCard t={t} icon={Wallet} label="Fundo de reserva" value={BRL(S.fundoReserva)} />
         <StatCard t={t} icon={Wallet} label="Fundo de obras"   value={BRL(S.fundoObras)} color={t.info} />
       </div>
@@ -2501,7 +2501,7 @@ function Cobrancas({ t }) {
       </div>
       {aba === "planilha" ? <PlanilhaCobrancas t={t} /> : (<>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard t={t} icon={QrCode} label={`Emitidas em ${S.competencia}`} value={String(S.cobrEmitidas)} />
+        <StatCard t={t} icon={QrCode} label="Emitidas" value={String(S.cobrEmitidas)} />
         <StatCard t={t} icon={CheckCircle2} label="Pagas" value={`${S.cobrPagas} · ${pctPagas}%`} color={t.ok} />
         <StatCard t={t} icon={Clock} label="Aguardando pagamento" value={String(S.cobrAguardando)} color={t.warn} />
         <StatCard t={t} icon={AlertCircle} label="Vencidas" value={BRL(S.cobrVencidasValor)} color={t.danger} />

@@ -186,6 +186,7 @@ export default {
   "Valor a receber": "受取金額", "Ajuste negociado": "交渉による調整",
   "Recibo": "領収書", "Recibo de pagamento": "支払領収書", "Taxa condominial": "管理費",
   "Transferência": "銀行振込", "Débito automático": "自動引き落とし", "Online (Stripe)": "オンライン（Stripe）", "Cripto (Verum Pay)": "暗号資産（Verum Pay）",
+  "A receber (em aberto)": "未収金（未決済）", "A pagar (em aberto)": "未払金（未決済）",
   "encargos": "延滞金", "inclui encargos de atraso de": "延滞金を含む：",
   "Cargos de gestão": "管理役職", "Cargo": "役職",
   "Ex.: Conselho fiscal": "例：監査委員", "Nome de quem ocupa o cargo": "役職者の氏名",

@@ -186,6 +186,7 @@ export default {
   "Valor a receber": "प्राप्य राशि", "Ajuste negociado": "सहमति से समायोजन",
   "Recibo": "रसीद", "Recibo de pagamento": "भुगतान रसीद", "Taxa condominial": "सोसायटी शुल्क",
   "Transferência": "बैंक ट्रांसफर", "Débito automático": "ऑटो डेबिट", "Online (Stripe)": "ऑनलाइन (Stripe)", "Cripto (Verum Pay)": "क्रिप्टो (Verum Pay)",
+  "A receber (em aberto)": "प्राप्य (बकाया)", "A pagar (em aberto)": "देय (बकाया)",
   "encargos": "शुल्क", "inclui encargos de atraso de": "विलंब शुल्क शामिल:",
   "Cargos de gestão": "प्रबंधन पद", "Cargo": "पद",
   "Ex.: Conselho fiscal": "उदा.: लेखा समिति", "Nome de quem ocupa o cargo": "पदधारी का नाम",

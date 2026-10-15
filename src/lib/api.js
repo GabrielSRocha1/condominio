@@ -403,7 +403,6 @@ export async function loadAll(condominioId) {
   });
   const comps = Object.keys(porComp).sort().slice(-6);
   const fluxo = comps.map((c) => ({ m: mesLabel(c), receita: porComp[c].receita, despesa: porComp[c].despesa }));
-  const compAtual = comps[comps.length - 1];
 
   /* evolução diária: um ponto para cada dia, agrupado por mês (chave AAAA-MM).
      O mês corrente sempre existe no mapa, mesmo sem lançamentos. */
@@ -450,27 +449,34 @@ export async function loadAll(condominioId) {
   const inadim = Object.keys(cobrPorComp).sort().slice(-6)
     .map((c) => ({ m: mesLabel(c), pct: Math.round((cobrPorComp[c].vencido / (cobrPorComp[c].total || 1)) * 1000) / 10 }));
 
-  /* indicadores */
+  /* indicadores dos cards — sempre o MÊS DO CALENDÁRIO (mesAtualReal) ou o
+     TOTAL EM ABERTO, nunca "a última competência com lançamento": num
+     condomínio com histórico importado, os cards ficavam presos num mês
+     antigo/zerado enquanto o cabeçalho mostrava o mês real. As cobranças
+     usam as linhas já mapeadas de `cobr` (status de UI + encargos do dia),
+     batendo com as listas das telas. */
   const soma = (arr, f) => arr.reduce((s, x) => s + (f(x) ? num(x.valor) : 0), 0);
-  const fluxoAtual = porComp[compAtual] || { receita: 0, despesa: 0 };
+  const fluxoAtual = porComp[mesAtualReal] || { receita: 0, despesa: 0 };
   /* saldo do caixa: soma dos lançamentos pagos — ou, com a âncora manual da
      aba Gestão (financeiro.caixa = { valor, em }), o valor informado mais o
      que entrou/saiu DEPOIS daquela data (src/lib/caixa.js) */
   const pagoTotal = saldoComAncora(lancRaw, condRow.regras_internas?.financeiro?.caixa);
-  const cobrAtual = cobrRaw.filter((c) => c.competencia === compAtual);
   const fundoDe = (n) => num(fundos.find((f) => f.nome.toLowerCase().includes(n))?.saldo);
+  const cobrValidas = cobr.filter((x) => x.status !== "cancelada");
+  const emAbertoCobr = cobr.filter((x) => x.status === "emitida" || x.status === "vencida");
+  const totCobr = Object.values(cobrPorComp).reduce((s, b) => s + b.total, 0);
+  const totVencido = Object.values(cobrPorComp).reduce((s, b) => s + b.vencido, 0);
 
   const stats = {
     saldo: pagoTotal, receitaMes: fluxoAtual.receita, despesaMes: fluxoAtual.despesa,
-    inadimplencia: inadim.length ? inadim[inadim.length - 1].pct : 0,
-    aReceber: soma(lancRaw, (l) => l.tipo === "receita" && l.competencia === compAtual && l.status !== "pago"),
-    aPagar: soma(lancRaw, (l) => l.tipo === "despesa" && l.competencia === compAtual && l.status !== "pago"),
+    inadimplencia: Math.round((totVencido / (totCobr || 1)) * 1000) / 10,
+    aReceber: emAbertoCobr.reduce((s, x) => s + (x.valorTotal ?? x.valor), 0),
+    aPagar: soma(lancRaw, (l) => l.tipo === "despesa" && l.status === "aberto"),
     fundoReserva: fundoDe("reserva"), fundoObras: fundoDe("obra"),
-    cobrEmitidas: cobrAtual.length,
-    cobrPagas: cobrAtual.filter((c) => c.status === "paga" || c.status === "paga_em_atraso").length,
-    cobrAguardando: cobrAtual.filter((c) => statusEfetivo(c) === "emitida" || c.status === "rascunho").length,
-    cobrVencidasValor: cobrAtual.reduce((s, c) => s + (statusEfetivo(c) === "vencida"
-      ? num(c.valor_original) + calcularEncargos(c, cond.encargos, hoje).encargos : 0), 0),
+    cobrEmitidas: cobrValidas.length,
+    cobrPagas: cobrValidas.filter((x) => x.status === "pago").length,
+    cobrAguardando: cobrValidas.filter((x) => x.status === "emitida").length,
+    cobrVencidasValor: emAbertoCobr.reduce((s, x) => s + (x.status === "vencida" ? (x.valorTotal ?? x.valor) : 0), 0),
     multasAno: multasRaw.length,
     multasEmDefesa: multasRaw.filter((m) => m.status === "em_defesa" || m.status === "registrada").length,
     multasArrecadado: multasRaw.reduce((s, m) => s + (m.status === "aprovada" || m.status === "lancada" ? num(m.valor) : 0), 0),
@@ -482,7 +488,7 @@ export async function loadAll(condominioId) {
     visitantesDentro: acessos.filter((a) => a.status === "dentro").length,
     encomendas: acessos.filter((a) => a.tipo === "entrega").length,
     vagasVisitante: `${vagas.filter((v) => v.tipo === "visitante" && v.status === "livre").length}/${vagas.filter((v) => v.tipo === "visitante").length}`,
-    competencia: compAtual ? compBR(compAtual) : "—",
+    competencia: compBR(mesAtualReal),
   };
 
   /* atividades recentes — todas, ordenadas da mais nova para a mais antiga;

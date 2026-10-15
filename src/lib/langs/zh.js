@@ -186,6 +186,7 @@ export default {
   "Valor a receber": "应收金额", "Ajuste negociado": "协商调整",
   "Recibo": "收据", "Recibo de pagamento": "付款收据", "Taxa condominial": "物业费",
   "Transferência": "银行转账", "Débito automático": "自动扣款", "Online (Stripe)": "在线支付（Stripe）", "Cripto (Verum Pay)": "加密货币（Verum Pay）",
+  "A receber (em aberto)": "应收（未结）", "A pagar (em aberto)": "应付（未结）",
   "encargos": "滞纳金", "inclui encargos de atraso de": "含滞纳金",
   "Cargos de gestão": "管理职务", "Cargo": "职务",
   "Ex.: Conselho fiscal": "例：监事会", "Nome de quem ocupa o cargo": "担任该职务者的姓名",

@@ -186,6 +186,7 @@ export default {
   "Valor a receber": "Montant à recevoir", "Ajuste negociado": "Ajustement négocié",
   "Recibo": "Reçu", "Recibo de pagamento": "Reçu de paiement", "Taxa condominial": "Charges de copropriété",
   "Transferência": "Virement", "Débito automático": "Prélèvement automatique", "Online (Stripe)": "En ligne (Stripe)", "Cripto (Verum Pay)": "Crypto (Verum Pay)",
+  "A receber (em aberto)": "À recevoir (en cours)", "A pagar (em aberto)": "À payer (en cours)",
   "encargos": "pénalités", "inclui encargos de atraso de": "inclut des pénalités de retard de",
   "Cargos de gestão": "Fonctions de gestion", "Cargo": "Fonction",
   "Ex.: Conselho fiscal": "Ex. : Conseil syndical", "Nome de quem ocupa o cargo": "Nom de la personne en fonction",

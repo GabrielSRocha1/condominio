@@ -186,6 +186,7 @@ export default {
   "Valor a receber": "Zu erhaltender Betrag", "Ajuste negociado": "Ausgehandelte Anpassung",
   "Recibo": "Quittung", "Recibo de pagamento": "Zahlungsquittung", "Taxa condominial": "Hausgeld",
   "Transferência": "Überweisung", "Débito automático": "Lastschrift", "Online (Stripe)": "Online (Stripe)", "Cripto (Verum Pay)": "Krypto (Verum Pay)",
+  "A receber (em aberto)": "Offene Forderungen", "A pagar (em aberto)": "Offene Verbindlichkeiten",
   "encargos": "Zuschläge", "inclui encargos de atraso de": "enthält Verzugszuschläge von",
   "Cargos de gestão": "Verwaltungsämter", "Cargo": "Amt",
   "Ex.: Conselho fiscal": "z. B.: Rechnungsprüfer", "Nome de quem ocupa o cargo": "Name der Amtsperson",

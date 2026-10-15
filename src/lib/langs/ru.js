@@ -186,6 +186,7 @@ export default {
   "Valor a receber": "Сумма к получению", "Ajuste negociado": "Согласованная корректировка",
   "Recibo": "Квитанция", "Recibo de pagamento": "Квитанция об оплате", "Taxa condominial": "Взнос за содержание",
   "Transferência": "Банковский перевод", "Débito automático": "Автосписание", "Online (Stripe)": "Онлайн (Stripe)", "Cripto (Verum Pay)": "Криптовалюта (Verum Pay)",
+  "A receber (em aberto)": "К получению (открытые)", "A pagar (em aberto)": "К оплате (открытые)",
   "encargos": "пени", "inclui encargos de atraso de": "включая пени",
   "Cargos de gestão": "Должности управления", "Cargo": "Должность",
   "Ex.: Conselho fiscal": "Напр.: ревизионная комиссия", "Nome de quem ocupa o cargo": "Имя занимающего должность",
