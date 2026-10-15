@@ -1263,35 +1263,118 @@ export const FORMA_ROTULO = {
   stripe: "Online (Stripe)", debito_automatico: "Débito automático",
 };
 
-/* Dados do recibo de uma cobrança paga: o pagamento registrado (auditoria) e
-   a forma que caiu no caixa — leitura coberta pelo tenant_select da RLS.
-   Decomposição honesta pela diferença entre o pago e o principal: positiva
-   vira "encargos de atraso", negativa vira "ajuste negociado" (as linhas
-   sempre fecham com o total). Sem linha em pagamentos (baixa legada), o
-   recibo degrada para os dados da própria cobrança. */
-export async function obterRecibo(ctx, c) {
-  let p = null, forma = null;
+/* Dados do recibo de cobranças pagas — N de uma vez (recebimento em lote) ou
+   uma só (obterRecibo delega para cá). Duas queries no total: o pagamento
+   registrado (auditoria) e a forma que caiu no caixa — leitura coberta pelo
+   tenant_select da RLS. Decomposição honesta por item pela diferença entre o
+   pago e o principal: positiva vira "encargos de atraso", negativa vira
+   "ajuste negociado" (as linhas sempre fecham com o total). Sem linha em
+   pagamentos (baixa legada), o item degrada para os dados da própria
+   cobrança. O número do lote não é persistido, mas é determinístico para
+   reimpressão: REC-L{N}-{prefixo do pagamento mais recente}. */
+export async function obterReciboLote(ctx, cs) {
+  const ids = cs.map((c) => c.id);
+  let pags = [], lancs = [];
   try {
-    const pags = await q(supabase.from("pagamentos")
-      .select("id, valor_pago, pago_em, origem, provider_tx_id")
-      .eq("condominio_id", ctx.condominioId).eq("cobranca_id", c.id)
-      .order("pago_em", { ascending: false }).limit(1), "pagamentos");
-    p = pags[0] || null;
-    const lancs = await q(supabase.from("lancamentos").select("forma_pagamento")
-      .eq("condominio_id", ctx.condominioId).eq("origem_tipo", "cobranca").eq("origem_id", c.id)
-      .limit(1), "lancamentos");
-    forma = lancs[0]?.forma_pagamento || null;
-  } catch { /* segue com o que a cobrança já tem */ }
-  const valorPago = p ? num(p.valor_pago) : (c.valorTotal ?? c.valor);
-  const dif = Math.round((valorPago - num(c.valor)) * 100) / 100;
+    pags = await q(supabase.from("pagamentos")
+      .select("id, cobranca_id, valor_pago, pago_em, origem, provider_tx_id")
+      .eq("condominio_id", ctx.condominioId).in("cobranca_id", ids)
+      .order("pago_em", { ascending: false }), "pagamentos");
+    lancs = await q(supabase.from("lancamentos").select("origem_id, forma_pagamento")
+      .eq("condominio_id", ctx.condominioId).eq("origem_tipo", "cobranca")
+      .in("origem_id", ids), "lancamentos");
+  } catch { /* segue com o que as cobranças já têm */ }
+  const pagoDe = new Map();   // mais recente por cobrança (a lista já vem desc)
+  for (const p of pags) if (!pagoDe.has(p.cobranca_id)) pagoDe.set(p.cobranca_id, p);
+  const formaDe = new Map(lancs.map((l) => [l.origem_id, l.forma_pagamento]));
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const itens = cs.map((c) => {
+    const p = pagoDe.get(c.id) || null;
+    const valorPago = p ? num(p.valor_pago) : (c.valorTotal ?? c.valor);
+    const dif = r2(valorPago - num(c.valor));
+    return {
+      id: c.id,
+      numero: `REC-${String(p?.id || c.id).slice(0, 8).toUpperCase()}`,
+      valorPago, pagoEm: p?.pago_em || null,
+      forma: formaDe.get(c.id) || (p?.origem === "webhook" ? "stripe" : null),
+      tx: p?.provider_tx_id || (c.tx && c.tx !== "—" ? c.tx : null),
+      encargosPagos: Math.max(0, dif), desconto: Math.max(0, -dif),
+    };
+  });
+  const maisRecente = itens.reduce((m, i) =>
+    i.pagoEm && (!m?.pagoEm || i.pagoEm > m.pagoEm) ? i : m, itens[0] || null);
+  const formas = new Set(itens.map((i) => i.forma).filter(Boolean));
   return {
-    numero: `REC-${String(p?.id || c.id).slice(0, 8).toUpperCase()}`,
-    valorPago, pagoEm: p?.pago_em || null,
-    forma: forma || (p?.origem === "webhook" ? "stripe" : null),
-    tx: p?.provider_tx_id || (c.tx && c.tx !== "—" ? c.tx : null),
-    encargosPagos: Math.max(0, dif), desconto: Math.max(0, -dif),
+    numero: cs.length === 1 ? itens[0].numero
+      : `REC-L${cs.length}-${String(pagoDe.get(maisRecente?.id)?.id || cs[0]?.id).slice(0, 8).toUpperCase()}`,
+    pagoEm: maisRecente?.pagoEm || null,
+    forma: formas.size === 1 ? [...formas][0] : null,
+    itens,
+    totalPago: r2(itens.reduce((s, i) => s + i.valorPago, 0)),
+    totalTaxa: r2(cs.reduce((s, c) => s + num(c.valor), 0)),
+    totalEncargos: r2(itens.reduce((s, i) => s + i.encargosPagos, 0)),
+    totalDesconto: r2(itens.reduce((s, i) => s + i.desconto, 0)),
   };
 }
+
+export async function obterRecibo(ctx, c) {
+  return (await obterReciboLote(ctx, [c])).itens[0];
+}
+
+/* ── peças compartilhadas dos recibos A5 (individual e lote) ── */
+const OURO_RECIBO = [212, 175, 55];
+
+async function carregarLogoRecibo(cond) {
+  if (!cond.logoUrl) return null;
+  try {
+    const blob = await (await fetch(cond.logoUrl)).blob();
+    return await new Promise((res, rej) => { const rd = new FileReader(); rd.onload = () => res(rd.result); rd.onerror = rej; rd.readAsDataURL(blob); });
+  } catch { return null; /* sem logo no PDF */ }
+}
+
+/* marca d'água PAGO + timbre (logo ou iniciais) + título/nº/data + régua
+   ouro — desenhado em TODA página (o individual tem uma; o lote pagina). */
+function desenharTimbreRecibo(doc, cond, logoDataUrl, { numero, pagoEm }) {
+  doc.setTextColor(223, 242, 232); doc.setFont("helvetica", "bold"); doc.setFontSize(64);
+  doc.text("PAGO", 105, 95, { align: "center", angle: 18 });
+  let temLogo = false;
+  if (logoDataUrl) {
+    try { doc.addImage(logoDataUrl, 15, 12, 13, 13); temLogo = true; } catch { /* sem logo */ }
+  }
+  if (!temLogo) {
+    doc.setFillColor(10, 14, 26); doc.circle(21.5, 18.5, 6.5, "F");
+    doc.setTextColor(...OURO_RECIBO); doc.setFontSize(8); doc.setFont("helvetica", "bold");
+    doc.text((cond.nome || "?").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join(""), 21.5, 19.7, { align: "center" });
+  }
+  doc.setTextColor(26, 26, 26); doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+  doc.text(cond.nome || "—", 31, 16.5);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(110, 110, 110);
+  doc.text(([cond.cnpj && `CNPJ ${cond.cnpj}`, cond.endereco].filter(Boolean).join("  ·  ") || " ").slice(0, 95), 31, 21.5);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(158, 124, 20);
+  doc.text("RECIBO DE PAGAMENTO", 195, 15, { align: "right", charSpace: 0.4 });
+  doc.setFontSize(9); doc.setTextColor(26, 26, 26);
+  doc.text(`Nº ${numero}`, 195, 20.5, { align: "right" });
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(110, 110, 110);
+  doc.text(pagoEm ? `Pago em ${new Date(pagoEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}` : " ", 195, 25, { align: "right" });
+  doc.setDrawColor(...OURO_RECIBO); doc.setLineWidth(0.7); doc.line(15, 29, 195, 29);
+}
+
+/* rodapé: assinatura + identificação do documento */
+function desenharRodapeRecibo(doc, cond, numero) {
+  doc.setDrawColor(160, 160, 160); doc.setLineWidth(0.2); doc.line(72, 122, 138, 122);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(110, 110, 110);
+  doc.text(`${cond.sindico || "Síndico"} — Síndico`, 105, 127, { align: "center" });
+  doc.setFontSize(7.5);
+  doc.text(`Recibo ${numero} · emitido em ${new Date().toLocaleDateString("pt-BR")} · gerado pelo CondoMaster Pro`, 105, 138, { align: "center" });
+}
+
+const baixarBlobPdf = (doc, nome) => {
+  const url = URL.createObjectURL(doc.output("blob"));
+  const a = document.createElement("a");
+  a.href = url; a.download = nome;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+};
 
 /* Recibo de pagamento em PDF — A5 paisagem (210×148 mm, meia folha A4), o
    formato clássico de recibo: timbre do condomínio, número, declaração de
@@ -1299,36 +1382,7 @@ export async function obterRecibo(ctx, c) {
 export async function baixarPdfRecibo(ctx, c, r) {
   const cond = await obterCondominio(ctx).catch(() => ({ nome: ctx.condominioNome }));
   const doc = new jsPDF({ unit: "mm", format: "a5", orientation: "landscape" });
-  const OURO = [212, 175, 55];
-  /* marca d'água PAGO, atrás do conteúdo */
-  doc.setTextColor(223, 242, 232); doc.setFont("helvetica", "bold"); doc.setFontSize(64);
-  doc.text("PAGO", 105, 95, { align: "center", angle: 18 });
-  /* timbre: logo (ou iniciais) + identificação, como nos documentos A4 */
-  let temLogo = false;
-  if (cond.logoUrl) {
-    try {
-      const blob = await (await fetch(cond.logoUrl)).blob();
-      const dataUrl = await new Promise((res, rej) => { const rd = new FileReader(); rd.onload = () => res(rd.result); rd.onerror = rej; rd.readAsDataURL(blob); });
-      doc.addImage(dataUrl, 15, 12, 13, 13); temLogo = true;
-    } catch { /* sem logo no PDF */ }
-  }
-  if (!temLogo) {
-    doc.setFillColor(10, 14, 26); doc.circle(21.5, 18.5, 6.5, "F");
-    doc.setTextColor(...OURO); doc.setFontSize(8); doc.setFont("helvetica", "bold");
-    doc.text((cond.nome || "?").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join(""), 21.5, 19.7, { align: "center" });
-  }
-  doc.setTextColor(26, 26, 26); doc.setFont("helvetica", "bold"); doc.setFontSize(12);
-  doc.text(cond.nome || "—", 31, 16.5);
-  doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(110, 110, 110);
-  doc.text(([cond.cnpj && `CNPJ ${cond.cnpj}`, cond.endereco].filter(Boolean).join("  ·  ") || " ").slice(0, 95), 31, 21.5);
-  /* número e data, à direita */
-  doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(158, 124, 20);
-  doc.text("RECIBO DE PAGAMENTO", 195, 15, { align: "right", charSpace: 0.4 });
-  doc.setFontSize(9); doc.setTextColor(26, 26, 26);
-  doc.text(`Nº ${r.numero}`, 195, 20.5, { align: "right" });
-  doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(110, 110, 110);
-  doc.text(r.pagoEm ? `Pago em ${new Date(r.pagoEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}` : " ", 195, 25, { align: "right" });
-  doc.setDrawColor(...OURO); doc.setLineWidth(0.7); doc.line(15, 29, 195, 29);
+  desenharTimbreRecibo(doc, cond, await carregarLogoRecibo(cond), r);
   /* declaração de recebimento */
   const quem = c.resp && c.resp !== "—" ? `${c.resp} — Unidade ${c.unidade}` : `Unidade ${c.unidade}`;
   doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(50, 50, 50);
@@ -1352,17 +1406,72 @@ export async function baixarPdfRecibo(ctx, c, r) {
   doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(110, 110, 110);
   doc.text([`Forma de pagamento: ${FORMA_ROTULO[r.forma] || r.forma || "—"}`,
             r.tx ? `Transação: ${r.tx}` : null].filter(Boolean).join("   ·   ").slice(0, 115), 20, y + 2);
-  /* rodapé: assinatura + identificação do documento */
-  doc.setDrawColor(160, 160, 160); doc.setLineWidth(0.2); doc.line(72, 122, 138, 122);
-  doc.setFontSize(8.5); doc.setTextColor(110, 110, 110);
-  doc.text(`${cond.sindico || "Síndico"} — Síndico`, 105, 127, { align: "center" });
-  doc.setFontSize(7.5);
-  doc.text(`Recibo ${r.numero} · emitido em ${new Date().toLocaleDateString("pt-BR")} · gerado pelo CondoMaster Pro`, 105, 138, { align: "center" });
-  const url = URL.createObjectURL(doc.output("blob"));
-  const a = document.createElement("a");
-  a.href = url; a.download = `recibo-${c.competencia}-${c.unidade}.pdf`;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
+  desenharRodapeRecibo(doc, cond, r.numero);
+  baixarBlobPdf(doc, `recibo-${c.competencia}-${c.unidade}.pdf`);
+}
+
+/* Recibo do LOTE em PDF — mesma A5 paisagem do individual, com a tabela das
+   cobranças quitadas (competência, unidade, nº do pagamento, taxa, encargos,
+   ajuste, pago). Pagina sozinho (~7 linhas na primeira página, ~10 nas
+   seguintes); totais, forma e assinatura ficam na última página. Recebe o
+   `r` de obterReciboLote e `cs` NA MESMA ORDEM dos itens. */
+export async function baixarPdfReciboLote(ctx, cs, r) {
+  const cond = await obterCondominio(ctx).catch(() => ({ nome: ctx.condominioNome }));
+  const logo = await carregarLogoRecibo(cond);
+  const doc = new jsPDF({ unit: "mm", format: "a5", orientation: "landscape" });
+  desenharTimbreRecibo(doc, cond, logo, r);
+  /* declaração: destinatário único (a seleção ancora no responsável) */
+  const unidades = [...new Set(cs.map((c) => c.unidade))];
+  const resp = cs.find((c) => c.resp && c.resp !== "—")?.resp;
+  const rotuloU = `Unidade${unidades.length > 1 ? "s" : ""} ${unidades.join(", ")}`;
+  const quem = resp ? `${resp} — ${rotuloU}` : rotuloU;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(50, 50, 50);
+  doc.text(doc.splitTextToSize(
+    `Recebemos de ${quem} a importância de ${fmtMoeda(r.totalPago, ctx.moeda)}, referente a ${cs.length} cobranças condominiais (competências ${cs[0].comp} a ${cs[cs.length - 1].comp}).`,
+    172), 15, 39, { lineHeightFactor: 1.45 });
+  /* tabela por cobrança, paginada */
+  const COLS = [["Competência", 20, "left"], ["Unidade", 44, "left"], ["Nº", 66, "left"],
+    ["Taxa", 120, "right"], ["Encargos", 145, "right"], ["Ajuste", 168, "right"], ["Pago", 190, "right"]];
+  const cabecalho = (yy) => {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(110, 110, 110);
+    for (const [rot, x, al] of COLS) doc.text(rot, x, yy, al === "right" ? { align: "right" } : undefined);
+    doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.25); doc.line(15, yy + 1.5, 195, yy + 1.5);
+    return yy + 6;
+  };
+  const fm = (v) => fmtMoeda(v, ctx.moeda);
+  let y = cabecalho(58);
+  cs.forEach((c, i) => {
+    if (y > 100) { doc.addPage(); desenharTimbreRecibo(doc, cond, logo, r); y = cabecalho(37); }
+    const it = r.itens[i];
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(50, 50, 50);
+    doc.text(String(c.comp), 20, y);
+    doc.text(String(c.unidade), 44, y);
+    doc.setTextColor(110, 110, 110); doc.text(it.numero, 66, y); doc.setTextColor(50, 50, 50);
+    doc.text(fm(c.valor), 120, y, { align: "right" });
+    doc.text(it.encargosPagos > 0.004 ? `+ ${fm(it.encargosPagos)}` : "—", 145, y, { align: "right" });
+    doc.text(it.desconto > 0.004 ? `− ${fm(it.desconto)}` : "—", 168, y, { align: "right" });
+    doc.setFont("helvetica", "bold"); doc.text(fm(it.valorPago), 190, y, { align: "right" });
+    y += 5.5;
+  });
+  /* totais + forma + assinatura na última página (nova, se não couber) */
+  if (y > 88) { doc.addPage(); desenharTimbreRecibo(doc, cond, logo, r); y = 41; }
+  doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.25); doc.line(15, y - 3, 195, y - 3);
+  const linha = (rotulo, valor, cor = [50, 50, 50], negrito = false) => {
+    doc.setFont("helvetica", negrito ? "bold" : "normal"); doc.setFontSize(negrito ? 11.5 : 9.5);
+    doc.setTextColor(...cor);
+    doc.text(rotulo, 20, y); doc.text(valor, 190, y, { align: "right" });
+    y += negrito ? 8 : 6.5;
+  };
+  linha(`Taxa condominial (${cs.length} competências)`, fm(r.totalTaxa));
+  if (r.totalEncargos > 0.004) linha("Encargos de atraso (multa + juros de mora)", `+ ${fm(r.totalEncargos)}`, [176, 108, 22]);
+  if (r.totalDesconto > 0.004) linha("Ajuste negociado (desconto)", `− ${fm(r.totalDesconto)}`, [176, 108, 22]);
+  linha("TOTAL PAGO", fm(r.totalPago), [16, 150, 90], true);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(110, 110, 110);
+  doc.text([`Forma de pagamento: ${FORMA_ROTULO[r.forma] || r.forma || "—"}`,
+            r.pagoEm ? `Pago em ${new Date(r.pagoEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}` : null]
+    .filter(Boolean).join("   ·   ").slice(0, 115), 20, y + 2);
+  desenharRodapeRecibo(doc, cond, r.numero);
+  baixarBlobPdf(doc, `recibo-lote-${cs.length}x-${cs[0].unidade}-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 const COMUNIC_DOC_TIPO = { comunicado: "circular", convocacao: "convocacao", circular: "circular", aviso_manutencao: "circular", emergencia: "circular" };
