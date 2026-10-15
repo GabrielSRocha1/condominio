@@ -66,6 +66,7 @@ idiomas, instalável como PWA.
 | `testar-encargos.mjs` | sondas dos encargos de atraso (multa + juros): motor puro, RLS da configuração, informe pelo valor devido e o caixa com encargos |
 | `testar-caixa-cargos.mjs` | sondas do caixa com âncora (±), dos cargos de gestão e do cargo no perfil de acesso |
 | `testar-unidades-lote.mjs` | sondas da criação de unidades em lote: faixas, letras (andar espelhado e um por andar) e validações |
+| `testar-receber-lote.mjs` | sondas do recebimento em lote (motor puro): desconto arredondado por item, âncora do mesmo responsável, ordenação e lotes inválidos |
 | `relatorio-seguranca.mjs` | auditoria semanal (sessões, eventos, anomalias) |
 | `emergencia-sessoes.mjs` | resposta a incidente: revoga sessões em massa |
 | `verificar-segredos-bundle.mjs` | confere que nenhum segredo vazou no build |
