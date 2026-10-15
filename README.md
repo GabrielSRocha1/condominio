@@ -44,12 +44,15 @@ idiomas, instalável como PWA.
       faz o backfill das cobranças já pagas; sem ele o app funciona e o
       card do fundo soma só os lançamentos manuais da categoria
 
-   Banco **já instalado**? Não re-rode o schema inteiro — rode apenas o
-   `alter table usuarios add column if not exists preferencias …` que vem logo
-   abaixo do `create table usuarios` (guarda o idioma escolhido por cada conta)
-   e os `supabase-seguranca4.sql` e `supabase-seguranca5.sql` (habilitam o
-   "Esqueci minha senha" da tela de entrada — sem eles o restante segue
-   funcionando).
+   Banco **já instalado**? Não re-rode o schema inteiro — rode apenas o que
+   faltar, na ordem: o `alter table usuarios add column if not exists
+   preferencias …` que vem logo abaixo do `create table usuarios` (idioma por
+   conta), `supabase-seguranca4.sql` e `supabase-seguranca5.sql` ("Esqueci
+   minha senha"), `supabase-encargos.sql`, `supabase-planilhas.sql` e
+   `supabase-fundo-reserva.sql` (passos 5–7 acima — todos idempotentes e com
+   degrade aberto: sem eles o app funciona com o comportamento antigo).
+   Atenção: re-rodar o `supabase-rls.sql` exige re-rodar seguranca 1→5 em
+   seguida (ele derruba e recria todas as policies).
 4. **Stripe** — `node scripts/preparar-stripe-producao.mjs --executar` cria
    products/prices, o promotion code de ativação manual e os 2 webhooks
    (guarde os `whsec_` no `.env`). Passo a passo completo no `STRIPE-INTEGRACAO.md`.
@@ -68,7 +71,7 @@ idiomas, instalável como PWA.
 | `testar-manuais-seed.mjs` / `testar-manuais-fluxo.mjs` | monta o condomínio TESTE Manuais e roda o fluxo completo de pagamento (cripto, informado, divergente, dinheiro, idempotência) |
 | `testar-refresh-race.mjs` | sondas da rotação atômica do refresh token: corrida de renovação sem derrubar a família e o anti-roubo intacto |
 | `testar-encargos.mjs` | sondas dos encargos de atraso (multa + juros): motor puro, RLS da configuração, informe pelo valor devido e o caixa com encargos |
-| `testar-caixa-cargos.mjs` | sondas do caixa com âncora (±), dos cargos de gestão e do cargo no perfil de acesso |
+| `testar-caixa-cargos.mjs` | sondas do caixa com âncora (± e corte inclusivo — a âncora é o caixa no INÍCIO do dia e o próprio dia soma), dos cargos de gestão e do cargo no perfil de acesso |
 | `testar-unidades-lote.mjs` | sondas da criação de unidades em lote: faixas, letras (andar espelhado e um por andar) e validações |
 | `testar-receber-lote.mjs` | sondas do recebimento em lote (motor puro): desconto arredondado por item, âncora do mesmo responsável, ordenação e lotes inválidos |
 | `testar-fundo-reserva.mjs` | sondas do fundo de reserva na baixa: divisão taxa + fundo pelo FR% embutido, mora fora do fundo e desconto proporcional (pula se o supabase-fundo-reserva.sql não rodou) |
