@@ -29,8 +29,9 @@ import {
   salvarPreferencias, importarPessoas, LOCALE_MOEDA, definirPapelAcesso,
   carregarPlanilhaCobrancas, salvarPlanilhaCobrancas, salvarColunasPlanilha, atualizarCelulaPlanilha,
   criarLinhaPlanilha, removerLinhaPlanilha, criarCobrancasDaPlanilha, excluirPlanilhaCobrancas,
-  obterRecibo, baixarPdfRecibo, FORMA_ROTULO,
+  obterReciboLote, baixarPdfRecibo, baixarPdfReciboLote, FORMA_ROTULO,
 } from "./src/lib/api.js";
+import { calcularLote, elegivelLote, chaveLote, ordenarLote } from "./src/lib/receber-lote.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
 import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado, valorDaColuna, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
@@ -496,19 +497,34 @@ const Skeleton = ({ t, rows = 4 }) => (
 );
 
 /* Tabela responsiva: vira cards no mobile */
-const Tbl = ({ t, cols, rows, renderCell, onRowClick, empty }) => {
+/* selection (opcional) habilita checkboxes de seleção múltipla por linha:
+   { ids: Set, onToggle(r), selectable(r), disabledReason(r) → string|null }.
+   Sem a prop, a tabela fica exatamente como sempre foi. */
+const Tbl = ({ t, cols, rows, renderCell, onRowClick, empty, selection }) => {
   if (!rows.length) return empty;
+  const selBox = (r) => {
+    if (!selection?.selectable(r)) return null;
+    const motivo = selection.disabledReason?.(r) || null;
+    return (
+      <input type="checkbox" checked={selection.ids.has(r.id)} disabled={!!motivo}
+        title={motivo || undefined} aria-label={L("Selecionar cobrança")}
+        onClick={(e) => e.stopPropagation()} onChange={() => selection.onToggle(r)}
+        style={{ accentColor: t.gold, cursor: motivo ? "not-allowed" : "pointer" }} />
+    );
+  };
   return (
     <>
       <Card t={t} pad={false} className="hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead><tr style={{ color: t.dim }} className="text-left text-xs">
+            {selection && <th className="w-8 px-4 py-3" />}
             {cols.map((c) => <th key={c.k} className="px-4 py-3 font-medium">{L(c.l)}</th>)}
           </tr></thead>
           <tbody>{rows.map((r) => (
             <tr key={r.id} onClick={() => onRowClick?.(r)}
               className={`border-t transition-colors ${onRowClick ? "cursor-pointer hover:bg-white/[0.02]" : ""}`}
               style={{ borderColor: t.borderSoft }}>
+              {selection && <td className="px-4 py-3">{selBox(r)}</td>}
               {cols.map((c) => <td key={c.k} className="px-4 py-3">{renderCell(r, c.k)}</td>)}
             </tr>))}
           </tbody>
@@ -516,7 +532,13 @@ const Tbl = ({ t, cols, rows, renderCell, onRowClick, empty }) => {
       </Card>
       <div className="space-y-2 md:hidden">{rows.map((r) => (
         <Card t={t} key={r.id} className={onRowClick ? "cursor-pointer" : ""} onClick={() => onRowClick?.(r)}>
-          <div className="space-y-1.5">{cols.map((c) => (
+          <div className="space-y-1.5">
+            {selection?.selectable(r) && (
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-xs" style={{ color: t.dim }}>{L("Selecionar cobrança")}</span>
+                <span className="text-right">{selBox(r)}</span>
+              </div>)}
+            {cols.map((c) => (
             <div key={c.k} className="flex items-center justify-between gap-3 text-sm">
               <span className="text-xs" style={{ color: t.dim }}>{L(c.l)}</span>
               <span className="text-right">{renderCell(r, c.k)}</span>
@@ -2011,47 +2033,163 @@ function ImportarPessoas({ t, onClose }) {
 /* ══════════════ RECEBER EM DINHEIRO (modal compartilhado) ══════════════
    Substitui o prompt() nativo: mostra a composição da dívida (original +
    encargos = total devido) e deixa negociar o valor da baixa — total, sem os
-   encargos ou com desconto em %. O ajuste fica carimbado na justificativa
-   (auditoria), a baixa é sempre na data de hoje e a RPC lança no caixa o
-   valor confirmado. */
-function ReceberModal({ t, c, onClose, onDepois }) {
+   encargos ou com desconto em %. Aceita VÁRIAS cobranças (recebimento em
+   lote): a negociação é aplicada e arredondada POR ITEM (src/lib/
+   receber-lote.js) e a RPC roda uma vez por cobrança — idempotente por id,
+   então falha parcial é segura e re-tentável. O ajuste fica carimbado na
+   justificativa (auditoria), a baixa é sempre na data de hoje e a RPC lança
+   no caixa o valor confirmado. */
+
+/* telefone de WhatsApp do responsável da cobrança (ou de alguém vinculado à
+   unidade) — compartilhado pelas telas Cobranças e Financeiro */
+const telDoResp = (db, c) => {
+  const p = db.pessoas.find((x) => x.id === c.respId && x.telRaw)
+    || db.pessoas.find((x) => x.unidadeId === c.unidadeId && x.telRaw);
+  return telParaWhats(p?.telRaw || "", db.cond?.pais || geoCache()?.pais || "BR");
+};
+
+/* seleção múltipla de cobranças para o lote: Set de ids podado a cada reload
+   (pagas/canceladas saem sozinhas; as que falharam continuam marcadas).
+   A âncora é a primeira marcada — chaveLote (mesmo responsável). */
+function useSelecaoLote(cobr) {
+  const [sel, setSel] = useState(() => new Set());
+  useEffect(() => {
+    setSel((s) => {
+      if (!s.size) return s;
+      const vivos = new Set(cobr.filter((c) => s.has(c.id) && elegivelLote(c)).map((c) => c.id));
+      return vivos.size === s.size ? s : vivos;
+    });
+  }, [cobr]);
+  const selRows = useMemo(() => ordenarLote(cobr.filter((c) => sel.has(c.id))), [cobr, sel]);
+  const chave = selRows.length ? chaveLote(selRows[0]) : null;
+  const toggle = (c) => setSel((s) => {
+    const n = new Set(s);
+    if (n.has(c.id)) n.delete(c.id); else n.add(c.id);
+    return n;
+  });
+  const limpar = () => setSel(new Set());
+  const selecionarTodasDaChave = () => {
+    if (!chave) return;
+    setSel(new Set(cobr.filter((c) => elegivelLote(c) && chaveLote(c) === chave).map((c) => c.id)));
+  };
+  return { sel, selRows, chave, toggle, limpar, selecionarTodasDaChave };
+}
+
+/* barra de ação da seleção: contagem · responsável · total devido + ações */
+function BarraLote({ t, selRows, onReceber, onLimpar, onTodas }) {
+  const total = selRows.reduce((s, c) => s + (c.valorTotal ?? c.valor), 0);
+  const resp = selRows.find((c) => c.resp && c.resp !== "—")?.resp;
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-xs"
+      style={{ background: t.goldSoft, borderColor: t.border }}>
+      <span style={{ color: t.dim }}>
+        <b style={{ color: t.gold }}>{selRows.length}</b> {L("selecionada(s)")}
+        {resp && <> · {resp}</>} · {L("Total devido")} <b style={{ color: t.gold }}>{BRL(total)}</b></span>
+      <span className="flex-1" />
+      <Btn t={t} kind="ghost" className="!px-2 !py-1 text-xs" onClick={onTodas}>
+        <ListChecks size={13} /> {L("Selecionar todas deste responsável")}</Btn>
+      <Btn t={t} kind="ghost" className="!px-2 !py-1 text-xs" onClick={onLimpar}>
+        <X size={13} /> {L("Limpar seleção")}</Btn>
+      <Btn t={t} kind="primary" className="!px-2 !py-1 text-xs" onClick={onReceber}>
+        <Banknote size={13} /> {L("Receber")} ({selRows.length})</Btn>
+    </div>
+  );
+}
+
+function ReceberModal({ t, cobrancas, onClose, onDepois }) {
+  const cs = useMemo(() => ordenarLote(cobrancas), [cobrancas]);
+  const lote = cs.length > 1;
+  const c = cs[0];
   const [modo, setModo] = useState("total"); // total | sem_encargos | desconto
   const [pct, setPct] = useState("");        // desconto em %, aceita vírgula
-  const devido = c.valorTotal ?? c.valor;
-  const pctNum = Math.min(100, Math.max(0, Number(String(pct).replace(",", ".")) || 0));
-  const valorFinal = Math.round((
-    modo === "sem_encargos" ? c.valor
-    : modo === "desconto" ? devido * (1 - pctNum / 100)
-    : devido) * 100) / 100;
+  const plano = calcularLote(cs, modo, pct); // valores por item + totais
+  const [passo, setPasso] = useState(0);           // progresso k/N do lote
+  const [resultado, setResultado] = useState(null); // { okN, falhas } se algo falhou
+  const rodando = useRef(false);                   // anti-reentrada (Enter/duplo clique)
   const [confirmar, confirmando] = useSubmit(async (f) => {
-    const ajuste = Math.abs(valorFinal - devido) >= 0.005
-      ? ` — ${L("Ajuste negociado")}: ${BRL(devido)} → ${BRL(valorFinal)}` : "";
-    await confirmarPagamentoManual(c.id, {
-      forma: "dinheiro", valor: valorFinal,
-      pagoEm: new Date().toISOString(),
-      justificativa: f.just + ajuste,
-    });
-    await onDepois();
+    if (rodando.current) return;
+    rodando.current = true;
+    try {
+      const pagoEm = new Date().toISOString();
+      const okIds = [], falhas = [];
+      for (let i = 0; i < plano.itens.length; i++) {
+        const item = plano.itens[i], cob = cs[i];
+        setPasso(i + 1);
+        const ajuste = item.ajuste >= 0.005
+          ? ` — ${L("Ajuste negociado")}: ${BRL(item.devido)} → ${BRL(item.valorFinal)}` : "";
+        const carimboLote = lote
+          ? ` — ${L("Recebimento em lote")}: ${cs.length} ${L("cobranças")} · ${L("Total:")} ${BRL(plano.totalFinal)}` : "";
+        try {
+          await confirmarPagamentoManual(cob.id, {
+            forma: "dinheiro", valor: item.valorFinal, pagoEm,
+            justificativa: f.just + ajuste + carimboLote,
+          });
+          okIds.push(cob.id);
+        } catch (err) { falhas.push({ c: cob, msg: err?.message || String(err) }); }
+      }
+      if (falhas.length) setResultado({ okN: okIds.length, falhas });
+      await onDepois({ pagasIds: okIds, falhas });
+    } finally { rodando.current = false; setPasso(0); }
   });
   const chips = [["total", "Total devido"],
-    ...(c.encargos > 0 ? [["sem_encargos", "Sem encargos (negociado)"]] : []),
+    ...(plano.temEncargos ? [["sem_encargos", "Sem encargos (negociado)"]] : []),
     ["desconto", "Desconto (%)"]];
+  const totalOriginal = cs.reduce((s, x) => s + x.valor, 0);
+  const totalEncargos = cs.reduce((s, x) => s + (x.encargos || 0), 0);
   return (
-    <Modal t={t} onClose={onClose}>
-      <ModalHeader t={t} title="Registrar recebimento em dinheiro" onClose={onClose} />
+    <Modal t={t} onClose={onClose} wide={lote}>
+      <ModalHeader t={t} title={lote ? "Receber em lote" : "Registrar recebimento em dinheiro"} onClose={onClose} />
+      {resultado ? (
+        <div className="space-y-3">
+          <div className="rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+            <div style={{ color: t.ok }}><CheckCircle2 size={13} className="mr-1 inline" /><b>{resultado.okN}</b> {L("recebida(s)")}</div>
+            <div className="mt-2 space-y-1">
+              {resultado.falhas.map(({ c: cf, msg }) => (
+                <div key={cf.id} style={{ color: t.warn }}>
+                  <AlertCircle size={12} className="mr-1 inline" /><b>{cf.unidade}</b> · {cf.comp} — {msg}</div>))}
+            </div>
+          </div>
+          {lote && <div className="text-[11px]" style={{ color: t.dim }}>
+            {L("Algumas baixas falharam — as cobranças não recebidas continuam selecionadas; tente novamente.")}</div>}
+          <div className="flex justify-end pt-1">
+            <Btn t={t} kind="primary" onClick={onClose}>{L("Fechar")}</Btn>
+          </div>
+        </div>
+      ) : (
       <form onSubmit={confirmar}>
         <div className="space-y-3">
           <div className="rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
-            <div><b>{c.unidade}</b> · {c.comp} · {L("vencimento")} {c.vencFull}{c.resp && c.resp !== "—" && <> · {c.resp}</>}</div>
-            <div className="mt-2 space-y-1">
-              <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Original")}</span><span>{BRL(c.valor)}</span></div>
-              {c.encargos > 0 && (
-                <div className="flex justify-between gap-3">
-                  <span style={{ color: t.dim }}>{L("Encargos de atraso")}{c.mesesAtraso > 0 && <> ({c.mesesAtraso} {L("mês(es)")})</>}</span>
-                  <span style={{ color: t.warn }}>+ {BRL(c.encargos)}</span></div>)}
-              <div className="flex justify-between gap-3 border-t pt-1 font-semibold" style={{ borderColor: t.borderSoft }}>
-                <span>{L("Total devido")}</span><span style={{ color: t.gold }}>{BRL(devido)}</span></div>
-            </div>
+            {lote ? (<>
+              <div><b>{cs.length} {L("cobranças")}</b>{c.resp && c.resp !== "—" && <> · {c.resp}</>}</div>
+              <div className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1">
+                {cs.map((x, i) => (
+                  <div key={x.id} className="flex justify-between gap-3">
+                    <span style={{ color: t.dim }}>{x.comp} · {x.unidade}
+                      {x.encargos > 0 && <span style={{ color: t.warn }}> (+{BRL(x.encargos)})</span>}</span>
+                    <span>{BRL(plano.itens[i].devido)}</span>
+                  </div>))}
+              </div>
+              <div className="mt-2 space-y-1 border-t pt-1" style={{ borderColor: t.borderSoft }}>
+                <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Original")}</span><span>{BRL(totalOriginal)}</span></div>
+                {totalEncargos > 0 && (
+                  <div className="flex justify-between gap-3">
+                    <span style={{ color: t.dim }}>{L("Encargos de atraso")}</span>
+                    <span style={{ color: t.warn }}>+ {BRL(totalEncargos)}</span></div>)}
+                <div className="flex justify-between gap-3 font-semibold">
+                  <span>{L("Total devido")}</span><span style={{ color: t.gold }}>{BRL(plano.totalDevido)}</span></div>
+              </div>
+            </>) : (<>
+              <div><b>{c.unidade}</b> · {c.comp} · {L("vencimento")} {c.vencFull}{c.resp && c.resp !== "—" && <> · {c.resp}</>}</div>
+              <div className="mt-2 space-y-1">
+                <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Original")}</span><span>{BRL(c.valor)}</span></div>
+                {c.encargos > 0 && (
+                  <div className="flex justify-between gap-3">
+                    <span style={{ color: t.dim }}>{L("Encargos de atraso")}{c.mesesAtraso > 0 && <> ({c.mesesAtraso} {L("mês(es)")})</>}</span>
+                    <span style={{ color: t.warn }}>+ {BRL(c.encargos)}</span></div>)}
+                <div className="flex justify-between gap-3 border-t pt-1 font-semibold" style={{ borderColor: t.borderSoft }}>
+                  <span>{L("Total devido")}</span><span style={{ color: t.gold }}>{BRL(plano.totalDevido)}</span></div>
+              </div>
+            </>)}
           </div>
           <div className="space-y-1.5">
             <div className="text-xs font-medium" style={{ color: t.dim }}>{L("Valor a receber")}</div>
@@ -2074,23 +2212,26 @@ function ReceberModal({ t, c, onClose, onDepois }) {
             style={{ background: t.goldSoft, borderColor: t.border }}>
             <span className="text-xs font-medium" style={{ color: t.dim }}>{L("Valor a receber")}</span>
             <div className="text-right">
-              <div className="text-lg font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(valorFinal)}</div>
-              {devido > 0 && devido - valorFinal >= 0.005 && (
+              <div className="text-lg font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(plano.totalFinal)}</div>
+              {plano.totalDevido > 0 && plano.totalAjuste >= 0.005 && (
                 <div className="text-[11px]" style={{ color: t.warn }}>
-                  {L("Ajuste negociado")}: −{BRL(devido - valorFinal)} ({((1 - valorFinal / devido) * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%)</div>)}
+                  {L("Ajuste negociado")}: −{BRL(plano.totalAjuste)} ({((1 - plano.totalFinal / plano.totalDevido) * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%)</div>)}
             </div>
           </div>
           <Field t={t} label="Justificativa (fica na auditoria do pagamento)">
             <input name="just" required defaultValue={L("Recebimento em dinheiro na administração")} style={inputStyle(t)} /></Field>
           <div className="text-[11px]" style={{ color: t.dim }}>
-            {L("Ao confirmar: a cobrança é baixada, o pagamento entra na auditoria e a receita cai no caixa como Entrada — tudo em uma única transação.")}</div>
+            {lote
+              ? L("Ao confirmar: cada cobrança é baixada individualmente — pagamento na auditoria e Entrada no caixa, uma transação por cobrança.")
+              : L("Ao confirmar: a cobrança é baixada, o pagamento entra na auditoria e a receita cai no caixa como Entrada — tudo em uma única transação.")}</div>
           <div className="flex justify-end gap-2 pt-1">
             <Btn t={t} onClick={onClose}>{L("Cancelar")}</Btn>
-            <Btn t={t} kind="primary" type="submit" disabled={confirmando || valorFinal <= 0}>
-              <Check size={14} /> {confirmando ? L("Confirmando…") : L("Confirmar baixa")}</Btn>
+            <Btn t={t} kind="primary" type="submit" disabled={confirmando || plano.invalido}>
+              <Check size={14} /> {confirmando ? `${L("Confirmando…")}${lote ? ` (${passo}/${cs.length})` : ""}` : L("Confirmar baixa")}</Btn>
           </div>
         </div>
       </form>
+      )}
     </Modal>
   );
 }
@@ -2098,58 +2239,105 @@ function ReceberModal({ t, c, onClose, onDepois }) {
 /* ══════════════ RECIBO DE PAGAMENTO (popup da cobrança paga) ══════════════
    Cobrança paga troca o QR pelo recibo: número (prefixo do pagamento na
    auditoria), decomposição taxa + encargos/ajuste = total pago, forma e
-   transação. Compartilha por PDF (A5 paisagem) e por WhatsApp (texto). */
-function ReciboModal({ t, c, ctx, condNome, onClose, enviarTexto }) {
+   transação. Aceita VÁRIAS cobranças (recibo do lote): o registro no banco
+   continua individual (1 pagamento + 1 lançamento por cobrança), mas o
+   documento é um só, com a lista das competências e o total. Compartilha
+   por PDF (A5 paisagem) e por WhatsApp (texto). */
+function ReciboModal({ t, cobrancas, ctx, condNome, onClose, enviarTexto }) {
+  const cs = useMemo(() => ordenarLote(cobrancas), [cobrancas]);
+  const lote = cs.length > 1;
+  const c = cs[0];
   const [r, setR] = useState(null);
+  const idsKey = cs.map((x) => x.id).join(",");
   useEffect(() => {
     let vivo = true;
-    obterRecibo(ctx, c)
+    obterReciboLote(ctx, cs)
       .then((d) => { if (vivo) setR(d); })
-      .catch(() => { if (vivo) setR({ numero: `REC-${String(c.id).slice(0, 8).toUpperCase()}`,
-        valorPago: c.valorTotal ?? c.valor, pagoEm: null, forma: null,
-        tx: c.tx !== "—" ? c.tx : null, encargosPagos: 0, desconto: 0 }); });
+      .catch(() => {
+        if (!vivo) return;
+        /* degrada para os dados das próprias cobranças */
+        const itens = cs.map((x) => ({ id: x.id, numero: `REC-${String(x.id).slice(0, 8).toUpperCase()}`,
+          valorPago: x.valorTotal ?? x.valor, pagoEm: null, forma: null,
+          tx: x.tx !== "—" ? x.tx : null, encargosPagos: 0, desconto: 0 }));
+        const r2 = (v) => Math.round(v * 100) / 100;
+        setR({ numero: lote ? `REC-L${cs.length}-${String(cs[0].id).slice(0, 8).toUpperCase()}` : itens[0].numero,
+          pagoEm: null, forma: null, itens,
+          totalPago: r2(itens.reduce((s, i) => s + i.valorPago, 0)),
+          totalTaxa: r2(cs.reduce((s, x) => s + x.valor, 0)), totalEncargos: 0, totalDesconto: 0 });
+      });
     return () => { vivo = false; };
-  }, [c, ctx]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey, ctx]);
   const [baixando, setBaixando] = useState(false);
   const baixar = async () => {
     setBaixando(true);
-    try { await baixarPdfRecibo(ctx, c, r); }
+    try { await (lote ? baixarPdfReciboLote(ctx, cs, r) : baixarPdfRecibo(ctx, c, r.itens[0])); }
     catch (err) { alert("Não foi possível gerar o PDF: " + (err?.message || err)); }
     finally { setBaixando(false); }
   };
+  const rr = r?.itens?.[0];
   const pagoEmTxt = r?.pagoEm ? new Date(r.pagoEm).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : null;
   const formaTxt = r?.forma ? L(FORMA_ROTULO[r.forma] || r.forma) : "—";
-  const whats = () => enviarTexto(
-    `🧾 ${L("Recibo de pagamento")} ${r.numero} — ${condNome}: ${L("Unidade")} ${c.unidade}` +
-    `${c.resp && c.resp !== "—" ? ` (${c.resp})` : ""}, ${L("competência")} ${c.comp}. ` +
-    `${L("Total pago:")} ${BRL(r.valorPago)} · ${formaTxt}${pagoEmTxt ? ` · ${L("Pago:")} ${pagoEmTxt}` : ""}.` +
-    `${r.tx ? ` ${L("Transação")}: ${r.tx}` : ""}`);
+  const unidades = [...new Set(cs.map((x) => x.unidade))].join(", ");
+  const whats = () => enviarTexto(lote
+    ? `🧾 ${L("Recibo de pagamento")} ${r.numero} — ${condNome}: ${L("Unidade")} ${unidades}` +
+      `${c.resp && c.resp !== "—" ? ` (${c.resp})` : ""} — ${cs.length} ${L("cobranças")}: ` +
+      `${cs.length > 8
+        ? `${L("competências")} ${cs[0].comp}–${cs[cs.length - 1].comp}`
+        : cs.map((x, i) => `${x.comp} (${BRL(r.itens[i].valorPago)})`).join(", ")}. ` +
+      `${L("Total pago:")} ${BRL(r.totalPago)} · ${formaTxt}${pagoEmTxt ? ` · ${L("Pago:")} ${pagoEmTxt}` : ""}.`
+    : `🧾 ${L("Recibo de pagamento")} ${rr.numero} — ${condNome}: ${L("Unidade")} ${c.unidade}` +
+      `${c.resp && c.resp !== "—" ? ` (${c.resp})` : ""}, ${L("competência")} ${c.comp}. ` +
+      `${L("Total pago:")} ${BRL(rr.valorPago)} · ${formaTxt}${pagoEmTxt ? ` · ${L("Pago:")} ${pagoEmTxt}` : ""}.` +
+      `${rr.tx ? ` ${L("Transação")}: ${rr.tx}` : ""}`);
   return (
-    <Modal t={t} onClose={onClose}>
+    <Modal t={t} onClose={onClose} wide={lote}>
       <ModalHeader t={t} title="Recibo de pagamento" onClose={onClose} />
       {!r ? <Skeleton t={t} rows={2} /> : (
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div className="inline-flex items-center gap-1.5 text-xs font-semibold" style={{ color: t.dim }}>
-              <Receipt size={14} /> {r.numero}</div>
+              <Receipt size={14} /> {lote ? r.numero : rr.numero}</div>
             <Badge t={t} s="pago" />
           </div>
           <div className="rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
-            <div><b>{c.unidade}</b> · {c.comp} · {L("vencimento")} {c.vencFull}{c.resp && c.resp !== "—" && <> · {c.resp}</>}</div>
-            <div className="mt-2 space-y-1">
-              <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Taxa condominial")}</span><span>{BRL(c.valor)}</span></div>
-              {r.encargosPagos > 0.004 && (
-                <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Encargos de atraso")}</span><span style={{ color: t.warn }}>+ {BRL(r.encargosPagos)}</span></div>)}
-              {r.desconto > 0.004 && (
-                <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Ajuste negociado")}</span><span style={{ color: t.warn }}>− {BRL(r.desconto)}</span></div>)}
-              <div className="flex justify-between gap-3 border-t pt-1 font-semibold" style={{ borderColor: t.borderSoft }}>
-                <span>{L("Total pago:")}</span><span style={{ color: t.ok }}>{BRL(r.valorPago)}</span></div>
-            </div>
+            {lote ? (<>
+              <div><b>{unidades}</b>{c.resp && c.resp !== "—" && <> · {c.resp}</>} · {cs.length} {L("cobranças")}</div>
+              <div className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1">
+                {cs.map((x, i) => (
+                  <div key={x.id} className="flex justify-between gap-3">
+                    <span style={{ color: t.dim }}>{x.comp} · {x.unidade}
+                      {r.itens[i].encargosPagos > 0.004 && <span style={{ color: t.warn }}> +{BRL(r.itens[i].encargosPagos)}</span>}
+                      {r.itens[i].desconto > 0.004 && <span style={{ color: t.warn }}> −{BRL(r.itens[i].desconto)}</span>}</span>
+                    <span>{BRL(r.itens[i].valorPago)}</span>
+                  </div>))}
+              </div>
+              <div className="mt-2 space-y-1 border-t pt-1" style={{ borderColor: t.borderSoft }}>
+                <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Taxa condominial")}</span><span>{BRL(r.totalTaxa)}</span></div>
+                {r.totalEncargos > 0.004 && (
+                  <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Encargos de atraso")}</span><span style={{ color: t.warn }}>+ {BRL(r.totalEncargos)}</span></div>)}
+                {r.totalDesconto > 0.004 && (
+                  <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Ajuste negociado")}</span><span style={{ color: t.warn }}>− {BRL(r.totalDesconto)}</span></div>)}
+                <div className="flex justify-between gap-3 border-t pt-1 font-semibold" style={{ borderColor: t.borderSoft }}>
+                  <span>{L("Total pago:")}</span><span style={{ color: t.ok }}>{BRL(r.totalPago)}</span></div>
+              </div>
+            </>) : (<>
+              <div><b>{c.unidade}</b> · {c.comp} · {L("vencimento")} {c.vencFull}{c.resp && c.resp !== "—" && <> · {c.resp}</>}</div>
+              <div className="mt-2 space-y-1">
+                <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Taxa condominial")}</span><span>{BRL(c.valor)}</span></div>
+                {rr.encargosPagos > 0.004 && (
+                  <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Encargos de atraso")}</span><span style={{ color: t.warn }}>+ {BRL(rr.encargosPagos)}</span></div>)}
+                {rr.desconto > 0.004 && (
+                  <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Ajuste negociado")}</span><span style={{ color: t.warn }}>− {BRL(rr.desconto)}</span></div>)}
+                <div className="flex justify-between gap-3 border-t pt-1 font-semibold" style={{ borderColor: t.borderSoft }}>
+                  <span>{L("Total pago:")}</span><span style={{ color: t.ok }}>{BRL(rr.valorPago)}</span></div>
+              </div>
+            </>)}
           </div>
           <div className="space-y-1 text-xs" style={{ color: t.dim }}>
             <div>{L("Forma de pagamento")}: <b style={{ color: t.text }}>{formaTxt}</b>
               {pagoEmTxt && <> · {L("Pago:")} <b style={{ color: t.text }}>{pagoEmTxt}</b></>}</div>
-            {r.tx && <div className="break-all">{L("Transação")}: <b style={{ color: t.gold }}>{r.tx}</b></div>}
+            {!lote && rr.tx && <div className="break-all">{L("Transação")}: <b style={{ color: t.gold }}>{rr.tx}</b></div>}
           </div>
           <div className="flex flex-wrap justify-end gap-2 pt-1">
             <Btn t={t} onClick={whats}><Send size={14} /> Enviar por WhatsApp</Btn>
@@ -2205,8 +2393,14 @@ function Financeiro({ t }) {
   const aPagar = db.lanc.filter((l) => l.tipo === "despesa" && l.status === "aberto");
   const pagas = db.lanc.filter((l) => l.tipo === "despesa" && l.status === "pago");
   const aReceber = db.cobr.filter((c) => c.status === "emitida" || c.status === "vencida");
-  /* baixa em dinheiro direto da aba Contas a receber — abre o ReceberModal */
+  /* baixa em dinheiro direto da aba Contas a receber — abre o ReceberModal
+     (array; com seleção múltipla vira recebimento em lote + recibo único) */
   const [receb, setReceb] = useState(null);
+  const lote = useSelecaoLote(db.cobr);
+  const [reciboLote, setReciboLote] = useState(null); // ids baixados no lote
+  const reciboRows = useMemo(
+    () => (reciboLote ? reciboLote.map((id) => db.cobr.find((c) => c.id === id)).filter(Boolean) : null),
+    [reciboLote, db.cobr]);
   const compAtual = new Date().toISOString().slice(0, 7);
   const despComp = db.lanc.filter((l) => l.tipo === "despesa" && l.competencia === compAtual && l.status !== "cancelado")
     .reduce((s, l) => s + l.valor, 0);
@@ -2344,8 +2538,13 @@ function Financeiro({ t }) {
       </>) : tab === "receber" ? (<>
         <div className="text-xs" style={{ color: t.dim }}>
           {L("Cobranças emitidas e ainda não pagas pelas unidades.")} {L("Total em aberto:")} <b style={{ color: t.text }}>{BRL(aReceber.reduce((s, c) => s + (c.valorTotal ?? c.valor), 0))}</b></div>
+        {lote.sel.size > 0 && (
+          <BarraLote t={t} selRows={lote.selRows} onReceber={() => setReceb(lote.selRows)}
+            onLimpar={lote.limpar} onTodas={lote.selecionarTodasDaChave} />)}
         <Tbl t={t} cols={[{k:"comp",l:"Competência"},{k:"unidade",l:"Unidade"},{k:"resp",l:"Responsável"},{k:"valor",l:"Valor"},{k:"vencFull",l:"Vencimento"},{k:"status",l:"Status"},{k:"acao",l:""}]}
           rows={aReceber}
+          selection={{ ids: lote.sel, onToggle: lote.toggle, selectable: elegivelLote,
+            disabledReason: (r) => (lote.chave && chaveLote(r) !== lote.chave ? L("Selecione cobranças do mesmo responsável") : null) }}
           empty={<EmptyState t={t} icon={CheckCircle2} title="Nada consta — nenhuma cobrança em aberto"
             hint="Todas as cobranças emitidas foram pagas. Gere novas cobranças na tela Cobranças QR." />}
           renderCell={(r, k) => {
@@ -2356,7 +2555,7 @@ function Financeiro({ t }) {
             if (k === "acao") return (
               <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs"
                 title={L("Registrar recebimento em dinheiro (baixa + Entrada no caixa)")}
-                onClick={(e) => { e.stopPropagation(); setReceb(r); }}>
+                onClick={(e) => { e.stopPropagation(); setReceb([r]); }}>
                 <Banknote size={13} /> {L("Receber")}</Btn>);
             return r[k];
           }} />
@@ -2403,8 +2602,18 @@ function Financeiro({ t }) {
             }} />)}
       </>)}
       {receb && (
-        <ReceberModal t={t} c={receb} onClose={() => setReceb(null)}
-          onDepois={async () => { await reload(); setReceb(null); }} />)}
+        <ReceberModal t={t} cobrancas={receb} onClose={() => setReceb(null)}
+          onDepois={async ({ pagasIds, falhas }) => {
+            await reload();
+            if (!falhas.length) {
+              setReceb(null); lote.limpar();
+              if (pagasIds.length > 1) setReciboLote(pagasIds); // recibo único do lote
+            }
+          }} />)}
+      {reciboRows && reciboRows.length > 0 && (
+        <ReciboModal t={t} cobrancas={reciboRows} ctx={db.ctx} condNome={db.cond?.nome || ""}
+          onClose={() => setReciboLote(null)}
+          enviarTexto={(txt) => window.open(`https://wa.me/${telDoResp(db, reciboRows[0])}?text=${encodeURIComponent(txt)}`, "_blank")} />)}
       {novo && (
         <Modal t={t} onClose={() => setNovo(false)} wide>
           <ModalHeader t={t} title="Novo lançamento" onClose={() => setNovo(false)} />
@@ -2452,11 +2661,7 @@ function Cobrancas({ t }) {
   const rows = db.cobr.filter((c) => (st === "todos" || c.status === st) && (c.unidade + c.resp).toLowerCase().includes(q.toLowerCase()));
   /* envio por WhatsApp: usa o telefone do responsável (ou de alguém vinculado à unidade);
      o DDI vem do próprio número (+…) ou do país do condomínio para valores legados */
-  const telDe = (c) => {
-    const p = db.pessoas.find((x) => x.id === c.respId && x.telRaw)
-      || db.pessoas.find((x) => x.unidadeId === c.unidadeId && x.telRaw);
-    return telParaWhats(p?.telRaw || "", db.cond?.pais || geoCache()?.pais || "BR");
-  };
+  const telDe = (c) => telDoResp(db, c);
   const enviarWhats = (c) => {
     const msg = `Olá${c.resp && c.resp !== "—" ? `, ${c.resp}` : ""}! ${L("Cobrança do condomínio")} ${db.cond?.nome || ""} — ${L("competência")} ${c.comp}, ${L("valor")} ${BRL(c.valorTotal ?? c.valor)}${c.encargos > 0 ? ` (${L("inclui encargos de atraso de")} ${BRL(c.encargos)})` : ""}, ${L("vencimento")} ${c.vencFull}. ${L("Você pode pagar pelo QR Code no portal do morador.")}`;
     window.open(`https://wa.me/${telDe(c)}?text=${encodeURIComponent(msg)}`, "_blank");
@@ -2469,9 +2674,15 @@ function Cobrancas({ t }) {
     finally { setBaixandoPdf(false); }
   };
   /* conciliação manual: conf = confirmar informe do morador; receb = dinheiro
-     (ReceberModal, com valor negociável) */
+     (ReceberModal, com valor negociável — recebe um ARRAY de cobranças) */
   const [conf, setConf] = useState(null); // { c }
-  const [receb, setReceb] = useState(null);
+  const [receb, setReceb] = useState(null); // array de cobranças (1 = fluxo individual)
+  /* seleção múltipla para o recebimento em lote + recibo único pós-baixa */
+  const lote = useSelecaoLote(db.cobr);
+  const [reciboLote, setReciboLote] = useState(null); // ids baixados no lote
+  const reciboRows = useMemo(
+    () => (reciboLote ? reciboLote.map((id) => db.cobr.find((c) => c.id === id)).filter(Boolean) : null),
+    [reciboLote, db.cobr]);
   const EXPLORER_TX = { ethereum: "https://etherscan.io/tx/", bnb: "https://bscscan.com/tx/", polygon: "https://polygonscan.com/tx/", solana: "https://solscan.io/tx/" };
   const [confirmarBaixa, confirmando] = useSubmit(async (f) => {
     const inf = conf.c.informe;
@@ -2510,8 +2721,13 @@ function Cobrancas({ t }) {
         action={<Btn t={t} kind="primary" onClick={() => setNova(true)} data-tour="cobr-gerar"><Plus size={15} /> Gerar cobranças</Btn>}>
         <Sel t={t} value={st} onChange={setSt} opts={[["todos","Todos"],["pago","Pagas"],["informado","Informadas"],["divergente","Divergentes"],["emitida","Emitidas"],["vencida","Vencidas"]]} />
       </Toolbar>
+      {lote.sel.size > 0 && (
+        <BarraLote t={t} selRows={lote.selRows} onReceber={() => setReceb(lote.selRows)}
+          onLimpar={lote.limpar} onTodas={lote.selecionarTodasDaChave} />)}
       <Tbl t={t} cols={[{k:"unidade",l:"Unidade"},{k:"resp",l:"Responsável"},{k:"comp",l:"Competência"},{k:"valor",l:"Valor"},{k:"venc",l:"Vencimento"},{k:"status",l:"Status"},{k:"acao",l:""}]}
         rows={rows}
+        selection={{ ids: lote.sel, onToggle: lote.toggle, selectable: elegivelLote,
+          disabledReason: (r) => (lote.chave && chaveLote(r) !== lote.chave ? L("Selecione cobranças do mesmo responsável") : null) }}
         empty={<EmptyState t={t} icon={QrCode} title="Nenhuma cobrança nesta competência"
           hint="Gere as cobranças do mês: cada unidade recebe a sua no portal do morador, com pagamento online (Pix/cartão) e pelos meios cadastrados do condomínio."
           action={<Btn t={t} kind="primary" onClick={() => setNova(true)} data-tour="cobr-gerar"><Plus size={14} /> Gerar cobranças do mês</Btn>} />}
@@ -2527,7 +2743,7 @@ function Cobrancas({ t }) {
                 onClick={() => setConf({ c: r })}><Check size={13} /> Confirmar</Btn>)}
             {(r.status === "emitida" || r.status === "vencida") && (
               <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" title={L("Registrar recebimento em dinheiro")}
-                onClick={() => setReceb(r)}><Banknote size={13} /> Receber</Btn>)}
+                onClick={() => setReceb([r])}><Banknote size={13} /> Receber</Btn>)}
             <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" onClick={() => setQr(r)}
               title={r.status === "pago" ? L("Recibo de pagamento") : undefined}>
               {r.status === "pago" ? <><Receipt size={13} /> {L("Recibo")}</> : <><QrCode size={13} /> QR</>}</Btn>
@@ -2535,7 +2751,7 @@ function Cobrancas({ t }) {
           return r[k];
         }} />
       {qr && qr.status === "pago" && (
-        <ReciboModal t={t} c={qr} ctx={db.ctx} condNome={db.cond?.nome || ""} onClose={() => setQr(null)}
+        <ReciboModal t={t} cobrancas={[qr]} ctx={db.ctx} condNome={db.cond?.nome || ""} onClose={() => setQr(null)}
           enviarTexto={(txt) => window.open(`https://wa.me/${telDe(qr)}?text=${encodeURIComponent(txt)}`, "_blank")} />)}
       {qr && qr.status !== "pago" && (
         <Modal t={t} onClose={() => setQr(null)}>
@@ -2605,8 +2821,18 @@ function Cobrancas({ t }) {
           </form>
         </Modal>)}
       {receb && (
-        <ReceberModal t={t} c={receb} onClose={() => setReceb(null)}
-          onDepois={async () => { await reload(); setReceb(null); }} />)}
+        <ReceberModal t={t} cobrancas={receb} onClose={() => setReceb(null)}
+          onDepois={async ({ pagasIds, falhas }) => {
+            await reload();
+            if (!falhas.length) {
+              setReceb(null); lote.limpar();
+              if (pagasIds.length > 1) setReciboLote(pagasIds); // recibo único do lote
+            }
+          }} />)}
+      {reciboRows && reciboRows.length > 0 && (
+        <ReciboModal t={t} cobrancas={reciboRows} ctx={db.ctx} condNome={db.cond?.nome || ""}
+          onClose={() => setReciboLote(null)}
+          enviarTexto={(txt) => window.open(`https://wa.me/${telDe(reciboRows[0])}?text=${encodeURIComponent(txt)}`, "_blank")} />)}
       {nova && (
         <Modal t={t} onClose={() => setNova(false)}>
           <ModalHeader t={t} title="Gerar cobranças da competência" onClose={() => setNova(false)} />
