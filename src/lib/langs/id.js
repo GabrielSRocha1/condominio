@@ -184,6 +184,8 @@ export default {
   "Original": "Jumlah asli", "Encargos de atraso": "Denda keterlambatan", "mês(es)": "bulan",
   "Total devido": "Total terutang", "Sem encargos (negociado)": "Tanpa denda (hasil negosiasi)", "Desconto (%)": "Diskon (%)",
   "Valor a receber": "Jumlah yang diterima", "Ajuste negociado": "Penyesuaian hasil negosiasi",
+  "Recibo": "Kuitansi", "Recibo de pagamento": "Kuitansi pembayaran", "Taxa condominial": "Iuran kondominium",
+  "Transferência": "Transfer bank", "Débito automático": "Debit otomatis", "Online (Stripe)": "Online (Stripe)", "Cripto (Verum Pay)": "Kripto (Verum Pay)",
   "encargos": "denda", "inclui encargos de atraso de": "termasuk denda keterlambatan",
   "Cargos de gestão": "Jabatan pengurus", "Cargo": "Jabatan",
   "Ex.: Conselho fiscal": "Mis.: Dewan pengawas", "Nome de quem ocupa o cargo": "Nama pemegang jabatan",

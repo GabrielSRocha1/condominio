@@ -8,7 +8,7 @@ import {
   TrendingDown, CircleDot, User, KeyRound, Car, Package, DoorOpen, Star,
   ListChecks, Ban,
   Mail, EyeOff, Trash2, UserPlus, Upload, Copy, MapPin, Banknote, CreditCard,
-  ChevronDown, Rocket, Circle,
+  ChevronDown, Rocket, Circle, Receipt,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -29,6 +29,7 @@ import {
   salvarPreferencias, importarPessoas, LOCALE_MOEDA, definirPapelAcesso,
   carregarPlanilhaCobrancas, salvarPlanilhaCobrancas, salvarColunasPlanilha, atualizarCelulaPlanilha,
   criarLinhaPlanilha, removerLinhaPlanilha, criarCobrancasDaPlanilha, excluirPlanilhaCobrancas,
+  obterRecibo, baixarPdfRecibo, FORMA_ROTULO,
 } from "./src/lib/api.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
 import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado, valorDaColuna, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
@@ -2094,6 +2095,72 @@ function ReceberModal({ t, c, onClose, onDepois }) {
   );
 }
 
+/* ══════════════ RECIBO DE PAGAMENTO (popup da cobrança paga) ══════════════
+   Cobrança paga troca o QR pelo recibo: número (prefixo do pagamento na
+   auditoria), decomposição taxa + encargos/ajuste = total pago, forma e
+   transação. Compartilha por PDF (A5 paisagem) e por WhatsApp (texto). */
+function ReciboModal({ t, c, ctx, condNome, onClose, enviarTexto }) {
+  const [r, setR] = useState(null);
+  useEffect(() => {
+    let vivo = true;
+    obterRecibo(ctx, c)
+      .then((d) => { if (vivo) setR(d); })
+      .catch(() => { if (vivo) setR({ numero: `REC-${String(c.id).slice(0, 8).toUpperCase()}`,
+        valorPago: c.valorTotal ?? c.valor, pagoEm: null, forma: null,
+        tx: c.tx !== "—" ? c.tx : null, encargosPagos: 0, desconto: 0 }); });
+    return () => { vivo = false; };
+  }, [c, ctx]);
+  const [baixando, setBaixando] = useState(false);
+  const baixar = async () => {
+    setBaixando(true);
+    try { await baixarPdfRecibo(ctx, c, r); }
+    catch (err) { alert("Não foi possível gerar o PDF: " + (err?.message || err)); }
+    finally { setBaixando(false); }
+  };
+  const pagoEmTxt = r?.pagoEm ? new Date(r.pagoEm).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : null;
+  const formaTxt = r?.forma ? L(FORMA_ROTULO[r.forma] || r.forma) : "—";
+  const whats = () => enviarTexto(
+    `🧾 ${L("Recibo de pagamento")} ${r.numero} — ${condNome}: ${L("Unidade")} ${c.unidade}` +
+    `${c.resp && c.resp !== "—" ? ` (${c.resp})` : ""}, ${L("competência")} ${c.comp}. ` +
+    `${L("Total pago:")} ${BRL(r.valorPago)} · ${formaTxt}${pagoEmTxt ? ` · ${L("Pago:")} ${pagoEmTxt}` : ""}.` +
+    `${r.tx ? ` ${L("Transação")}: ${r.tx}` : ""}`);
+  return (
+    <Modal t={t} onClose={onClose}>
+      <ModalHeader t={t} title="Recibo de pagamento" onClose={onClose} />
+      {!r ? <Skeleton t={t} rows={2} /> : (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="inline-flex items-center gap-1.5 text-xs font-semibold" style={{ color: t.dim }}>
+              <Receipt size={14} /> {r.numero}</div>
+            <Badge t={t} s="pago" />
+          </div>
+          <div className="rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
+            <div><b>{c.unidade}</b> · {c.comp} · {L("vencimento")} {c.vencFull}{c.resp && c.resp !== "—" && <> · {c.resp}</>}</div>
+            <div className="mt-2 space-y-1">
+              <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Taxa condominial")}</span><span>{BRL(c.valor)}</span></div>
+              {r.encargosPagos > 0.004 && (
+                <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Encargos de atraso")}</span><span style={{ color: t.warn }}>+ {BRL(r.encargosPagos)}</span></div>)}
+              {r.desconto > 0.004 && (
+                <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Ajuste negociado")}</span><span style={{ color: t.warn }}>− {BRL(r.desconto)}</span></div>)}
+              <div className="flex justify-between gap-3 border-t pt-1 font-semibold" style={{ borderColor: t.borderSoft }}>
+                <span>{L("Total pago:")}</span><span style={{ color: t.ok }}>{BRL(r.valorPago)}</span></div>
+            </div>
+          </div>
+          <div className="space-y-1 text-xs" style={{ color: t.dim }}>
+            <div>{L("Forma de pagamento")}: <b style={{ color: t.text }}>{formaTxt}</b>
+              {pagoEmTxt && <> · {L("Pago:")} <b style={{ color: t.text }}>{pagoEmTxt}</b></>}</div>
+            {r.tx && <div className="break-all">{L("Transação")}: <b style={{ color: t.gold }}>{r.tx}</b></div>}
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 pt-1">
+            <Btn t={t} onClick={whats}><Send size={14} /> Enviar por WhatsApp</Btn>
+            <Btn t={t} kind="primary" disabled={baixando} onClick={baixar}>
+              <Download size={14} /> {baixando ? "Gerando…" : "Baixar"}</Btn>
+          </div>
+        </div>)}
+    </Modal>
+  );
+}
+
 /* ══════════════ FINANCEIRO ══════════════ */
 function Financeiro({ t }) {
   const { db, reload } = useData();
@@ -2461,11 +2528,16 @@ function Cobrancas({ t }) {
             {(r.status === "emitida" || r.status === "vencida") && (
               <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" title={L("Registrar recebimento em dinheiro")}
                 onClick={() => setReceb(r)}><Banknote size={13} /> Receber</Btn>)}
-            <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" onClick={() => setQr(r)}><QrCode size={13} /> QR</Btn>
+            <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" onClick={() => setQr(r)}
+              title={r.status === "pago" ? L("Recibo de pagamento") : undefined}>
+              {r.status === "pago" ? <><Receipt size={13} /> {L("Recibo")}</> : <><QrCode size={13} /> QR</>}</Btn>
             {r.status !== "pago" && <Btn t={t} className="!px-2 !py-1 text-xs" title={L("Reenvia a cobrança por WhatsApp")} onClick={() => enviarWhats(r)}><Send size={13} /> Reenviar</Btn>}</div>);
           return r[k];
         }} />
-      {qr && (
+      {qr && qr.status === "pago" && (
+        <ReciboModal t={t} c={qr} ctx={db.ctx} condNome={db.cond?.nome || ""} onClose={() => setQr(null)}
+          enviarTexto={(txt) => window.open(`https://wa.me/${telDe(qr)}?text=${encodeURIComponent(txt)}`, "_blank")} />)}
+      {qr && qr.status !== "pago" && (
         <Modal t={t} onClose={() => setQr(null)}>
           <ModalHeader t={t} title={`Cobrança ${qr.comp} — ${qr.unidade}`} onClose={() => setQr(null)} />
           <div className="flex flex-col items-center gap-3 text-center">

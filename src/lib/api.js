@@ -1251,6 +1251,114 @@ export async function baixarPdfCobranca(ctx, c) {
   URL.revokeObjectURL(url);
 }
 
+/* rótulos das formas de pagamento (enum forma_pagamento) — a UI traduz via L() */
+export const FORMA_ROTULO = {
+  dinheiro: "Dinheiro", transferencia: "Transferência", verum_pay: "Cripto (Verum Pay)",
+  stripe: "Online (Stripe)", debito_automatico: "Débito automático",
+};
+
+/* Dados do recibo de uma cobrança paga: o pagamento registrado (auditoria) e
+   a forma que caiu no caixa — leitura coberta pelo tenant_select da RLS.
+   Decomposição honesta pela diferença entre o pago e o principal: positiva
+   vira "encargos de atraso", negativa vira "ajuste negociado" (as linhas
+   sempre fecham com o total). Sem linha em pagamentos (baixa legada), o
+   recibo degrada para os dados da própria cobrança. */
+export async function obterRecibo(ctx, c) {
+  let p = null, forma = null;
+  try {
+    const pags = await q(supabase.from("pagamentos")
+      .select("id, valor_pago, pago_em, origem, provider_tx_id")
+      .eq("condominio_id", ctx.condominioId).eq("cobranca_id", c.id)
+      .order("pago_em", { ascending: false }).limit(1), "pagamentos");
+    p = pags[0] || null;
+    const lancs = await q(supabase.from("lancamentos").select("forma_pagamento")
+      .eq("condominio_id", ctx.condominioId).eq("origem_tipo", "cobranca").eq("origem_id", c.id)
+      .limit(1), "lancamentos");
+    forma = lancs[0]?.forma_pagamento || null;
+  } catch { /* segue com o que a cobrança já tem */ }
+  const valorPago = p ? num(p.valor_pago) : (c.valorTotal ?? c.valor);
+  const dif = Math.round((valorPago - num(c.valor)) * 100) / 100;
+  return {
+    numero: `REC-${String(p?.id || c.id).slice(0, 8).toUpperCase()}`,
+    valorPago, pagoEm: p?.pago_em || null,
+    forma: forma || (p?.origem === "webhook" ? "stripe" : null),
+    tx: p?.provider_tx_id || (c.tx && c.tx !== "—" ? c.tx : null),
+    encargosPagos: Math.max(0, dif), desconto: Math.max(0, -dif),
+  };
+}
+
+/* Recibo de pagamento em PDF — A5 paisagem (210×148 mm, meia folha A4), o
+   formato clássico de recibo: timbre do condomínio, número, declaração de
+   recebimento, decomposição do valor e os dados do pagamento. */
+export async function baixarPdfRecibo(ctx, c, r) {
+  const cond = await obterCondominio(ctx).catch(() => ({ nome: ctx.condominioNome }));
+  const doc = new jsPDF({ unit: "mm", format: "a5", orientation: "landscape" });
+  const OURO = [212, 175, 55];
+  /* marca d'água PAGO, atrás do conteúdo */
+  doc.setTextColor(223, 242, 232); doc.setFont("helvetica", "bold"); doc.setFontSize(64);
+  doc.text("PAGO", 105, 95, { align: "center", angle: 18 });
+  /* timbre: logo (ou iniciais) + identificação, como nos documentos A4 */
+  let temLogo = false;
+  if (cond.logoUrl) {
+    try {
+      const blob = await (await fetch(cond.logoUrl)).blob();
+      const dataUrl = await new Promise((res, rej) => { const rd = new FileReader(); rd.onload = () => res(rd.result); rd.onerror = rej; rd.readAsDataURL(blob); });
+      doc.addImage(dataUrl, 15, 12, 13, 13); temLogo = true;
+    } catch { /* sem logo no PDF */ }
+  }
+  if (!temLogo) {
+    doc.setFillColor(10, 14, 26); doc.circle(21.5, 18.5, 6.5, "F");
+    doc.setTextColor(...OURO); doc.setFontSize(8); doc.setFont("helvetica", "bold");
+    doc.text((cond.nome || "?").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join(""), 21.5, 19.7, { align: "center" });
+  }
+  doc.setTextColor(26, 26, 26); doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+  doc.text(cond.nome || "—", 31, 16.5);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(110, 110, 110);
+  doc.text(([cond.cnpj && `CNPJ ${cond.cnpj}`, cond.endereco].filter(Boolean).join("  ·  ") || " ").slice(0, 95), 31, 21.5);
+  /* número e data, à direita */
+  doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(158, 124, 20);
+  doc.text("RECIBO DE PAGAMENTO", 195, 15, { align: "right", charSpace: 0.4 });
+  doc.setFontSize(9); doc.setTextColor(26, 26, 26);
+  doc.text(`Nº ${r.numero}`, 195, 20.5, { align: "right" });
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(110, 110, 110);
+  doc.text(r.pagoEm ? `Pago em ${new Date(r.pagoEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}` : " ", 195, 25, { align: "right" });
+  doc.setDrawColor(...OURO); doc.setLineWidth(0.7); doc.line(15, 29, 195, 29);
+  /* declaração de recebimento */
+  const quem = c.resp && c.resp !== "—" ? `${c.resp} — Unidade ${c.unidade}` : `Unidade ${c.unidade}`;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(50, 50, 50);
+  doc.text(doc.splitTextToSize(
+    `Recebemos de ${quem} a importância de ${fmtMoeda(r.valorPago, ctx.moeda)}, referente à cobrança condominial da competência ${c.comp}, com vencimento original em ${c.vencFull}.`,
+    172), 15, 39, { lineHeightFactor: 1.45 });
+  /* decomposição do valor */
+  let y = 60;
+  const linha = (rotulo, valor, cor = [50, 50, 50], negrito = false) => {
+    doc.setFont("helvetica", negrito ? "bold" : "normal"); doc.setFontSize(negrito ? 11.5 : 9.5);
+    doc.setTextColor(...cor);
+    doc.text(rotulo, 20, y); doc.text(valor, 190, y, { align: "right" });
+    y += negrito ? 8 : 6.5;
+  };
+  linha(`Taxa condominial — competência ${c.comp}`, fmtMoeda(c.valor, ctx.moeda));
+  if (r.encargosPagos > 0.004) linha("Encargos de atraso (multa + juros de mora)", `+ ${fmtMoeda(r.encargosPagos, ctx.moeda)}`, [176, 108, 22]);
+  if (r.desconto > 0.004) linha("Ajuste negociado (desconto)", `− ${fmtMoeda(r.desconto, ctx.moeda)}`, [176, 108, 22]);
+  doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.25); doc.line(20, y - 3.5, 190, y - 3.5); y += 1.5;
+  linha("TOTAL PAGO", fmtMoeda(r.valorPago, ctx.moeda), [16, 150, 90], true);
+  /* dados do pagamento */
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(110, 110, 110);
+  doc.text([`Forma de pagamento: ${FORMA_ROTULO[r.forma] || r.forma || "—"}`,
+            r.tx ? `Transação: ${r.tx}` : null].filter(Boolean).join("   ·   ").slice(0, 115), 20, y + 2);
+  /* rodapé: assinatura + identificação do documento */
+  doc.setDrawColor(160, 160, 160); doc.setLineWidth(0.2); doc.line(72, 122, 138, 122);
+  doc.setFontSize(8.5); doc.setTextColor(110, 110, 110);
+  doc.text(`${cond.sindico || "Síndico"} — Síndico`, 105, 127, { align: "center" });
+  doc.setFontSize(7.5);
+  doc.text(`Recibo ${r.numero} · emitido em ${new Date().toLocaleDateString("pt-BR")} · gerado pelo CondoMaster Pro`, 105, 138, { align: "center" });
+  const url = URL.createObjectURL(doc.output("blob"));
+  const a = document.createElement("a");
+  a.href = url; a.download = `recibo-${c.competencia}-${c.unidade}.pdf`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
 const COMUNIC_DOC_TIPO = { comunicado: "circular", convocacao: "convocacao", circular: "circular", aviso_manutencao: "circular", emergencia: "circular" };
 
 export async function criarComunicado(ctx, f) {

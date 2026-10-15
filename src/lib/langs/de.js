@@ -184,6 +184,8 @@ export default {
   "Original": "Original", "Encargos de atraso": "Verzugszuschläge", "mês(es)": "Monat(e)",
   "Total devido": "Fälliger Gesamtbetrag", "Sem encargos (negociado)": "Ohne Verzugszuschläge (ausgehandelt)", "Desconto (%)": "Rabatt (%)",
   "Valor a receber": "Zu erhaltender Betrag", "Ajuste negociado": "Ausgehandelte Anpassung",
+  "Recibo": "Quittung", "Recibo de pagamento": "Zahlungsquittung", "Taxa condominial": "Hausgeld",
+  "Transferência": "Überweisung", "Débito automático": "Lastschrift", "Online (Stripe)": "Online (Stripe)", "Cripto (Verum Pay)": "Krypto (Verum Pay)",
   "encargos": "Zuschläge", "inclui encargos de atraso de": "enthält Verzugszuschläge von",
   "Cargos de gestão": "Verwaltungsämter", "Cargo": "Amt",
   "Ex.: Conselho fiscal": "z. B.: Rechnungsprüfer", "Nome de quem ocupa o cargo": "Name der Amtsperson",

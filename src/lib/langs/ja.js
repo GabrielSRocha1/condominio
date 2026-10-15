@@ -184,6 +184,8 @@ export default {
   "Original": "元の金額", "Encargos de atraso": "延滞金", "mês(es)": "か月",
   "Total devido": "支払総額", "Sem encargos (negociado)": "延滞金なし（交渉済み）", "Desconto (%)": "割引（%）",
   "Valor a receber": "受取金額", "Ajuste negociado": "交渉による調整",
+  "Recibo": "領収書", "Recibo de pagamento": "支払領収書", "Taxa condominial": "管理費",
+  "Transferência": "銀行振込", "Débito automático": "自動引き落とし", "Online (Stripe)": "オンライン（Stripe）", "Cripto (Verum Pay)": "暗号資産（Verum Pay）",
   "encargos": "延滞金", "inclui encargos de atraso de": "延滞金を含む：",
   "Cargos de gestão": "管理役職", "Cargo": "役職",
   "Ex.: Conselho fiscal": "例：監査委員", "Nome de quem ocupa o cargo": "役職者の氏名",

@@ -184,6 +184,8 @@ export default {
   "Original": "원금", "Encargos de atraso": "연체료", "mês(es)": "개월",
   "Total devido": "총 납부액", "Sem encargos (negociado)": "연체료 제외(협의)", "Desconto (%)": "할인(%)",
   "Valor a receber": "수령 금액", "Ajuste negociado": "협의 조정",
+  "Recibo": "영수증", "Recibo de pagamento": "납부 영수증", "Taxa condominial": "관리비",
+  "Transferência": "계좌이체", "Débito automático": "자동이체", "Online (Stripe)": "온라인(Stripe)", "Cripto (Verum Pay)": "암호화폐(Verum Pay)",
   "encargos": "연체료", "inclui encargos de atraso de": "연체료 포함:",
   "Cargos de gestão": "관리 직책", "Cargo": "직책",
   "Ex.: Conselho fiscal": "예: 감사위원회", "Nome de quem ocupa o cargo": "직책 담당자 이름",
