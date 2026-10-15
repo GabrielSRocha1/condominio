@@ -1435,7 +1435,7 @@ function Condominio({ t, role }) {
                   style={inputStyle(t)} /></Field>
             </div>
             <div className="text-[11px]" style={{ color: t.dim }}>
-              {L("O saldo do painel passa a ser este valor somado ao que entrar e sair depois desta data — use o sinal de menos para caixa negativo. Deixe vazio para somar apenas os lançamentos do app.")}</div>
+              {L("Este valor é o caixa no INÍCIO do dia informado — o saldo do painel passa a ser ele somado ao que entrar e sair desta data em diante (conferiu no fim do dia? informe o dia seguinte). Use o sinal de menos para caixa negativo; vazio soma apenas os lançamentos do app.")}</div>
           </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2" style={mostra("regras")}>

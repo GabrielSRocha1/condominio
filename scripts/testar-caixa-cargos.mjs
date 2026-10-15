@@ -1,8 +1,8 @@
 /* Sondas do CAIXA COM ÂNCORA e dos CARGOS DE GESTÃO dinâmicos (aba Gestão).
 
    Bloco U (sem banco): src/lib/caixa.js — sem âncora soma como sempre;
-   com âncora (positiva ou NEGATIVA) o saldo é o valor informado + só o
-   que entrou/saiu DEPOIS da data (o dia da âncora já está no número);
+   com âncora (positiva ou NEGATIVA) o saldo é o valor do INÍCIO do dia
+   informado + o que entrou/saiu DESTA DATA EM DIANTE (o dia conta);
    e parseBRL preserva o sinal de menos.
 
    Bloco E (banco + dev server): o DIRETOR grava financeiro.caixa e
@@ -47,13 +47,14 @@ const L1 = [
 ];
 ok("U1 sem âncora: soma de sempre (receitas − despesas pagas)", saldoComAncora(L1, null) === 120,
   String(saldoComAncora(L1, null)));
-ok("U2 âncora: valor informado + só o que veio DEPOIS da data",
-  saldoComAncora(L1, { valor: 1000, em: "2026-02-05" }) === 1050, // 100 e −30 já estão no 1000
+ok("U2 âncora: valor do INÍCIO do dia + o que veio desta data em diante",
+  saldoComAncora(L1, { valor: 1000, em: "2026-02-05" }) === 1020, // só o 100 (anterior) já está no 1000; −30 do próprio dia conta
   String(saldoComAncora(L1, { valor: 1000, em: "2026-02-05" })));
-ok("U3 o dia da âncora fica fora (data > em, exclusivo)",
-  saldoComAncora(L1, { valor: 0, em: "2026-03-01" }) === 0
+ok("U3 o dia da âncora CONTA (data >= em, inclusivo)",
+  saldoComAncora(L1, { valor: 0, em: "2026-03-01" }) === 50
+  && saldoComAncora(L1, { valor: 0, em: "2026-03-02" }) === 0
   && saldoComAncora(L1, { valor: 0, em: "2026-02-28" }) === 50);
-ok("U4 âncora NEGATIVA funciona", saldoComAncora(L1, { valor: -500, em: "2026-02-05" }) === -450,
+ok("U4 âncora NEGATIVA funciona", saldoComAncora(L1, { valor: -500, em: "2026-02-05" }) === -480,
   String(saldoComAncora(L1, { valor: -500, em: "2026-02-05" })));
 ok("U5 âncora malformada (sem data/valor) cai na soma normal",
   saldoComAncora(L1, { valor: 1000 }) === 120 && saldoComAncora(L1, { em: "2026-01-01" }) === 120);

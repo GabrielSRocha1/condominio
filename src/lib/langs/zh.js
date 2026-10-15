@@ -204,7 +204,7 @@ export default {
   "Com letra no número, cada letra tem uma unidade por andar: 1A até 3A sem andar vira 1A, 2A e 3A com o andar espelhando o número; com andares 1 até 3 vira 101A (andar 1), 202A (andar 2) e 303A (andar 3) — as duas faixas precisam ter a mesma quantidade.": "编号带字母时，每个字母每层只有一个单元：1A 到 3A 不填楼层则生成 1A、2A、3A，楼层与编号一致；配合楼层 1 到 3 则生成 101A（1层）、202A（2层）、303A（3层）——两个范围的数量必须相同。",
   "Unidades sem responsável financeiro ganharão um responsável provisório — troque depois na tela Unidades.": "没有财务负责人的单元将获得一个临时负责人——之后请在“单元”页面更换。",
   "Limpar filtros": "清除筛选",
-  "O saldo do painel passa a ser este valor somado ao que entrar e sair depois desta data — use o sinal de menos para caixa negativo. Deixe vazio para somar apenas os lançamentos do app.": "仪表盘余额将变为该金额加上此日期之后的收支——负数请加负号。留空则仅汇总应用内的记录。",
+  "Este valor é o caixa no INÍCIO do dia informado — o saldo do painel passa a ser ele somado ao que entrar e sair desta data em diante (conferiu no fim do dia? informe o dia seguinte). Use o sinal de menos para caixa negativo; vazio soma apenas os lançamentos do app.": "此金额是所填日期开始时的现金——面板余额将等于该金额加上自该日期起的所有收支（若在当天结束时清点，请填写次日）。负数现金请加负号；留空则仅汇总应用内的记录。",
   "Só o proprietário vê os números do condomínio (saldo, receitas, despesas e inadimplência) no portal.": "门户中仅业主可查看小区数据（余额、收入、支出和欠缴率）。",
   "Nenhuma cobrança para esta unidade ainda.": "该单元暂无收费。",
   "Toque para ler": "点击阅读",
