@@ -39,6 +39,10 @@ idiomas, instalável como PWA.
       planilha (tabelas `planilhas_cobranca` e `planilha_cobranca_linhas`,
       com as próprias policies). Opcional: sem ele, só a aba
       "Histórico (planilha)" da tela Cobranças fica indisponível.
+   7. `supabase-fundo-reserva.sql` — a baixa divide o lançamento quando o
+      FR% está embutido na cobrança (Taxa condominial + Fundo de reserva) e
+      faz o backfill das cobranças já pagas; sem ele o app funciona e o
+      card do fundo soma só os lançamentos manuais da categoria
 
    Banco **já instalado**? Não re-rode o schema inteiro — rode apenas o
    `alter table usuarios add column if not exists preferencias …` que vem logo
@@ -67,6 +71,7 @@ idiomas, instalável como PWA.
 | `testar-caixa-cargos.mjs` | sondas do caixa com âncora (±), dos cargos de gestão e do cargo no perfil de acesso |
 | `testar-unidades-lote.mjs` | sondas da criação de unidades em lote: faixas, letras (andar espelhado e um por andar) e validações |
 | `testar-receber-lote.mjs` | sondas do recebimento em lote (motor puro): desconto arredondado por item, âncora do mesmo responsável, ordenação e lotes inválidos |
+| `testar-fundo-reserva.mjs` | sondas do fundo de reserva na baixa: divisão taxa + fundo pelo FR% embutido, mora fora do fundo e desconto proporcional (pula se o supabase-fundo-reserva.sql não rodou) |
 | `relatorio-seguranca.mjs` | auditoria semanal (sessões, eventos, anomalias) |
 | `emergencia-sessoes.mjs` | resposta a incidente: revoga sessões em massa |
 | `verificar-segredos-bundle.mjs` | confere que nenhum segredo vazou no build |

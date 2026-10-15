@@ -456,12 +456,31 @@ export async function loadAll(condominioId) {
      usam as linhas já mapeadas de `cobr` (status de UI + encargos do dia),
      batendo com as listas das telas. */
   const soma = (arr, f) => arr.reduce((s, x) => s + (f(x) ? num(x.valor) : 0), 0);
-  const fluxoAtual = porComp[mesAtualReal] || { receita: 0, despesa: 0 };
+  /* "Receitas/Despesas de <mês>" é visão de CAIXA: lançamentos PAGOS com a
+     DATA dentro do mês do calendário. Por competência, a baixa de uma
+     cobrança antiga caía no mês histórico dela (a RPC carimba a competência
+     da cobrança) e o card do mês corrente ficava em 0 mesmo com dinheiro
+     entrando — agora conta quando o dinheiro entrou, como o saldo. */
+  const noMes = (l) => (l.data || "").slice(0, 7) === mesAtualReal && l.status === "pago";
+  const fluxoAtual = {
+    receita: soma(lancRaw, (l) => l.tipo === "receita" && noMes(l)),
+    despesa: soma(lancRaw, (l) => l.tipo === "despesa" && noMes(l)),
+  };
   /* saldo do caixa: soma dos lançamentos pagos — ou, com a âncora manual da
      aba Gestão (financeiro.caixa = { valor, em }), o valor informado mais o
      que entrou/saiu DEPOIS daquela data (src/lib/caixa.js) */
   const pagoTotal = saldoComAncora(lancRaw, condRow.regras_internas?.financeiro?.caixa);
-  const fundoDe = (n) => num(fundos.find((f) => f.nome.toLowerCase().includes(n))?.saldo);
+  /* fundos (reserva/obras): o saldo da tabela é a BASE (âncora/seed) e os
+     lançamentos PAGOS da categoria do fundo movimentam — receita soma,
+     despesa (retirada) subtrai. A parcela do FR% embutido nas cobranças
+     chega como receita "Fundo de reserva" dividida pela baixa
+     (supabase-fundo-reserva.sql; sem o RUN, degrada aberto: só os
+     lançamentos manuais da categoria movimentam). */
+  const fundoDe = (n) => num(fundos.find((f) => f.nome.toLowerCase().includes(n))?.saldo)
+    + lancRaw.reduce((s, l) => {
+        if (l.status !== "pago" || !(l.categorias_financeiras?.nome || "").toLowerCase().includes(n)) return s;
+        return s + (l.tipo === "receita" ? num(l.valor) : -num(l.valor));
+      }, 0);
   const cobrValidas = cobr.filter((x) => x.status !== "cancelada");
   const emAbertoCobr = cobr.filter((x) => x.status === "emitida" || x.status === "vencida");
   const totCobr = Object.values(cobrPorComp).reduce((s, b) => s + b.total, 0);
