@@ -37,6 +37,7 @@ import { formatarNotificacao, contarNaoVistas, ehNova, horaCurta, chaveVisto, ma
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
 import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado, valorDaColuna, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
+import { familiaCarteira, uriVerumPay, redesDaFamilia } from "./src/lib/qr-pagamento.js";
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
 import { geoCache } from "./src/lib/geo.js";
@@ -578,27 +579,30 @@ const Sel = ({ t, value, onChange, opts }) => (
 
 const chartTip = (t) => ({ contentStyle: { background: t.surface, border: `1px solid ${t.borderSoft}`, borderRadius: 10, color: t.text, fontSize: 12 } });
 
-/* QR ilustrativo (placeholder visual — sem integração) */
-const QRMock = ({ seed = "verum", size = 148 }) => {
-  const cells = useMemo(() => {
-    let h = 0; for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    const g = []; for (let i = 0; i < 441; i++) { h = (h * 1103515245 + 12345) >>> 0; g.push((h >> 16) & 1); }
-    return g;
-  }, [seed]);
-  const n = 21, c = size / n;
-  const finder = (x, y) => (
-    <g key={`${x}${y}`}><rect x={x*c} y={y*c} width={7*c} height={7*c} fill="#131313" />
-      <rect x={(x+1)*c} y={(y+1)*c} width={5*c} height={5*c} fill="#fff" />
-      <rect x={(x+2)*c} y={(y+2)*c} width={3*c} height={3*c} fill="#131313" /></g>);
-  return (
-    <svg width={size} height={size} className="rounded-lg" style={{ background: "#fff", padding: 6 }} aria-label="QR Code de pagamento (ilustrativo)">
-      {cells.map((v, i) => { const x = i % n, y = Math.floor(i / n);
-        if ((x < 8 && y < 8) || (x > 12 && y < 8) || (x < 8 && y > 12)) return null;
-        return v ? <rect key={i} x={x*c} y={y*c} width={c} height={c} fill="#131313" /> : null; })}
-      {finder(0,0)}{finder(14,0)}{finder(0,14)}
-    </svg>
-  );
-};
+/* Ícones dos QRs de pagamento (SVG inline — nenhum asset externo). Vão no
+   CENTRO do QR via a prop icon do QRReal, que então usa correção "H". */
+const IconePix = ({ size = 26 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+    <g transform="rotate(45 12 12)" fill="#32BCAD">
+      <rect x="4" y="9" width="16" height="6" rx="2" /><rect x="9" y="4" width="6" height="16" rx="2" />
+    </g>
+  </svg>
+);
+const IconeEthereum = ({ size = 26 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+    <polygon points="12,1 5,12.3 12,16.5 19,12.3" fill="#627EEA" />
+    <polygon points="12,18.2 5,13.9 12,23 19,13.9" fill="#8A9EF0" />
+  </svg>
+);
+const IconeSolana = ({ size = 26 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+    <defs><linearGradient id="cm-solg" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stopColor="#9945FF" /><stop offset="1" stopColor="#14F195" /></linearGradient></defs>
+    <path d="M7 4.2h13l-3 3.6H4z" fill="url(#cm-solg)" />
+    <path d="M4 10.2h13l3 3.6H7z" fill="url(#cm-solg)" opacity="0.9" />
+    <path d="M7 16.2h13l-3 3.6H4z" fill="url(#cm-solg)" />
+  </svg>
+);
 
 /* Documento timbrado — cabeçalho, CNPJ e assinatura vêm do cadastro do próprio condomínio */
 const Timbrado = ({ t, tipo, corpo, unidade, valor, prazo }) => {
@@ -2657,6 +2661,30 @@ function Cobrancas({ t }) {
   const [destino, setDestino] = useState(""); // "" = rateio para todas; senão, id da unidade
   const [base, setBase] = useState("fracao"); // fracao (proporcional à área) | igual (partes iguais)
   const moeda = db.cond?.moeda || "USD"; // moeda de gestão definida no Cadastro do Condomínio (padrão: dólar)
+  /* QRs REAIS do modal: Pix (link do Stripe Checkout, criado lazy só com o
+     painel Pix exibido) e cripto (URI verum: da carteira do condomínio) */
+  const [stripeCobr, setStripeCobr] = useState(null); // null = carregando · { online, contaMoeda, … }
+  useEffect(() => { statusStripeConnect().then(setStripeCobr).catch(() => setStripeCobr({ online: false })); }, []);
+  const [abaQr, setAbaQr] = useState(null); // null = default (Pix quando disponível) | "pix" | "cripto"
+  const [pix, setPix] = useState(null);     // { cobrancaId, criando | url | erro }
+  useEffect(() => { setAbaQr(null); setPix(null); }, [qr?.id]);
+  const wallet = db.cond?.pagamentos?.verumWallet || "";
+  /* Pix exige conta Stripe online em BRL + moeda de gestão BRL (contrato do
+     checkout) e cobrança aberta — informado/divergente daria 409 e induziria
+     pagamento duplo; nesses status só o QR cripto aparece */
+  const pixDisponivel = (r) => !!(stripeCobr?.online && stripeCobr?.contaMoeda === "BRL" && moeda === "BRL"
+    && (r.status === "emitida" || r.status === "vencida"));
+  const abaEfetiva = qr && qr.status !== "pago"
+    ? (abaQr || (pixDisponivel(qr) ? "pix" : wallet ? "cripto" : null)) : null;
+  useEffect(() => {
+    if (abaEfetiva !== "pix" || pix?.cobrancaId === qr?.id) return; // erro não re-dispara: retry só pelo botão
+    let vivo = true;
+    setPix({ cobrancaId: qr.id, criando: true });
+    pagarCobrancaOnline(qr.id, "pix")
+      .then((r) => { if (vivo) setPix({ cobrancaId: qr.id, url: r.checkoutUrl }); })
+      .catch((e) => { if (vivo) setPix({ cobrancaId: qr.id, erro: e?.message || String(e) }); });
+    return () => { vivo = false; };
+  }, [abaEfetiva, qr?.id, pix]);
   const [moradores, setMoradores] = useState([]);
   useEffect(() => {
     listarAcessos(db.ctx).then((a) => setMoradores(a.filter((x) => x.role === "morador"))).catch(() => {});
@@ -2765,10 +2793,47 @@ function Cobrancas({ t }) {
         <Modal t={t} onClose={() => setQr(null)}>
           <ModalHeader t={t} title={`Cobrança ${qr.comp} — ${qr.unidade}`} onClose={() => setQr(null)} />
           <div className="flex flex-col items-center gap-3 text-center">
-            <QRMock seed={qr.id + qr.unidade} />
+            {pixDisponivel(qr) && !!wallet && (
+              <div className="flex flex-wrap justify-center gap-2">
+                {[["pix", "Pix"], ["cripto", "Cripto"]].map(([k, l]) => (
+                  <button key={k} type="button" onClick={() => setAbaQr(k)} className="rounded-xl border px-3 py-1.5 text-xs font-medium"
+                    style={{ background: abaEfetiva === k ? t.goldSoft : "transparent", color: abaEfetiva === k ? t.gold : t.dim,
+                      borderColor: abaEfetiva === k ? t.border : t.borderSoft }}>{L(l)}</button>))}
+              </div>)}
+            {abaEfetiva === "pix" && (pix?.url ? (<>
+              <QRReal value={pix.url} size={180} icon={<IconePix />} />
+              <div className="text-[11px]" style={{ color: t.dim }}>
+                {L("Escaneie com a câmera do celular — abre o pagamento Pix no checkout seguro da Stripe, com baixa automática.")}
+                <br />{L("QR Pix válido por 60 minutos — feche e abra o QR de novo para gerar outro.")}</div>
+            </>) : pix?.erro ? (
+              <div className="w-full space-y-2">
+                <div className="rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.borderSoft, background: t.surface2, color: t.warn }}>
+                  {L("Não foi possível gerar o QR Pix:")} {pix.erro}</div>
+                <Btn t={t} kind="soft" onClick={() => setPix(null)}><RefreshCw size={13} /> {L("Tentar novamente")}</Btn>
+                <div className="text-[11px]" style={{ color: t.dim }}>{L("O morador segue podendo pagar pelo portal, pelos meios cadastrados.")}</div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center" style={{ width: 188, height: 188 }}>
+                <span className="text-xs" style={{ color: t.dim }}>{L("Gerando QR Pix…")}</span></div>))}
+            {abaEfetiva === "cripto" && (() => {
+              const fam = familiaCarteira(wallet), redes = redesDaFamilia(fam);
+              return (<>
+                <QRReal value={uriVerumPay(wallet, qr.valorTotal ?? qr.valor, moeda, qr.id)} size={180}
+                  icon={fam === "evm" ? <IconeEthereum /> : fam === "solana" ? <IconeSolana /> : null} />
+                {redes
+                  ? <div className="text-[11px]" style={{ color: t.dim }}>{L(redes.legenda)}</div>
+                  : <div className="text-[11px]" style={{ color: t.warn }}>{L("Carteira cadastrada com formato não reconhecido — confira o endereço no cadastro do condomínio.")}</div>}
+                <div className="text-[11px]" style={{ color: t.dim }}>
+                  {L("Escaneie com a")}{" "}<a href="https://verumcrypto.com" target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>Verum Wallet</a>{" "}
+                  {L("para pagar — o QR já contém a carteira do condomínio e o valor desta cobrança.")}</div>
+              </>);
+            })()}
+            {abaEfetiva === null && (
+              <div className="w-full rounded-xl border border-dashed p-4 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+                {L("Sem QR de pagamento: ative o recebimento online (Pix) ou cadastre a carteira cripto no cadastro do condomínio. O morador paga pelo portal, pelos meios informados.")}</div>)}
             <div>
               <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valorTotal ?? qr.valor)}</div>
-              <div className="text-xs" style={{ color: t.dim }}>Vencimento {qr.venc} · QR único desta cobrança</div>
+              <div className="text-xs" style={{ color: t.dim }}>Vencimento {qr.venc}</div>
             </div>
             <Badge t={t} s={qr.status} />
             {qr.tx !== "—" && <div className="break-all rounded-lg px-3 py-1.5 text-xs" style={{ background: t.surface2, color: t.dim }}>{L("Transação")}: <b style={{ color: t.gold }}>{qr.tx}</b>{(qr.status === "pago") && <> · {L("baixa automática confirmada")}</>}</div>}
@@ -2776,7 +2841,6 @@ function Cobrancas({ t }) {
               <Btn t={t} disabled={baixandoPdf} onClick={() => baixarPdf(qr)}><Download size={14} /> {baixandoPdf ? "Gerando…" : "Baixar"}</Btn>
               <Btn t={t} onClick={() => enviarWhats(qr)}><Send size={14} /> Enviar por WhatsApp</Btn>
             </div>
-            <div className="text-[11px]" style={{ color: t.dim }}>{L("QR ilustrativo — o morador paga pelo portal (Pix/cartão online ou meios cadastrados do condomínio).")}</div>
           </div>
         </Modal>)}
       {conf && (
@@ -3967,11 +4031,24 @@ function Chamados({ t }) {
 }
 
 /* ══════════════ PORTARIA E SEGURANÇA ══════════════ */
-/* QR Code real (biblioteca qrcode) — o conteúdo é o token validável na portaria */
-function QRReal({ value, size = 180 }) {
+/* QR Code real (biblioteca qrcode) — token da portaria, URI verum: e link do
+   checkout Pix. icon = elemento sobreposto no centro: liga a correção "H"
+   (tolera ~30% de oclusão); sem icon, nada muda para os QRs existentes. */
+function QRReal({ value, size = 180, icon = null }) {
   const [src, setSrc] = useState(null);
-  useEffect(() => { QRCodeLib.toDataURL(value, { width: size, margin: 1 }).then(setSrc).catch(() => setSrc(null)); }, [value, size]);
-  return src ? <img src={src} width={size} height={size} alt="QR Code" className="rounded-xl bg-white p-1" /> : null;
+  const comIcone = !!icon; // booleano nas deps — o elemento JSX muda a cada render
+  useEffect(() => {
+    QRCodeLib.toDataURL(value, { width: size, margin: 1, ...(comIcone ? { errorCorrectionLevel: "H" } : {}) })
+      .then(setSrc).catch(() => setSrc(null));
+  }, [value, size, comIcone]);
+  if (!src) return null;
+  const img = <img src={src} width={size} height={size} alt="QR Code" className="rounded-xl bg-white p-1" />;
+  return icon ? (
+    <span className="relative inline-block">
+      {img}
+      <span className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-lg bg-white p-0.5">{icon}</span>
+    </span>
+  ) : img;
 }
 
 /* Câmera + leitor nativo (BarcodeDetector); sem suporte/câmera, digita-se o código */
@@ -4520,6 +4597,9 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
     setCopiadoPag(chave); setTimeout(() => setCopiadoPag(null), 1800);
   };
   const pagto = db.cond?.pagamentos || {};
+  /* família da carteira (EVM/Solana) — define o ícone do centro do QR e a legenda de redes */
+  const famWallet = familiaCarteira(pagto.verumWallet);
+  const redesWallet = redesDaFamilia(famWallet);
   /* morador informa pagamento manual: transferência (comprovante) e cripto (hash) */
   const enviarComprovante = async (e) => {
     e.preventDefault();
@@ -4926,7 +5006,9 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
           {formaPag === "qr" && (
             <div className="flex flex-col items-center gap-3 text-center">
               {/* QR dinâmico: chave pública da carteira do condomínio + valor desta cobrança */}
-              <QRReal value={`verum:${pagto.verumWallet}?amount=${Number(qr.valorTotal ?? qr.valor).toFixed(2)}&currency=${db.cond?.moeda || "USD"}&ref=${qr.id}`} size={180} />
+              <QRReal value={uriVerumPay(pagto.verumWallet, qr.valorTotal ?? qr.valor, db.cond?.moeda || "USD", qr.id)} size={180}
+                icon={famWallet === "evm" ? <IconeEthereum /> : famWallet === "solana" ? <IconeSolana /> : null} />
+              {redesWallet && <div className="text-[11px]" style={{ color: t.dim }}>{L(redesWallet.legenda)}</div>}
               <div className="text-2xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>{BRL(qr.valorTotal ?? qr.valor)}</div>
               <div className="text-xs" style={{ color: t.dim }}>{L("Escaneie com a")}{" "}<a href="https://verumcrypto.com" target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>Verum Wallet</a>{" "}{L("para pagar — o QR já contém a carteira do condomínio e o valor desta cobrança.")}</div>
               <div className="flex flex-wrap justify-center gap-2">
