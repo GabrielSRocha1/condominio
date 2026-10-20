@@ -61,17 +61,20 @@ create type acesso_tipo            as enum ('entrada','saida','entrega','ocorren
 -- ═══════════════════════ GRUPO SaaS ═══════════════════════
 
 -- 1 · saas_planos — Planos comerciais do SaaS
--- CONTRATO DE MOEDA: preços da LICENÇA sempre em reais (BRL) — é o valor
--- cobrado via Stripe (conta da plataforma no Brasil; cliente estrangeiro
--- paga na moeda local via Adaptive Pricing). Já as COBRANÇAS condominiais
--- são lançadas e cobradas na moeda de gestão do condomínio
--- (regras_internas.moeda); o pagamento online via Connect exige que essa
--- moeda seja igual à da conta conectada do condomínio.
+-- CONTRATO DE MOEDA: preços da LICENÇA ancorados em DÓLARES (USD). A conta
+-- Stripe da plataforma é brasileira e só liquida em BRL (exigência do
+-- Adaptive Pricing: price na moeda de liquidação), então cada price nasce
+-- com base BRL = USD × cotação (flag --cotacao do preparar-stripe) +
+-- currency_options.usd com o valor exato daqui: mercado USD paga a âncora
+-- exata, Brasil paga a base BRL e o resto do mundo paga na moeda local via
+-- Adaptive Pricing. Já as COBRANÇAS condominiais são lançadas e cobradas na
+-- moeda de gestão do condomínio (regras_internas.moeda); o pagamento online
+-- via Connect exige que essa moeda seja igual à da conta conectada.
 create table saas_planos (
   id               uuid primary key default gen_random_uuid(),
   nome             varchar(60) not null,
-  preco_mensal     numeric(14,2) not null,               -- em reais (BRL)
-  preco_anual      numeric(14,2),                        -- em reais (BRL)
+  preco_mensal     numeric(14,2) not null,               -- em dólares (USD, âncora da licença)
+  preco_anual      numeric(14,2),                        -- em dólares (USD, âncora da licença)
   limite_unidades  integer,                              -- NULL = ilimitado
   modulos          jsonb not null default '{}'::jsonb,   -- feature flags
   ativo            boolean not null default true,
@@ -983,13 +986,14 @@ end $$;
 
 -- ═══════════════════════ SEEDS INICIAIS (opcional) ═══════════════════════
 
--- Planos do SaaS — preços da LICENÇA sempre em BRL (conta Stripe Brasil).
--- Depois de definir os valores, rode scripts/preparar-stripe-producao.mjs
--- para criar os products/prices correspondentes na Stripe.
+-- Planos do SaaS — preços da LICENÇA ancorados em USD (ver o contrato de
+-- moeda em saas_planos). Depois de definir os valores, rode
+-- scripts/preparar-stripe-producao.mjs --cotacao <USD→BRL> para criar os
+-- products/prices correspondentes na Stripe (base BRL + option USD).
 insert into saas_planos (nome, preco_mensal, preco_anual, limite_unidades, modulos) values
-  ('Essencial',  299.90,  2999.00, 150,  '{"portaria":false,"whatsapp":false,"assembleia_digital":false}'),
-  ('Standard',   699.90,  6999.00, 500,  '{"portaria":true,"whatsapp":false,"assembleia_digital":true}'),
-  ('Premium',   1999.90, 19999.00, 2000, '{"portaria":true,"whatsapp":true,"assembleia_digital":true}');
+  ('Essencial', 100.00, 1000.00, 150,  '{"portaria":false,"whatsapp":false,"assembleia_digital":false}'),
+  ('Standard',  180.00, 1800.00, 500,  '{"portaria":true,"whatsapp":false,"assembleia_digital":true}'),
+  ('Premium',   420.00, 4200.00, 2000, '{"portaria":true,"whatsapp":true,"assembleia_digital":true}');
 
 -- Perfis nativos do sistema (batem com os perfis do frontend)
 insert into perfis (nome, descricao, sistema) values

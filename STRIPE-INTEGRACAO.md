@@ -4,7 +4,7 @@ A Stripe cobre os **dois fluxos de dinheiro** do sistema:
 
 | Fluxo | Produto Stripe | Quem recebe | Moeda |
 |---|---|---|---|
-| **Licença SaaS** (mensal/anual do condomínio-cliente) | Billing + Checkout | Conta da **plataforma** (Stripe Brasil, CNPJ) | BRL (cliente estrangeiro paga na moeda local via Adaptive Pricing) |
+| **Licença SaaS** (mensal/anual do condomínio-cliente) | Billing + Checkout | Conta da **plataforma** (Stripe Brasil, CNPJ) | **Âncora USD**: price com base BRL (= USD × `--cotacao`; única liquidação da conta BR, exigência do Adaptive Pricing) + `currency_options.usd` exato — mercado USD paga a âncora, Brasil paga a base BRL, resto do mundo paga na moeda local via Adaptive Pricing |
 | **Cobranças condominiais** (morador → condomínio) | Connect (direct charge) + Checkout | Conta **conectada do condomínio** (país à escolha entre os ~40 suportados; `PAISES_CONNECT`); a plataforma retém **1% com teto de 1 unidade da moeda** (application fee) | Moeda da conta conectada (BRL, USD, EUR…) — a moeda de gestão do condomínio precisa ser a mesma |
 
 O condomínio escolhe o **país da conta** no seletor da seção "Pagamento
@@ -23,7 +23,8 @@ dLocal Go deve preencher — em Fase 0, sem nenhum efeito sobre a Stripe; ver
 
 ```
 LICENÇA SAAS
-  Diretor → Stripe Checkout (subscription, BRL, trial 30d com cartão)
+  Diretor → Stripe Checkout (subscription, base BRL / USD exato / moeda local
+            via Adaptive Pricing, trial 30d com cartão)
           → conta da plataforma
           → webhook /api/stripe/webhook → saas_assinaturas.status
   Código de ativação (ex.: PAGOMANUAL) = PAGAMENTO MANUAL: sem checkout e sem
@@ -59,7 +60,8 @@ COBRANÇAS CONDOMINIAIS
 | `api/stripe/webhook-connect.js` | account.updated + baixa das cobranças pagas |
 | `api/stripe/checkout-cobranca.js` | checkout de cobrança (direct charge + 1% c/ teto) |
 | `api/stripe/cobranca-status.js` | polling do retorno + baixa (mesma RPC) |
-| `scripts/preparar-stripe-producao.mjs` | products/prices BRL, PAGOMANUAL, webhooks |
+| `scripts/preparar-stripe-producao.mjs` | products/prices (base BRL = USD × `--cotacao` + option USD), PAGOMANUAL, webhooks |
+| `scripts/migrar-assinaturas-precos-novos.mjs` | move assinaturas vivas dos prices antigos p/ os novos na renovação (sem proration; rodar só após avisar os clientes) |
 | `supabase-schema.sql` | enums, colunas e RPC da Stripe (migração absorvida) |
 
 ## 3. Variáveis de ambiente (`.env` local + Vercel)
@@ -96,15 +98,21 @@ no front, sem escopo PCI). Diagnóstico: `GET /api/auth/diag`.
 > de estado que não mudou; licença sincronizada na ativação).
 
 1. **Banco** — o schema atual (`supabase-schema.sql`) já traz enums, colunas
-   e RPC da Stripe. Confira os **preços BRL** dos planos em `saas_planos`
-   (seed do schema) antes do passo 3.
+   e RPC da Stripe. Confira os **preços USD** (âncora da licença) dos planos
+   em `saas_planos` (seed do schema) antes do passo 3.
 2. **Conta Stripe** — crie a conta Stripe Brasil (CNPJ da plataforma), copie a
    `sk_test_` para o `.env`.
-3. **Catálogo** — `node scripts/preparar-stripe-producao.mjs --executar`
+3. **Catálogo** — `node scripts/preparar-stripe-producao.mjs --cotacao <USD→BRL> --executar`
    (cria products/prices com lookup_key `condomaster_<plano>_<ciclo>_brl`,
-   o código de ativação `PAGOMANUAL`, e registra os 2 webhooks — guarde os
-   `whsec_` impressos).
+   base BRL = USD × cotação + `currency_options.usd` exato, o código de
+   ativação `PAGOMANUAL`, e registra os 2 webhooks — guarde os `whsec_`
+   impressos). **Re-ancoragem**: a base BRL congela na cotação usada; rode o
+   script de novo com a cotação nova quando o drift passar de ~10% (ou numa
+   revisão trimestral) — prices novos nascem, antigos desativam, e as
+   assinaturas vivas só mudam via `migrar-assinaturas-precos-novos.mjs`.
 4. **Dashboard** —
+   - Settings → Payments → **Adaptive Pricing: ativar** (test e live) — sem
+     isso, cliente não-BR/não-USD vê a base BRL em vez da moeda local;
    - Pagamentos → Métodos: ativar cartões e **Pix** (conta BR exige solicitação);
    - Billing → Portal do cliente: salvar a configuração padrão;
    - Connect → completar o **platform profile** e o branding do onboarding;
@@ -160,6 +168,8 @@ Para clientes indicados que pagam em dinheiro:
    assinatura **no valor cheio, sem cartão**, em `collection_method:
    send_invoice` com vencimento em `STRIPE_DIAS_VENCIMENTO_FATURA` dias
    (padrão 10). A primeira fatura é enviada por e-mail imediatamente.
+   A fatura sai na **base BRL** do price (Adaptive Pricing só atua no
+   Checkout — não há conversão em send_invoice).
 3. **Quando o dinheiro entrar**: dashboard → Faturas → fatura do cliente →
    "Marcar como paga fora da Stripe" (fica o histórico contábil de cada
    ciclo). A assinatura segue `active`.
@@ -209,7 +219,7 @@ consistente por construção.
 | 2 | Fatura manual vencida (PAGOMANUAL) | `customer.subscription.updated` com campo alterado `status = past_due` E `collection_method = send_invoice` (`invoice.overdue` não existe como gatilho) | E-mail à equipe: "cliente de pagamento manual não pagou — cobrar ou cancelar" |
 | 3 | Novo assinante | `checkout.session.completed` com `mode = subscription` | E-mail à equipe + Update customer: metadata `origem=checkout` |
 | 4 | Churn | `customer.subscription.deleted` | E-mail à equipe (quem, plano, desde quando) |
-| 7 | Fraude (Radar) | `radar.early_fraud_warning.created` | Retrieve charge → se valor ≤ R$ 80,00 (≈ taxa de disputa; a condição NÃO converte moeda — usar BRL): refund automático; senão: e-mail à equipe ([template oficial](https://docs.stripe.com/workflows/use-cases) `fraud_warning_refund`). **Atenção ao recriar no live:** o template preenche "Instructions email" no Create a refund com `Charge | Receipt email` — a API recusa esse parâmetro em cartão e o run falha; limpar o campo antes de publicar. |
+| 7 | Fraude (Radar) | `radar.early_fraud_warning.created` | Retrieve charge → se valor ≤ R$ 80,00 (≈ taxa de disputa; a condição NÃO converte moeda — usar BRL): refund automático; senão: e-mail à equipe ([template oficial](https://docs.stripe.com/workflows/use-cases) `fraud_warning_refund`). **Atenção ao recriar no live:** o template preenche "Instructions email" no Create a refund com `Charge | Receipt email` — a API recusa esse parâmetro em cartão e o run falha; limpar o campo antes de publicar. **Âncora USD:** com `currency_options.usd` + Adaptive Pricing, charges da licença agora podem vir em USD/EUR/etc.; essas caem no ramo do e-mail (a condição em BRL não casa) — aceitável, ou duplicar a condição por moeda (ex.: `≤ $15`). |
 
 **Contas conectadas (cobranças condominiais)** — no gatilho, selecionar a
 fonte "contas conectadas":

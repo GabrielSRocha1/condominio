@@ -105,9 +105,11 @@ const setMoeda = (m) => {
   catch { MOEDA = "USD"; }
 };
 const BRL = (v) => v.toLocaleString(LOCALE_MOEDA[MOEDA] || "en-US", { style: "currency", currency: MOEDA });
-/* preços da licença SaaS: sempre em reais (BRL) — a conta da plataforma é
-   Stripe Brasil —, independente da moeda de gestão do condomínio */
-const BRLLic = (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+/* preços da licença SaaS: ancorados em USD — na Stripe cada price tem base
+   BRL (conta da plataforma é Stripe Brasil) + currency_options.usd com o
+   valor exato; o resto do mundo paga na moeda local via Adaptive Pricing —,
+   independente da moeda de gestão do condomínio */
+const USDLic = (v) => v.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
 /* Países onde a Stripe abre conta de recebimento para o condomínio (espelho
    de PAISES_CONNECT no backend — só aparecem no seletor os que a Stripe
@@ -1079,7 +1081,7 @@ function SetupCondominio({ t, role, diretor, onCriado, onSair, dark, setDark }) 
                 <select name="plano" required style={inputStyle(t)}>
                   {(planos.length ? planos : [{ nome: "Essencial" }]).map((p) => (
                     <option key={p.nome}>{p.preco_mensal
-                      ? `${p.nome} — ${BRLLic(Number(p.preco_mensal))}/mês${p.preco_anual ? ` ou ${BRLLic(Number(p.preco_anual))}/ano` : ""} · ${p.limite_unidades ? `até ${p.limite_unidades} unidades` : "unidades ilimitadas"}`
+                      ? `${p.nome} — ${USDLic(Number(p.preco_mensal))}/mês${p.preco_anual ? ` ou ${USDLic(Number(p.preco_anual))}/ano` : ""} · ${p.limite_unidades ? `até ${p.limite_unidades} unidades` : "unidades ilimitadas"}`
                       : p.nome}</option>))}
                 </select></Field></div>
               <div className="mt-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.gold }}>
@@ -5262,7 +5264,7 @@ function Planos({ t }) {
     const troca = !!atual && p.nome !== atual.nome;
     /* changePlan durante o trial converte o teste e cobra na hora — espelho do 409 do backend */
     if (troca && emTeste) { alert(L("A troca de plano durante o teste gratuito é cobrada imediatamente — aguarde o fim do teste para trocar.")); return; }
-    if (troca && !window.confirm(`${L("Trocar o plano de")} ${atual.nome} ${L("para")} ${p.nome} (${BRLLic(preco(p))}/${ciclo === "anual" ? L("ano") : L("mês")})? ${L("O checkout do novo valor será aberto em seguida.")}`)) return;
+    if (troca && !window.confirm(`${L("Trocar o plano de")} ${atual.nome} ${L("para")} ${p.nome} (${USDLic(preco(p))}/${ciclo === "anual" ? L("ano") : L("mês")})? ${L("O checkout do novo valor será aberto em seguida.")}`)) return;
     setAgindo(p.nome);
     try {
       if (troca) await trocarPlanoLicenca(db.ctx.condominioId, p.nome);
@@ -5297,8 +5299,8 @@ function Planos({ t }) {
           <div className="flex-1">
             <div className="text-base font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{tenant?.plano || "—"}</div>
             <div className="text-xs" style={{ color: t.dim }}>
-              {tenant?.precoPlano ? `${BRLLic(tenant.precoPlano)}/${L("mês")}` : "—"}
-              {tenant?.precoPlanoAnual > 0 && ` · ${BRLLic(tenant.precoPlanoAnual)}/${L("ano")}`}
+              {tenant?.precoPlano ? `${USDLic(tenant.precoPlano)}/${L("mês")}` : "—"}
+              {tenant?.precoPlanoAnual > 0 && ` · ${USDLic(tenant.precoPlanoAnual)}/${L("ano")}`}
               {tenant?.venc !== "—" && ` · ${L("renova em")} ${tenant.venc}`}
             </div>
           </div>
@@ -5322,7 +5324,7 @@ function Planos({ t }) {
         {[["mensal", "Mensal"], ["anual", "Anual"]].map(([k, l]) => (
           <button key={k} onClick={() => setCiclo(k)} className="rounded-lg px-3 py-1.5 text-xs font-medium"
             style={{ background: ciclo === k ? t.goldSoft : "transparent", color: ciclo === k ? t.gold : t.dim, border: `1px solid ${ciclo === k ? t.border : t.borderSoft}` }}>{L(l)}</button>))}
-        <span className="text-[11px]" style={{ color: t.dim }}>{L("Cobrança em reais (BRL)")} · Stripe</span>
+        <span className="text-[11px]" style={{ color: t.dim }}>{L("Preço em dólares (USD), cobrado na sua moeda local")} · Stripe</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         {planos.map((p) => {
@@ -5336,7 +5338,7 @@ function Planos({ t }) {
                   {ehAtual && <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: t.goldSoft, color: t.gold }}>{L("Plano atual")}</span>}
                 </div>
                 <div className="text-xl font-bold" style={{ fontFamily: "'Sora',sans-serif", color: t.gold }}>
-                  {BRLLic(preco(p))}<span className="text-xs font-normal" style={{ color: t.dim }}>/{ciclo === "anual" ? L("ano") : L("mês")}</span></div>
+                  {USDLic(preco(p))}<span className="text-xs font-normal" style={{ color: t.dim }}>/{ciclo === "anual" ? L("ano") : L("mês")}</span></div>
                 <div className="text-xs" style={{ color: t.dim }}>
                   {p.limite_unidades ? `${L("Até")} ${p.limite_unidades} ${L("unidades")}` : L("Unidades ilimitadas")}</div>
                 {ehAtual && (licencaAtiva || emTeste)
@@ -5369,7 +5371,8 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
   const [gerando, setGerando] = useState(false);
   const [verificando, setVerificando] = useState(false);
   const [erro, setErro] = useState("");
-  /* ciclo de cobrança da licença — sempre em reais (BRL) */
+  /* ciclo de cobrança da licença — âncora USD; a Stripe cobra base BRL no
+     Brasil, USD exato via currency_options e moeda local via Adaptive */
   const [ciclo, setCiclo] = useState("mensal");
   /* escolha de plano no próprio paywall: o diretor pode assinar/reativar em
      outro plano — a troca grava no banco (trocarPlanoLicenca) antes do
@@ -5522,11 +5525,11 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
               {precoMes ? (
                 <div className="mt-2 flex items-center justify-between">
                   <span style={{ color: t.dim }}>{ciclo === "anual" && temAnual ? L("Anuidade") : L("Mensalidade")}</span>
-                  <b>{ciclo === "anual" && temAnual ? `${BRLLic(precoAno)}/ano` : `${BRLLic(precoMes)}/mês`}</b></div>) : null}
+                  <b>{ciclo === "anual" && temAnual ? `${USDLic(precoAno)}/ano` : `${USDLic(precoMes)}/mês`}</b></div>) : null}
               {planoInfo && (
                 <div className="mt-1 text-right text-[11px]" style={{ color: t.dim }}>
-                  {planoInfo.limite_unidades ? `${L("Até")} ${planoInfo.limite_unidades} ${L("unidades")} · ` : `${L("Unidades ilimitadas")} · `}{L("Cobrança em reais (BRL)")}</div>)}
-              {!planoInfo && <div className="mt-1 text-right text-[11px]" style={{ color: t.dim }}>{L("Cobrança em reais (BRL)")}</div>}
+                  {planoInfo.limite_unidades ? `${L("Até")} ${planoInfo.limite_unidades} ${L("unidades")} · ` : `${L("Unidades ilimitadas")} · `}{L("Preço em dólares (USD), cobrado na sua moeda local")}</div>)}
+              {!planoInfo && <div className="mt-1 text-right text-[11px]" style={{ color: t.dim }}>{L("Preço em dólares (USD), cobrado na sua moeda local")}</div>}
             </div>)}
           {erro && <div className="mt-3 rounded-xl border p-2.5 text-xs" style={{ borderColor: t.danger, color: t.danger }}>{erro}</div>}
           <div className="mt-5 space-y-2">

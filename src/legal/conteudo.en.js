@@ -55,7 +55,7 @@ export default {
       {
         h: "4. Plans, prices, and free trial",
         p: [
-          "The License is subscribed per plan (with a unit limit) and per period (monthly or annual), with prices in Brazilian reais (R$) displayed on the Plans screen at the time of subscription. For customers outside Brazil, the amount may be shown converted to the local currency by Stripe, our payment processor.",
+          "The License is subscribed per plan (with a unit limit) and per period (monthly or annual), with prices in US dollars (US$) displayed on the Plans screen at the time of subscription. The charge is presented and converted to the customer's local currency by Stripe, our payment processor (in Brazil, in Brazilian reais).",
           "Each Condominium's first subscription may include a 30-day free trial, with a card on file. The trial may be extended once, at the Operator's discretion. The Operator may also provide activation codes that create the subscription with payment by invoice, with the due date stated on the invoice itself.",
           "Each plan has a unit limit. Exceeding the limit does not interrupt use; the Operator reserves the right to charge for the excess units or to request a plan upgrade, upon prior notice.",
         ],

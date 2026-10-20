@@ -57,7 +57,7 @@ export default {
       {
         h: "4. Planos, preços e teste gratuito",
         p: [
-          "A Licença é contratada por plano (com limite de unidades) e por período (mensal ou anual), com valores em reais (R$) exibidos na tela de Planos no momento da contratação. Para clientes fora do Brasil, o valor pode ser apresentado convertido para a moeda local pela Stripe, nossa processadora de pagamentos.",
+          "A Licença é contratada por plano (com limite de unidades) e por período (mensal ou anual), com valores em dólares americanos (US$) exibidos na tela de Planos no momento da contratação. A cobrança é apresentada e convertida para a moeda local do cliente pela Stripe, nossa processadora de pagamentos (no Brasil, em reais).",
           "A primeira assinatura de cada Condomínio pode incluir um período de teste gratuito de 30 dias, com cadastro de cartão. O teste pode ser estendido uma única vez, a critério da Operadora. A Operadora também pode disponibilizar códigos de ativação que criam a assinatura com pagamento por fatura, com vencimento informado na própria fatura.",
           "Cada plano tem um limite de unidades. Exceder o limite não interrompe o uso; a Operadora se reserva o direito de cobrar pelas unidades excedentes ou de solicitar a migração de plano, mediante aviso prévio.",
         ],

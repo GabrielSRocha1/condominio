@@ -371,7 +371,7 @@ export async function loadAll(condominioId) {
     return {
       id: t.id, nome: t.nome_fantasia, plano: a?.saas_planos?.nome || "—",
       unidades: t.unidades?.[0]?.count ?? 0, status: st,
-      mrr: st === "teste" ? 0 : num(a?.saas_planos?.preco_mensal),
+      mrr: st === "teste" ? 0 : num(a?.saas_planos?.preco_mensal), // em USD (âncora da licença)
       precoPlano: num(a?.saas_planos?.preco_mensal),
       precoPlanoAnual: num(a?.saas_planos?.preco_anual),
       venc: a?.renovacao ? ddmm(a.renovacao) : "—",
@@ -499,7 +499,7 @@ export async function loadAll(condominioId) {
     multasAno: multasRaw.length,
     multasEmDefesa: multasRaw.filter((m) => m.status === "em_defesa" || m.status === "registrada").length,
     multasArrecadado: multasRaw.reduce((s, m) => s + (m.status === "aprovada" || m.status === "lancada" ? num(m.valor) : 0), 0),
-    mrr: tenants.reduce((s, t) => s + t.mrr, 0),
+    mrr: tenants.reduce((s, t) => s + t.mrr, 0), // em USD (âncora da licença)
     tenantsAtivos: tenants.filter((t) => t.status === "ativo").length,
     tenantsTeste: tenants.filter((t) => t.status === "teste").length,
     tenantsInadimplentes: tenants.filter((t) => t.status === "inadimplente" || t.status === "bloqueada").length,
@@ -692,9 +692,11 @@ export async function loginDiretor(email, senha) {
 }
 
 /* A Stripe cobre os DOIS fluxos de dinheiro:
-   · licença SaaS (Billing) — assinatura mensal/anual em BRL na conta da
-     plataforma (moradores/síndicos estrangeiros pagam na moeda local via
-     Adaptive Pricing);
+   · licença SaaS (Billing) — assinatura mensal/anual ancorada em USD na
+     conta da plataforma: o price tem base BRL (única liquidação da conta BR)
+     + currency_options.usd com o valor exato; mercado USD paga a âncora,
+     Brasil paga a base BRL e o resto do mundo paga na moeda local via
+     Adaptive Pricing;
    · cobranças condominiais (Connect) — direct charge na conta conectada do
      condomínio (país à escolha entre os suportados pela Stripe; BR tem
      Pix/cartão, demais países usam os métodos locais), com application fee
@@ -717,7 +719,7 @@ async function chamarApi(caminho, body, erroPadrao) {
 }
 const chamarStripe = (rota, body, erroPadrao) => chamarApi(`stripe/${rota}`, body, erroPadrao);
 
-/* Licença SaaS: abre o Stripe Checkout da assinatura recorrente (BRL).
+/* Licença SaaS: abre o Stripe Checkout da assinatura recorrente (âncora USD).
    ciclo: "mensal" ou "anual". Devolve { checkoutUrl } — ou { trocaAplicada }
    quando a troca de plano é aplicada direto na assinatura ativa.
    codigo: código de ativação de PAGAMENTO MANUAL (uso único) — ativa a

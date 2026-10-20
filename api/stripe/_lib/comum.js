@@ -51,6 +51,8 @@ export const lerClaims = (req) => {
 export const dataISO = (unix) => (unix ? new Date(unix * 1000).toISOString().slice(0, 10) : null);
 export const hojeISO = () => new Date().toISOString().slice(0, 10);
 export const slug = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+/* sufixo _brl = moeda-BASE do price (única liquidação da conta Stripe BR);
+   a âncora da licença é USD via currency_options — não muda a chave */
 export const lookupKey = (nomePlano, ciclo) => `condomaster_${slug(nomePlano)}_${ciclo === "anual" ? "anual" : "mensal"}_brl`;
 
 /* ── licença SaaS: espelha uma subscription da Stripe no status local ──

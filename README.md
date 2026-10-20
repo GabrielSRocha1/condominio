@@ -66,11 +66,22 @@ idiomas, instalável como PWA.
    `supabase-fundo-reserva.sql`, `supabase-notificacoes.sql` e
    `supabase-planilha-sync.sql` (passos 5–9 acima — todos idempotentes e com
    degrade aberto: sem eles o app funciona com o comportamento antigo).
+   Licença ancorada em USD (antes BRL)? Rode também o UPDATE dos planos:
+
+   ```sql
+   -- Licença ancorada em USD — ver o contrato de moeda em supabase-schema.sql (saas_planos)
+   update saas_planos set preco_mensal = 100.00, preco_anual = 1000.00, atualizado_em = now() where nome = 'Essencial';
+   update saas_planos set preco_mensal = 180.00, preco_anual = 1800.00, atualizado_em = now() where nome = 'Standard';
+   update saas_planos set preco_mensal = 420.00, preco_anual = 4200.00, atualizado_em = now() where nome = 'Premium';
+   ```
+
    Atenção: re-rodar o `supabase-rls.sql` exige re-rodar seguranca 1→5 em
    seguida (ele derruba e recria todas as policies).
-4. **Stripe** — `node scripts/preparar-stripe-producao.mjs --executar` cria
-   products/prices, o promotion code de ativação manual e os 2 webhooks
-   (guarde os `whsec_` no `.env`). Passo a passo completo no `STRIPE-INTEGRACAO.md`.
+4. **Stripe** — `node scripts/preparar-stripe-producao.mjs --cotacao <USD→BRL> --executar`
+   cria products/prices (base BRL = USD × cotação + `currency_options.usd`
+   exato — a licença é ancorada em USD), o promotion code de ativação manual
+   e os 2 webhooks (guarde os `whsec_` no `.env`). Passo a passo completo no
+   `STRIPE-INTEGRACAO.md`.
 5. **Subir** — `npm run dev`
 
 ## Scripts úteis (`node scripts/<nome>.mjs`)
@@ -95,7 +106,8 @@ idiomas, instalável como PWA.
 | `relatorio-seguranca.mjs` | auditoria semanal (sessões, eventos, anomalias) |
 | `emergencia-sessoes.mjs` | resposta a incidente: revoga sessões em massa |
 | `verificar-segredos-bundle.mjs` | confere que nenhum segredo vazou no build |
-| `preparar-stripe-producao.mjs` | provisiona a conta Stripe (test ou `--live`) |
+| `preparar-stripe-producao.mjs` | provisiona a conta Stripe (test ou `--live`); exige `--cotacao <USD→BRL>` — licença ancorada em USD, base BRL |
+| `migrar-assinaturas-precos-novos.mjs` | move assinaturas vivas dos prices antigos para os novos na renovação (dry-run por padrão; rodar só após avisar os clientes) |
 | `recriar-webhooks-live.mjs` | recria webhooks live quando o secret se perde |
 | `criar-codigo-ativacao.mjs` | gera código de ativação por cliente (test ou `--live`) |
 | `supabase-limpar-dados.sql` + `limpar-storage.mjs` | zera dados de teste |

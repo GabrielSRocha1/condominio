@@ -1,6 +1,7 @@
 /* POST /api/stripe/assinatura  { condominioId, ciclo, troca, codigo? }
    (Authorization: Bearer — diretor do condomínio)
-   Abre o Stripe Checkout da ASSINATURA recorrente da licença SaaS (BRL) e
+   Abre o Stripe Checkout da ASSINATURA recorrente da licença SaaS (âncora
+   USD; price com base BRL + currency_options.usd — ver preparar-stripe) e
    devolve { checkoutUrl }. Na troca com assinatura ativa, atualiza o preço da
    assinatura existente (rateio always_invoice) e devolve { trocaAplicada }.
    codigo: código de ativação de PAGAMENTO MANUAL — promotion code da Stripe

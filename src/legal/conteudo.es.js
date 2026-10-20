@@ -55,7 +55,7 @@ export default {
       {
         h: "4. Planes, precios y prueba gratuita",
         p: [
-          "La Licencia se contrata por plan (con límite de unidades) y por período (mensual o anual), con valores en reales brasileños (R$) mostrados en la pantalla de Planes al momento de la contratación. Para clientes fuera de Brasil, el valor puede presentarse convertido a la moneda local por Stripe, nuestra procesadora de pagos.",
+          "La Licencia se contrata por plan (con límite de unidades) y por período (mensual o anual), con valores en dólares estadounidenses (US$) mostrados en la pantalla de Planes al momento de la contratación. El cobro se presenta y se convierte a la moneda local del cliente por Stripe, nuestra procesadora de pagos (en Brasil, en reales).",
           "La primera suscripción de cada Condominio puede incluir un período de prueba gratuita de 30 días, con registro de tarjeta. La prueba puede extenderse una única vez, a criterio de la Operadora. La Operadora también puede ofrecer códigos de activación que crean la suscripción con pago por factura, con vencimiento indicado en la propia factura.",
           "Cada plan tiene un límite de unidades. Superar el límite no interrumpe el uso; la Operadora se reserva el derecho de cobrar por las unidades excedentes o de solicitar el cambio de plan, con aviso previo.",
         ],
