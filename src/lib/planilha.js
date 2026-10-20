@@ -764,21 +764,41 @@ export function resolverLinha(colunas, dados, ctx) {
 /* Conciliação com as cobranças do app — função pura, por unidade +
    competência. `linhas` já vêm resolvidas por resolverLinha; `cobrancas` é
    o db.cobr da camada de dados. Fica aqui (e não em api.js) porque não
-   toca banco nenhum: assim a sonda a testa sem subir o app. */
+   toca banco nenhum: assim a sonda a testa sem subir o app.
+
+   Com o supabase-planilha-sync.sql, a linha pode trazer os carimbos
+   pago_em/cancelada_em e o vínculo cobranca_id — daí saem as situações
+   novas, por prioridade: indevida (cancelamento) > paga > as de valor.
+   Cobrança cancelada fica FORA do mapa de chave e de soSistema: a célula
+   do mês volta a pertencer a quem a re-emitir. Linha de import marcada
+   "pago" SEM cobrança continua so_planilha (o fluxo de materializar
+   histórico pago segue vivo). Entradas sem carimbos reproduzem o
+   comportamento antigo (prévia do import). */
 export function conciliarPlanilha(linhas, cobrancas) {
+  const porId = new Map();
   const porChave = new Map();
-  for (const c of cobrancas) if (c.unidadeId && c.competencia) porChave.set(`${c.unidadeId}|${c.competencia}`, c);
+  for (const c of cobrancas) {
+    if (c.id) porId.set(c.id, c);
+    if (c.unidadeId && c.competencia && c.status !== "cancelada")
+      porChave.set(`${c.unidadeId}|${c.competencia}`, c);
+  }
   const casadas = new Set();
   const comSituacao = linhas.map((l) => {
+    const ligada = l.cobranca_id ? porId.get(l.cobranca_id) : null;
+    if (l.cancelada_em || ligada?.status === "cancelada")
+      return { ...l, situacao: "indevida", cobranca: ligada || null };
+    const c = ligada
+      || (l.unidadeId && l.competencia ? porChave.get(`${l.unidadeId}|${l.competencia}`) : null);
+    if (c?.unidadeId && c?.competencia) casadas.add(`${c.unidadeId}|${c.competencia}`);
+    if (l.pago_em || c?.status === "pago")
+      return { ...l, situacao: "paga", cobranca: c || null };
     if (!l.unidadeId || !l.competencia) return { ...l, situacao: "sem_chave", cobranca: null };
-    const chave = `${l.unidadeId}|${l.competencia}`;
-    const c = porChave.get(chave);
     if (!c) return { ...l, situacao: "so_planilha", cobranca: null };
-    casadas.add(chave);
     const difere = l.valor != null && Math.abs(Number(l.valor || 0) - Number(c.valor || 0)) > 0.005;
     return { ...l, situacao: difere ? "difere" : "confere", cobranca: c };
   });
-  const soSistema = cobrancas.filter((c) => c.unidadeId && c.competencia && !casadas.has(`${c.unidadeId}|${c.competencia}`));
+  const soSistema = cobrancas.filter((c) => c.unidadeId && c.competencia
+    && c.status !== "cancelada" && !casadas.has(`${c.unidadeId}|${c.competencia}`));
   return { linhas: comSituacao, soSistema };
 }
 
@@ -865,4 +885,30 @@ export function valorCalculado(dados, coluna, colunas = [], opts = {}) {
    demais leem direto do jsonb. É o único caminho para render/totais/export. */
 export function valorDaColuna(dados, col, colunas = [], opts = {}) {
   return col?.calculada ? valorCalculado(dados, col, colunas, opts) : (dados?.[col?.chave] ?? "");
+}
+
+/* Data em que a mora da linha para de crescer (meses dinâmicos passam a
+   contar competência→ESTA data). Precedência: carimbo do cancelamento >
+   carimbo do pagamento (supabase-planilha-sync.sql) > pagamento declarado
+   no import (pago/pagoEm de resolverLinha) > vencimento como aproximação >
+   null = dinâmico (comportamento de sempre). */
+export function dataCongelamento(l) {
+  if (l?.cancelada_em) return String(l.cancelada_em).slice(0, 10);
+  if (l?.pago_em) return String(l.pago_em).slice(0, 10);
+  if (l?.pago) return l.pagoEm || l.vencimento || null;
+  return null;
+}
+
+/* valorDaColuna com a sincronização aplicada: linha PAGA ou INDEVIDA zera
+   as colunas de DINHEIRO (calculadas, formato moeda e papéis de valor) —
+   "não deve nada" —, preservando percentuais, contagens (meses), texto e
+   data; linha com pagamento só declarado no import (sem situação paga)
+   congela a mora na data do pagamento. É o caminho de render/totais/export
+   da aba Histórico. */
+export function valorExibido(linha, col, colunas = []) {
+  const zerada = linha?.situacao === "paga" || linha?.situacao === "indevida";
+  if (zerada && (col?.calculada || col?.formato === "moeda"
+      || ["valor", "valor_base", "pago"].includes(col?.papel))) return 0;
+  const dc = dataCongelamento(linha || {});
+  return valorDaColuna(linha?.dados, col, colunas, dc ? { hoje: new Date(dc + "T12:00:00") } : {});
 }

@@ -334,10 +334,12 @@ if (!login.token) {
       id: u.id, label: `${u.numero}-${u.blocos?.nome || "?"}`, responsavelId: u.responsavel_financeiro_id })) };
     const alvo = ctx.unidades.find((u) => u.responsavelId);
 
-    /* limpeza de uma execução anterior interrompida */
-    await admin.from("cobrancas").delete().eq("condominio_id", COND).in("competencia", COMP_TESTE);
+    /* limpeza de uma execução anterior interrompida — planilhas PRIMEIRO:
+       o trigger do supabase-planilha-sync.sql liga linha→cobrança, e
+       apagar cobranças com linhas apontando dependeria do ON DELETE */
     const { data: antigas } = await admin.from("planilhas_cobranca").select("id").eq("condominio_id", COND);
     for (const p of antigas || []) await admin.from("planilhas_cobranca").delete().eq("id", p.id);
+    await admin.from("cobrancas").delete().eq("condominio_id", COND).in("competencia", COMP_TESTE);
 
     if (!alvo) {
       for (const n of ["grava a planilha", "dedupe da 2ª carga", "edição de célula",

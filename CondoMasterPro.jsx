@@ -19,7 +19,7 @@ import {
   criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, baixarPdfCobranca, loginDiretor,
   assinarLicenca, verificarLicenca, cancelarAssinatura, abrirPortalCobranca, listarPlanos, trocarPlanoLicenca, registrarDiretor,
   iniciarOnboardingStripe, statusStripeConnect, pagarCobrancaOnline, verificarCobranca,
-  informarPagamentoCobranca, confirmarPagamentoManual, rejeitarPagamentoInformado,
+  informarPagamentoCobranca, confirmarPagamentoManual, rejeitarPagamentoInformado, cancelarCobrancaIndevida,
   criarAcesso, listarAcessos, removerAcesso, gerarCodigoRecuperacao, gerarMeuCodigoRecuperacao, recuperarSenha, loginUsuario, setAuthToken, encerrarSessaoServidor,
   solicitarLinkRecuperacao, redefinirSenhaPorLink,
   salvarLogoCondominio, removerLogoCondominio, salvarLogoMenuCondominio, removerLogoMenuCondominio,
@@ -35,7 +35,7 @@ import {
 import { calcularLote, elegivelLote, chaveLote, ordenarLote } from "./src/lib/receber-lote.js";
 import { formatarNotificacao, contarNaoVistas, ehNova, horaCurta, chaveVisto, maisRecente } from "./src/lib/notificacoes.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
-import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado, valorDaColuna, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
+import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado, valorDaColuna, valorExibido, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
 import { familiaCarteira, uriVerumPay, redesDaFamilia } from "./src/lib/qr-pagamento.js";
 
@@ -2755,7 +2755,7 @@ function Cobrancas({ t }) {
       </div>
       <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por unidade ou responsável…"
         action={<Btn t={t} kind="primary" onClick={() => setNova(true)} data-tour="cobr-gerar"><Plus size={15} /> Gerar cobranças</Btn>}>
-        <Sel t={t} value={st} onChange={setSt} opts={[["todos","Todos"],["pago","Pagas"],["informado","Informadas"],["divergente","Divergentes"],["emitida","Emitidas"],["vencida","Vencidas"]]} />
+        <Sel t={t} value={st} onChange={setSt} opts={[["todos","Todos"],["pago","Pagas"],["informado","Informadas"],["divergente","Divergentes"],["emitida","Emitidas"],["vencida","Vencidas"],["cancelada","Canceladas"]]} />
       </Toolbar>
       {lote.sel.size > 0 && (
         <BarraLote t={t} selRows={lote.selRows} onReceber={() => setReceb(lote.selRows)}
@@ -2780,10 +2780,11 @@ function Cobrancas({ t }) {
             {(r.status === "emitida" || r.status === "vencida") && (
               <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" title={L("Registrar recebimento em dinheiro")}
                 onClick={() => setReceb([r])}><Banknote size={13} /> Receber</Btn>)}
-            <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" onClick={() => setQr(r)}
-              title={r.status === "pago" ? L("Recibo de pagamento") : undefined}>
-              {r.status === "pago" ? <><Receipt size={13} /> {L("Recibo")}</> : <><QrCode size={13} /> QR</>}</Btn>
-            {r.status !== "pago" && <Btn t={t} className="!px-2 !py-1 text-xs" title={L("Reenvia a cobrança por WhatsApp")} onClick={() => enviarWhats(r)}><Send size={13} /> Reenviar</Btn>}</div>);
+            {r.status !== "cancelada" && (
+              <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" onClick={() => setQr(r)}
+                title={r.status === "pago" ? L("Recibo de pagamento") : undefined}>
+                {r.status === "pago" ? <><Receipt size={13} /> {L("Recibo")}</> : <><QrCode size={13} /> QR</>}</Btn>)}
+            {!["pago", "cancelada"].includes(r.status) && <Btn t={t} className="!px-2 !py-1 text-xs" title={L("Reenvia a cobrança por WhatsApp")} onClick={() => enviarWhats(r)}><Send size={13} /> Reenviar</Btn>}</div>);
           return r[k];
         }} />
       {qr && qr.status === "pago" && (
@@ -2957,6 +2958,10 @@ const SITUACOES = {
   difere:      { l: "Valor difere",   c: "warn" },
   so_planilha: { l: "Só na planilha", c: "info" },
   sem_chave:   { l: "Sem unidade/competência", c: "dim" },
+  /* sincronização (supabase-planilha-sync.sql): paga e indevida exibem o
+     dinheiro ZERADO ("não deve nada") — %/contagens/texto permanecem */
+  paga:        { l: "Paga",     c: "ok" },
+  indevida:    { l: "Indevida", c: "dim" },
 };
 const PAPEIS_COLUNA = [["", "— nenhum —"], ["unidade", "Unidade"], ["competencia", "Competência"],
   ["valor", "Valor"], ["valor_base", "Valor base (expensas)"], ["percentual_fr", "% fundo de reserva"],
@@ -3034,7 +3039,12 @@ function PlanilhaCobrancas({ t }) {
      conciliadas com as cobranças já carregadas em db.cobr */
   const { linhas, soSistema } = useMemo(() => {
     if (!planilha) return { linhas: [], soSistema: [] };
-    const resolvidas = (estado.linhas || []).map((l) => ({ ...l, ...resolverLinha(colunas, l.dados, db.ctx) }));
+    const resolvidas = (estado.linhas || []).map((l) => {
+      const r = resolverLinha(colunas, l.dados, db.ctx);
+      /* linha criada pelo trigger de sincronização: o unidade_id do banco
+         vale quando o texto da célula não resolve (ex.: label mudou) */
+      return { ...l, ...r, unidadeId: r.unidadeId || l.unidade_id || null };
+    });
     return conciliarPlanilha(resolvidas, db.cobr);
   }, [estado, planilha, colunas, db.cobr, db.ctx]);
 
@@ -3048,9 +3058,10 @@ function PlanilhaCobrancas({ t }) {
   }, [linhas, q, sit]);
   useEffect(() => { setPagina(0); }, [q, sit, agrupar]);
 
-  /* valorDaColuna resolve calculada-sobre-calculada em cadeia — o caminho
-     único para render, totais, agrupamento e exportação */
-  const valorDe = (l, col) => valorDaColuna(l.dados, col, colunas);
+  /* valorExibido resolve calculada-sobre-calculada em cadeia E aplica a
+     sincronização (paga congela a mora; indevida zera as numéricas) — o
+     caminho único para render, totais, agrupamento e exportação */
+  const valorDe = (l, col) => valorExibido(l, col, colunas);
   const somaDe = (rows, col) => rows.reduce((s, l) => s + (paraNumero(valorDe(l, col)) || 0), 0);
 
   /* agrupamento: a tabela vira o resumo (uma linha por grupo, com soma de
@@ -3096,6 +3107,19 @@ function PlanilhaCobrancas({ t }) {
     if (!confirm(L("Remover esta linha da planilha? A cobrança do sistema, se houver, não é afetada."))) return;
     await removerLinhaPlanilha(linha.id);
     setEstado((e) => ({ ...e, linhas: e.linhas.filter((x) => x.id !== linha.id) }));
+  };
+  /* baixa de cobrança INDEVIDA: cancela a cobrança no sistema (RPC
+     cancelar_cobranca) — a linha fica, marcada e com valores zerados */
+  const baixaIndevida = async (l) => {
+    const just = window.prompt(L("Justificativa da baixa indevida (a cobrança será cancelada no sistema e poderá ser emitida de novo):"), "");
+    if (just === null) return;
+    setErro(""); setAviso("");
+    try {
+      await cancelarCobrancaIndevida(l.cobranca.id, just);
+      await reload();
+      await recarregar();
+      setAviso(L("Cobrança cancelada — a linha ficou marcada como indevida, com valores zerados."));
+    } catch (e) { setErro(e?.message || String(e)); }
   };
   /* cria OU edita (f.chave presente) uma coluna calculada — A op B (com
      constantes) ou o modelo de mora, com os parâmetros do reglamento */
@@ -3205,11 +3229,13 @@ function PlanilhaCobrancas({ t }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
         <StatCard t={t} icon={FileText} label="Linhas na planilha" value={String(linhas.length)} />
         <StatCard t={t} icon={CheckCircle2} label="Conferem" value={String(linhas.filter((l) => l.situacao === "confere").length)} color={t.ok} />
         <StatCard t={t} icon={AlertCircle} label="Valor difere" value={String(linhas.filter((l) => l.situacao === "difere").length)} color={t.warn} />
         <StatCard t={t} icon={Plus} label="Só na planilha" value={String(faltando.length)} color={t.info} />
+        <StatCard t={t} icon={CheckCircle2} label="Pagas" value={String(linhas.filter((l) => l.situacao === "paga").length)} color={t.ok} />
+        <StatCard t={t} icon={Ban} label="Indevidas" value={String(linhas.filter((l) => l.situacao === "indevida").length)} color={t.dim} />
       </div>
 
       <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar em qualquer coluna…"
@@ -3226,7 +3252,7 @@ function PlanilhaCobrancas({ t }) {
           <Btn t={t} kind="danger" onClick={excluirPlanilha}><Trash2 size={14} /> Excluir planilha</Btn>
           <Btn t={t} kind="primary" onClick={() => setImportar(true)}><Upload size={14} /> Importar mais</Btn>
         </div>}>
-        <Sel t={t} value={sit} onChange={setSit} opts={[["todas", "Todas as situações"], ["confere", "Confere"], ["difere", "Valor difere"], ["so_planilha", "Só na planilha"], ["sem_chave", "Sem unidade/competência"]]} />
+        <Sel t={t} value={sit} onChange={setSit} opts={[["todas", "Todas as situações"], ["confere", "Confere"], ["difere", "Valor difere"], ["so_planilha", "Só na planilha"], ["sem_chave", "Sem unidade/competência"], ["paga", "Pagas"], ["indevida", "Indevidas"]]} />
         <Sel t={t} value={agrupar} onChange={setAgrupar}
           opts={[["", "Sem agrupamento"], ...colunas.filter((c) => !c.calculada).map((c) => [c.chave, c.titulo])]} />
         {(q || sit !== "todas" || agrupar) && (
@@ -3270,7 +3296,11 @@ function PlanilhaCobrancas({ t }) {
                 style={{ background: (t[s.c] || t.dim) + "1E", color: t[s.c] || t.dim }}>{L(s.l)}</span>);
             }
             if (k === "_acao") return (
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-1">
+                {l.cobranca && !["pago", "cancelada"].includes(l.cobranca.status) && l.situacao !== "indevida" && (
+                  <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs"
+                    title={L("Baixa indevida — cancela a cobrança no sistema; a linha fica com valores zerados")}
+                    onClick={() => baixaIndevida(l)}><Ban size={12} /></Btn>)}
                 <Btn t={t} kind="danger" className="!px-2 !py-1 text-xs" onClick={() => excluirLinha(l)}><Trash2 size={12} /></Btn>
               </div>);
             const col = colunas.find((c) => c.chave === k);
@@ -3296,6 +3326,15 @@ function PlanilhaCobrancas({ t }) {
         <Card t={t}>
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs">
             <div style={{ color: t.dim }}>{filtradas.length} {L("linha(s)")}</div>
+            {(() => { /* total EM ABERTO: fora as pagas e as indevidas (ambas exibidas zeradas) */
+              const cv = colunas.find((c) => c.papel === "valor") || colunas.find((c) => c.papel === "valor_base");
+              if (!cv) return null;
+              const aberto = filtradas.filter((l) => !["paga", "indevida"].includes(l.situacao));
+              return (<div className="flex items-center gap-1.5">
+                <span style={{ color: t.dim }}>{L("Em aberto")}:</span>
+                <b style={{ color: t.warn }}>{fmtCelula(somaDe(aberto, cv), cv)}</b>
+                <span style={{ color: t.dim }}>({aberto.length} {L("linha(s)")})</span>
+              </div>); })()}
             {numericas.map((c) => (
               <div key={c.chave} className="flex items-center gap-1.5">
                 <span style={{ color: t.dim }}>{c.titulo}:</span>
@@ -3575,6 +3614,7 @@ function ImportarPlanilha({ t, planilha, onClose, onPronto }) {
             {temChave ? (<>
               <b style={{ color: t.ok }}>{conta("confere")}</b> {L("conferem")} · <b style={{ color: t.warn }}>{conta("difere")}</b> {L("com valor diferente")} ·{" "}
               <b style={{ color: t.info }}>{conta("so_planilha")}</b> {L("só na planilha")} · <b>{conta("sem_chave")}</b> {L("sem unidade/competência")}
+              {conta("paga") > 0 && <> · <b style={{ color: t.ok }}>{conta("paga")}</b> {L("já pagas no app")}</>}
             </>) : L("Marque uma coluna como Unidade e outra como Competência para cruzar com as cobranças do sistema. Sem isso, a planilha é importada mesmo assim, só não concilia.")}
           </div>
           {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}

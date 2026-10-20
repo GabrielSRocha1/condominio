@@ -842,6 +842,26 @@ export async function rejeitarPagamentoInformado(informeId, motivo) {
   return data;
 }
 
+const ERROS_CANCELAR = {
+  ja_paga: "Esta cobrança já está paga — não é possível cancelá-la pelo histórico.",
+  informe_pendente: "Há um pagamento informado aguardando conferência — rejeite o informe na tela Cobranças antes de cancelar.",
+};
+
+/* Baixa de cobrança INDEVIDA pelo histórico: a RPC cancelar_cobranca
+   (supabase-planilha-sync.sql) cancela a cobrança (status 'cancelada',
+   nunca DELETE), carimba cancelada_em na linha da planilha e audita.
+   O índice único ignora canceladas: a competência pode ser re-emitida. */
+export async function cancelarCobrancaIndevida(cobrancaId, justificativa) {
+  const { data, error } = await supabase.rpc("cancelar_cobranca", {
+    p_cobranca_id: cobrancaId, p_justificativa: justificativa,
+  });
+  if (error) throw new Error(/does not exist|schema cache/i.test(error.message)
+    ? "O banco está desatualizado: rode o supabase-planilha-sync.sql no SQL Editor para habilitar a baixa indevida."
+    : error.message);
+  if (data?.ok === false) throw new Error(ERROS_CANCELAR[data.erro] || ERROS_RPC[data.erro] || `Cancelamento recusado: ${data.erro}`);
+  return data;
+}
+
 /* Feed de movimentações do sino da gestão — consulta LEVE e separada do
    loadAll (o feed é re-sondado a cada 30 s; recarregar as ~17 queries do
    loadAll nesse ritmo seria um desperdício). As linhas nascem dos triggers
@@ -2047,6 +2067,13 @@ export async function criarCobrancasDaPlanilha(ctx, linhas) {
     const status = l.pagoEm || l.pago
       ? (l.pagoEm && l.pagoEm > vencimento ? "paga_em_atraso" : "paga")
       : (vencimento < hoje ? "vencida" : "emitida");
+    /* linha importada com unidade resolvida só em memória ("3-D" vs "3D"):
+       grava o unidade_id ANTES do insert para o trigger de sincronização
+       conflitar na linha certa em vez de criar uma duplicata; sem q():
+       conflito do dedupe deixa como estava (o trigger então reusa a linha
+       dona da chave) */
+    if (!l.unidade_id && l.id) await supabase.from("planilha_cobranca_linhas")
+      .update({ unidade_id: u.id }).eq("id", l.id);
     aCriar.push({ linhaId: l.id, row: {
       condominio_id: ctx.condominioId, unidade_id: u.id, responsavel_id: u.responsavelId,
       competencia: l.competencia, tipo: "ordinaria", valor_original: valor, vencimento, status,

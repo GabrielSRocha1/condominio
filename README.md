@@ -50,15 +50,22 @@ idiomas, instalável como PWA.
       também recarrega o painel inteiro (saldo, cards e pendências — não só
       o sino), então diretor/síndico/tesouraria acompanham sem F5. Sem ele
       o app funciona e o sino mostra só as pendências
+   9. `supabase-planilha-sync.sql` — sincroniza o Histórico (planilha) com
+      as cobranças: pagamento carimba a linha (a mora congela na data),
+      a baixa indevida cancela a cobrança (status `cancelada`, auditada) e
+      zera a linha, e cobrança nova vira linha do histórico — criando a
+      planilha padrão se o condomínio não tem. Exige o
+      `supabase-planilhas.sql` antes. Sem ele o app funciona com o
+      comportamento antigo e o botão "Baixa indevida" avisa para rodá-lo
 
    Banco **já instalado**? Não re-rode o schema inteiro — rode apenas o que
    faltar, na ordem: o `alter table usuarios add column if not exists
    preferencias …` que vem logo abaixo do `create table usuarios` (idioma por
    conta), `supabase-seguranca4.sql` e `supabase-seguranca5.sql` ("Esqueci
    minha senha"), `supabase-encargos.sql`, `supabase-planilhas.sql`,
-   `supabase-fundo-reserva.sql` e `supabase-notificacoes.sql` (passos 5–8
-   acima — todos idempotentes e com degrade aberto: sem eles o app funciona
-   com o comportamento antigo).
+   `supabase-fundo-reserva.sql`, `supabase-notificacoes.sql` e
+   `supabase-planilha-sync.sql` (passos 5–9 acima — todos idempotentes e com
+   degrade aberto: sem eles o app funciona com o comportamento antigo).
    Atenção: re-rodar o `supabase-rls.sql` exige re-rodar seguranca 1→5 em
    seguida (ele derruba e recria todas as policies).
 4. **Stripe** — `node scripts/preparar-stripe-producao.mjs --executar` cria
@@ -76,6 +83,7 @@ idiomas, instalável como PWA.
 | `testar-idioma-moeda.mjs` | sondas do idioma por IP, da preferência no banco e da semente de moeda |
 | `testar-dlocal.mjs` | sondas da Fase 0 da dLocal Go: credenciais, colaborações de split e matriz país × moeda (`--live` só lê) |
 | `testar-planilha-cobrancas.mjs` | sondas do histórico por planilha: colunas livres, layout "planilla de mora" (blocos por ano), conciliação, resolução de unidade tolerante, dedupe e a prova de que o histórico não entra no caixa |
+| `testar-planilha-sync.mjs` | sondas da sincronização planilha ⇄ cobranças: situações paga/indevida, mora congelada no pagamento, triggers (cobrança nova → linha; pagamento → carimbo), RPC `cancelar_cobranca` (guardas + auditoria + caixa intocado), re-emissão reusando a linha e import preservando carimbos (pula se o supabase-planilha-sync.sql não rodou) |
 | `testar-manuais-seed.mjs` / `testar-manuais-fluxo.mjs` | monta o condomínio TESTE Manuais e roda o fluxo completo de pagamento (cripto, informado, divergente, dinheiro, idempotência) |
 | `testar-refresh-race.mjs` | sondas da rotação atômica do refresh token: corrida de renovação sem derrubar a família e o anti-roubo intacto |
 | `testar-encargos.mjs` | sondas dos encargos de atraso (multa + juros): motor puro, RLS da configuração, informe pelo valor devido e o caixa com encargos |

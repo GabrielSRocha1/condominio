@@ -16,10 +16,12 @@
 -- unidade_id + competencia, que a importação resolve e grava em coluna
 -- de verdade (com índice).
 --
--- Esta planilha NÃO é a verdade do financeiro: ela lê cobrancas e, no
--- máximo, insere as que faltam. Nunca altera cobrança existente, e a
--- cobrança criada a partir dela NÃO gera lançamento no caixa (decisão de
--- produto: o saldo do dashboard segue refletindo só o que o app recebeu).
+-- Esta planilha NÃO é a verdade do financeiro: a cobrança criada a
+-- partir dela NÃO gera lançamento no caixa (decisão de produto: o saldo
+-- do dashboard segue refletindo só o que o app recebeu). Com o
+-- supabase-planilha-sync.sql (arquivo seguinte da ordem), ela passa a
+-- REFLETIR as cobranças: pagamento carimba a linha, a baixa indevida
+-- cancela a cobrança (e zera a linha) e cobrança nova vira linha.
 --
 -- RLS: as policies deste arquivo espelham exatamente o loop do
 -- supabase-rls.sql (tenant_select para todo perfil do condomínio;
@@ -61,7 +63,7 @@ create table if not exists planilha_cobranca_linhas (
   dados          jsonb not null default '{}'::jsonb,   -- { chave_da_coluna: valor }
   unidade_id     uuid references unidades(id),         -- resolvido na importação
   competencia    char(7) check (competencia is null or competencia ~ '^\d{4}-\d{2}$'),
-  cobranca_id    uuid references cobrancas(id),        -- preenchido ao criar/casar a cobrança
+  cobranca_id    uuid references cobrancas(id) on delete set null,  -- preenchido ao criar/casar a cobrança
   origem         varchar(20) not null default 'planilha',  -- planilha | manual
   ordem          integer not null default 0,           -- posição na planilha (ordem de exibição)
   criado_em      timestamptz not null default now(),
