@@ -77,6 +77,24 @@ no front, sem escopo PCI). Diagnóstico: `GET /api/auth/diag`.
 
 ## 4. Passo a passo de ativação
 
+> **Status (20/out/2026): LICENÇA ANCORADA EM USD — ROLLOUT COMPLETO.**
+> Essencial $100 · Standard $180 · Premium $420 mensais (anual ×10).
+> Catálogo TEST+LIVE reprovisionado com `--cotacao 5.04` (base BRL
+> R$ 504,00/907,20/2.116,80 + `currency_options.usd` exato; prices antigos
+> desativados, lookup keys transferidas, webhooks intactos). Adaptive
+> Pricing ATIVO (test e live) e validado no checkout por localização:
+> `+location_US` → US$ 100,00 exatos, `+location_FR` → € 92,77 com toggle
+> EUR/BRL, viewer sem hint → moeda do país real (PYG), `+location_BR` →
+> R$ 504,00. Workflow Radar nº 7 em **v2** (condição OR: ≤ R$ 80 BRL ou
+> ≤ $15 USD). Assinaturas legadas MIGRADAS após aviso aos clientes
+> (`migrar-assinaturas-precos-novos.mjs`, proration none, re-run acha 0):
+> TEST 1/1; LIVE 2/2 — Progreso I R$ 299,90→504,00 (fatura nova a partir
+> de 11/11) e Hotel Cassino Ross R$ 699,90→907,20 (09/11), ambas
+> send_invoice. Re-ancoragem: re-rodar o preparador com cotação nova
+> (revisão trimestral ou drift >10%) + re-rodar a migração se quiser
+> re-precificar os BRL vivos. Pendência: conferência visual das telas
+> Planos/paywall em produção.
+>
 > **Status (11/set/2026): PRODUÇÃO ATIVA.** Catálogo live provisionado
 > (products/prices conferem com `saas_planos`), 2 webhooks live registrados,
 > conta da plataforma com charges+payouts habilitados e a Vercel rodando com
