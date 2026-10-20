@@ -187,6 +187,7 @@ export default {
   "Selecionar cobrança": "Выбрать платёж", "Selecione cobranças do mesmo responsável": "Выбирайте платежи одного ответственного",
   "selecionada(s)": "выбрано", "Limpar seleção": "Очистить выбор", "Selecionar todas deste responsável": "Выбрать все платежи этого ответственного",
   "Receber em lote": "Принять пакетом", "Recebimento em lote": "Пакетный приём", "recebida(s)": "получено", "competências": "периоды",
+  "Pendências": "Ожидают", "Movimentações": "Движения", "Entrada recebida": "Платёж получен", "Conta paga": "Счёт оплачен", "Receita recebida": "Доход получен",
   "Ao confirmar: cada cobrança é baixada individualmente — pagamento na auditoria e Entrada no caixa, uma transação por cobrança.": "После подтверждения: каждый платёж проводится отдельно — платёж в аудите и Приход в кассе, одна транзакция на платёж.",
   "Algumas baixas falharam — as cobranças não recebidas continuam selecionadas; tente novamente.": "Часть проводок не прошла — неполученные платежи остаются выбранными; попробуйте ещё раз.",
   "Recibo": "Квитанция", "Recibo de pagamento": "Квитанция об оплате", "Taxa condominial": "Взнос за содержание",

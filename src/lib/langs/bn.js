@@ -187,6 +187,7 @@ export default {
   "Selecionar cobrança": "বিল নির্বাচন করুন", "Selecione cobranças do mesmo responsável": "একই দায়িত্বপ্রাপ্ত ব্যক্তির বিল নির্বাচন করুন",
   "selecionada(s)": "টি নির্বাচিত", "Limpar seleção": "নির্বাচন মুছুন", "Selecionar todas deste responsável": "এই দায়িত্বপ্রাপ্তের সব বিল নির্বাচন করুন",
   "Receber em lote": "একসাথে গ্রহণ", "Recebimento em lote": "একসাথে গ্রহণ", "recebida(s)": "টি গৃহীত", "competências": "সময়কাল",
+  "Pendências": "অমীমাংসিত", "Movimentações": "লেনদেন", "Entrada recebida": "পেমেন্ট গৃহীত", "Conta paga": "বিল পরিশোধিত", "Receita recebida": "আয় গৃহীত",
   "Ao confirmar: cada cobrança é baixada individualmente — pagamento na auditoria e Entrada no caixa, uma transação por cobrança.": "নিশ্চিত করলে: প্রতিটি বিল আলাদাভাবে নিষ্পত্তি হয় — পেমেন্ট অডিটে এবং অর্থ ক্যাশে, প্রতি বিলে একটি লেনদেন।",
   "Algumas baixas falharam — as cobranças não recebidas continuam selecionadas; tente novamente.": "কিছু নিষ্পত্তি ব্যর্থ হয়েছে — অগৃহীত বিলগুলো নির্বাচিত থাকবে; আবার চেষ্টা করুন।",
   "Recibo": "রসিদ", "Recibo de pagamento": "পেমেন্ট রসিদ", "Taxa condominial": "সোসাইটি ফি",

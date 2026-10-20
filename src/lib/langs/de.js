@@ -187,6 +187,7 @@ export default {
   "Selecionar cobrança": "Zahlung auswählen", "Selecione cobranças do mesmo responsável": "Nur Zahlungen desselben Verantwortlichen auswählen",
   "selecionada(s)": "ausgewählt", "Limpar seleção": "Auswahl aufheben", "Selecionar todas deste responsável": "Alle dieses Verantwortlichen auswählen",
   "Receber em lote": "Sammelzahlung empfangen", "Recebimento em lote": "Sammelzahlung", "recebida(s)": "empfangen", "competências": "Perioden",
+  "Pendências": "Ausstehend", "Movimentações": "Bewegungen", "Entrada recebida": "Zahlung erhalten", "Conta paga": "Rechnung bezahlt", "Receita recebida": "Einnahme erhalten",
   "Ao confirmar: cada cobrança é baixada individualmente — pagamento na auditoria e Entrada no caixa, uma transação por cobrança.": "Nach Bestätigung: Jede Zahlung wird einzeln verbucht — Zahlung im Prüfprotokoll und Eingang in der Kasse, eine Transaktion pro Zahlung.",
   "Algumas baixas falharam — as cobranças não recebidas continuam selecionadas; tente novamente.": "Einige Buchungen sind fehlgeschlagen — die nicht empfangenen Zahlungen bleiben ausgewählt; versuchen Sie es erneut.",
   "Recibo": "Quittung", "Recibo de pagamento": "Zahlungsquittung", "Taxa condominial": "Hausgeld",

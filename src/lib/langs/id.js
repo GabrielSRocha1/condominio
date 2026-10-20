@@ -187,6 +187,7 @@ export default {
   "Selecionar cobrança": "Pilih tagihan", "Selecione cobranças do mesmo responsável": "Pilih tagihan dari penanggung jawab yang sama",
   "selecionada(s)": "dipilih", "Limpar seleção": "Hapus pilihan", "Selecionar todas deste responsável": "Pilih semua milik penanggung jawab ini",
   "Receber em lote": "Terima sekaligus", "Recebimento em lote": "Penerimaan sekaligus", "recebida(s)": "diterima", "competências": "periode",
+  "Pendências": "Tertunda", "Movimentações": "Mutasi", "Entrada recebida": "Pembayaran diterima", "Conta paga": "Tagihan dibayar", "Receita recebida": "Pendapatan diterima",
   "Ao confirmar: cada cobrança é baixada individualmente — pagamento na auditoria e Entrada no caixa, uma transação por cobrança.": "Saat dikonfirmasi: setiap tagihan dilunasi satu per satu — pembayaran masuk audit dan Pemasukan ke kas, satu transaksi per tagihan.",
   "Algumas baixas falharam — as cobranças não recebidas continuam selecionadas; tente novamente.": "Sebagian pelunasan gagal — tagihan yang belum diterima tetap terpilih; coba lagi.",
   "Recibo": "Kuitansi", "Recibo de pagamento": "Kuitansi pembayaran", "Taxa condominial": "Iuran kondominium",

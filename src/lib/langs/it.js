@@ -187,6 +187,7 @@ export default {
   "Selecionar cobrança": "Seleziona pagamento", "Selecione cobranças do mesmo responsável": "Seleziona pagamenti dello stesso responsabile",
   "selecionada(s)": "selezionato/i", "Limpar seleção": "Cancella selezione", "Selecionar todas deste responsável": "Seleziona tutti di questo responsabile",
   "Receber em lote": "Incassare in blocco", "Recebimento em lote": "Incasso in blocco", "recebida(s)": "ricevuto/i", "competências": "periodi",
+  "Pendências": "In sospeso", "Movimentações": "Movimenti", "Entrada recebida": "Pagamento ricevuto", "Conta paga": "Spesa pagata", "Receita recebida": "Entrata ricevuta",
   "Ao confirmar: cada cobrança é baixada individualmente — pagamento na auditoria e Entrada no caixa, uma transação por cobrança.": "Alla conferma: ogni pagamento viene registrato singolarmente — pagamento nell'audit ed Entrata in cassa, una transazione per pagamento.",
   "Algumas baixas falharam — as cobranças não recebidas continuam selecionadas; tente novamente.": "Alcune registrazioni non sono riuscite — i pagamenti non ricevuti restano selezionati; riprova.",
   "Recibo": "Ricevuta", "Recibo de pagamento": "Ricevuta di pagamento", "Taxa condominial": "Quota condominiale",

@@ -187,6 +187,7 @@ export default {
   "Selecionar cobrança": "Sélectionner le paiement", "Selecione cobranças do mesmo responsável": "Sélectionnez des paiements du même responsable",
   "selecionada(s)": "sélectionné(s)", "Limpar seleção": "Effacer la sélection", "Selecionar todas deste responsável": "Tout sélectionner pour ce responsable",
   "Receber em lote": "Encaisser en lot", "Recebimento em lote": "Encaissement en lot", "recebida(s)": "reçu(s)", "competências": "périodes",
+  "Pendências": "En attente", "Movimentações": "Mouvements", "Entrada recebida": "Paiement reçu", "Conta paga": "Facture payée", "Receita recebida": "Recette reçue",
   "Ao confirmar: cada cobrança é baixada individualmente — pagamento na auditoria e Entrada no caixa, uma transação por cobrança.": "À la confirmation : chaque paiement est réglé individuellement — paiement dans l'audit et Entrée en caisse, une transaction par paiement.",
   "Algumas baixas falharam — as cobranças não recebidas continuam selecionadas; tente novamente.": "Certains règlements ont échoué — les paiements non reçus restent sélectionnés ; réessayez.",
   "Recibo": "Reçu", "Recibo de pagamento": "Reçu de paiement", "Taxa condominial": "Charges de copropriété",

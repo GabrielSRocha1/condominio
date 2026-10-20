@@ -187,6 +187,7 @@ export default {
   "Selecionar cobrança": "भुगतान चुनें", "Selecione cobranças do mesmo responsável": "एक ही ज़िम्मेदार के भुगतान चुनें",
   "selecionada(s)": "चयनित", "Limpar seleção": "चयन हटाएँ", "Selecionar todas deste responsável": "इस ज़िम्मेदार के सभी भुगतान चुनें",
   "Receber em lote": "एक साथ प्राप्त करें", "Recebimento em lote": "सामूहिक प्राप्ति", "recebida(s)": "प्राप्त", "competências": "अवधियाँ",
+  "Pendências": "लंबित", "Movimentações": "लेन-देन", "Entrada recebida": "भुगतान प्राप्त हुआ", "Conta paga": "बिल का भुगतान हुआ", "Receita recebida": "आय प्राप्त हुई",
   "Ao confirmar: cada cobrança é baixada individualmente — pagamento na auditoria e Entrada no caixa, uma transação por cobrança.": "पुष्टि करने पर: हर भुगतान अलग से दर्ज होता है — भुगतान ऑडिट में और राशि कैश में, प्रति भुगतान एक लेन-देन।",
   "Algumas baixas falharam — as cobranças não recebidas continuam selecionadas; tente novamente.": "कुछ प्रविष्टियाँ विफल रहीं — प्राप्त न हुए भुगतान चयनित रहेंगे; फिर से प्रयास करें।",
   "Recibo": "रसीद", "Recibo de pagamento": "भुगतान रसीद", "Taxa condominial": "सोसायटी शुल्क",

@@ -842,6 +842,23 @@ export async function rejeitarPagamentoInformado(informeId, motivo) {
   return data;
 }
 
+/* Feed de movimentações do sino da gestão — consulta LEVE e separada do
+   loadAll (o feed é re-sondado a cada 30 s; recarregar as ~17 queries do
+   loadAll nesse ritmo seria um desperdício). As linhas nascem dos triggers
+   do supabase-notificacoes.sql. Degrada aberto: passo do SQL não rodado ou
+   qualquer erro → null (o sino volta a mostrar só as pendências). */
+export async function listarNotificacoes(condominioId, limite = 30) {
+  try {
+    const { data, error } = await supabase.from("notificacoes")
+      .select("id, evento, titulo, payload, criado_em")
+      .eq("condominio_id", condominioId)
+      .in("evento", ["pagamento.confirmado", "conta.paga", "receita.recebida"])
+      .order("criado_em", { ascending: false })
+      .limit(limite);
+    return error ? null : (data || []);
+  } catch { return null; }
+}
+
 const precisaUsuario = (ctx) => {
   if (!ctx.usuarioId) throw new Error("Nenhum usuário cadastrado no banco (rode o seed).");
   return ctx.usuarioId;

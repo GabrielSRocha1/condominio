@@ -187,6 +187,7 @@ export default {
   "Selecionar cobrança": "تحديد الدفعة", "Selecione cobranças do mesmo responsável": "اختر دفعات لنفس المسؤول",
   "selecionada(s)": "محددة", "Limpar seleção": "مسح التحديد", "Selecionar todas deste responsável": "تحديد كل دفعات هذا المسؤول",
   "Receber em lote": "استلام دفعات معًا", "Recebimento em lote": "استلام جماعي", "recebida(s)": "مستلمة", "competências": "الفترات",
+  "Pendências": "قيد الانتظار", "Movimentações": "الحركات", "Entrada recebida": "تم استلام دفعة", "Conta paga": "تم دفع فاتورة", "Receita recebida": "تم استلام إيراد",
   "Ao confirmar: cada cobrança é baixada individualmente — pagamento na auditoria e Entrada no caixa, uma transação por cobrança.": "عند التأكيد: تُسوَّى كل دفعة على حدة — الدفع في سجل التدقيق والإيراد في الصندوق، معاملة واحدة لكل دفعة.",
   "Algumas baixas falharam — as cobranças não recebidas continuam selecionadas; tente novamente.": "فشلت بعض التسويات — تبقى الدفعات غير المستلمة محددة؛ حاول مجددًا.",
   "Recibo": "إيصال", "Recibo de pagamento": "إيصال الدفع", "Taxa condominial": "رسوم العمارة",

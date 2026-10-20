@@ -187,6 +187,7 @@ export default {
   "Selecionar cobrança": "Tahsilatı seç", "Selecione cobranças do mesmo responsável": "Aynı sorumlunun tahsilatlarını seçin",
   "selecionada(s)": "seçildi", "Limpar seleção": "Seçimi temizle", "Selecionar todas deste responsável": "Bu sorumlunun tüm tahsilatlarını seç",
   "Receber em lote": "Toplu tahsil et", "Recebimento em lote": "Toplu tahsilat", "recebida(s)": "alındı", "competências": "dönemler",
+  "Pendências": "Bekleyenler", "Movimentações": "Hareketler", "Entrada recebida": "Ödeme alındı", "Conta paga": "Fatura ödendi", "Receita recebida": "Gelir alındı",
   "Ao confirmar: cada cobrança é baixada individualmente — pagamento na auditoria e Entrada no caixa, uma transação por cobrança.": "Onayladığınızda: her tahsilat tek tek kapatılır — ödeme denetim kaydına, gelir kasaya işlenir; tahsilat başına bir işlem.",
   "Algumas baixas falharam — as cobranças não recebidas continuam selecionadas; tente novamente.": "Bazı kapanışlar başarısız oldu — alınmayan tahsilatlar seçili kalır; yeniden deneyin.",
   "Recibo": "Makbuz", "Recibo de pagamento": "Ödeme makbuzu", "Taxa condominial": "Aidat",

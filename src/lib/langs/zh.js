@@ -187,6 +187,7 @@ export default {
   "Selecionar cobrança": "选择收费", "Selecione cobranças do mesmo responsável": "请选择同一负责人的收费",
   "selecionada(s)": "项已选", "Limpar seleção": "清除选择", "Selecionar todas deste responsável": "选择该负责人的全部收费",
   "Receber em lote": "批量收款", "Recebimento em lote": "批量收款", "recebida(s)": "笔已收", "competências": "账期",
+  "Pendências": "待处理", "Movimentações": "资金动态", "Entrada recebida": "收到款项", "Conta paga": "账单已付", "Receita recebida": "收到收入",
   "Ao confirmar: cada cobrança é baixada individualmente — pagamento na auditoria e Entrada no caixa, uma transação por cobrança.": "确认后：每笔收费单独核销——付款记入审计，收入进入现金，每笔收费一笔交易。",
   "Algumas baixas falharam — as cobranças não recebidas continuam selecionadas; tente novamente.": "部分核销失败——未收到的收费仍保持选中；请重试。",
   "Recibo": "收据", "Recibo de pagamento": "付款收据", "Taxa condominial": "物业费",

@@ -187,6 +187,7 @@ export default {
   "Selecionar cobrança": "請求を選択", "Selecione cobranças do mesmo responsável": "同じ担当者の請求を選択してください",
   "selecionada(s)": "件選択中", "Limpar seleção": "選択を解除", "Selecionar todas deste responsável": "この担当者の請求をすべて選択",
   "Receber em lote": "まとめて受領", "Recebimento em lote": "一括受領", "recebida(s)": "件受領", "competências": "対象月",
+  "Pendências": "保留中", "Movimentações": "入出金", "Entrada recebida": "入金あり", "Conta paga": "支払い済み", "Receita recebida": "収入あり",
   "Ao confirmar: cada cobrança é baixada individualmente — pagamento na auditoria e Entrada no caixa, uma transação por cobrança.": "確定すると：各請求は個別に消し込まれます — 支払いは監査記録に、収入はレジに入り、請求ごとに1トランザクションです。",
   "Algumas baixas falharam — as cobranças não recebidas continuam selecionadas; tente novamente.": "一部の消し込みに失敗しました — 未受領の請求は選択されたままです。もう一度お試しください。",
   "Recibo": "領収書", "Recibo de pagamento": "支払領収書", "Taxa condominial": "管理費",

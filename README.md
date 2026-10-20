@@ -43,14 +43,22 @@ idiomas, instalável como PWA.
       FR% está embutido na cobrança (Taxa condominial + Fundo de reserva) e
       faz o backfill das cobranças já pagas; sem ele o app funciona e o
       card do fundo soma só os lançamentos manuais da categoria
+   8. `supabase-notificacoes.sql` — o sino da gestão ganha a seção
+      "Movimentações": triggers gravam uma notificação por entrada recebida
+      (baixa manual, lote, Stripe, cripto, receita avulsa) e por conta paga,
+      e o app sonda a cada 30 s; movimentação nova vinda de outra janela
+      também recarrega o painel inteiro (saldo, cards e pendências — não só
+      o sino), então diretor/síndico/tesouraria acompanham sem F5. Sem ele
+      o app funciona e o sino mostra só as pendências
 
    Banco **já instalado**? Não re-rode o schema inteiro — rode apenas o que
    faltar, na ordem: o `alter table usuarios add column if not exists
    preferencias …` que vem logo abaixo do `create table usuarios` (idioma por
    conta), `supabase-seguranca4.sql` e `supabase-seguranca5.sql` ("Esqueci
-   minha senha"), `supabase-encargos.sql`, `supabase-planilhas.sql` e
-   `supabase-fundo-reserva.sql` (passos 5–7 acima — todos idempotentes e com
-   degrade aberto: sem eles o app funciona com o comportamento antigo).
+   minha senha"), `supabase-encargos.sql`, `supabase-planilhas.sql`,
+   `supabase-fundo-reserva.sql` e `supabase-notificacoes.sql` (passos 5–8
+   acima — todos idempotentes e com degrade aberto: sem eles o app funciona
+   com o comportamento antigo).
    Atenção: re-rodar o `supabase-rls.sql` exige re-rodar seguranca 1→5 em
    seguida (ele derruba e recria todas as policies).
 4. **Stripe** — `node scripts/preparar-stripe-producao.mjs --executar` cria
@@ -75,6 +83,7 @@ idiomas, instalável como PWA.
 | `testar-unidades-lote.mjs` | sondas da criação de unidades em lote: faixas, letras (andar espelhado e um por andar) e validações |
 | `testar-receber-lote.mjs` | sondas do recebimento em lote (motor puro): desconto arredondado por item, âncora do mesmo responsável, ordenação e lotes inválidos |
 | `testar-fundo-reserva.mjs` | sondas do fundo de reserva na baixa: divisão taxa + fundo pelo FR% embutido, mora fora do fundo e desconto proporcional (pula se o supabase-fundo-reserva.sql não rodou) |
+| `testar-notificacoes.mjs` | sondas do feed de movimentações do sino (motor puro): os 3 eventos, fallback de evento desconhecido, payload corrompido, contagem/destaque de não-vistas por instante absoluto, hora no fuso local e o topo do feed que dispara o reload entre janelas |
 | `relatorio-seguranca.mjs` | auditoria semanal (sessões, eventos, anomalias) |
 | `emergencia-sessoes.mjs` | resposta a incidente: revoga sessões em massa |
 | `verificar-segredos-bundle.mjs` | confere que nenhum segredo vazou no build |

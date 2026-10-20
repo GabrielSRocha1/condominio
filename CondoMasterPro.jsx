@@ -30,8 +30,10 @@ import {
   carregarPlanilhaCobrancas, salvarPlanilhaCobrancas, salvarColunasPlanilha, atualizarCelulaPlanilha,
   criarLinhaPlanilha, removerLinhaPlanilha, criarCobrancasDaPlanilha, excluirPlanilhaCobrancas,
   obterReciboLote, baixarPdfRecibo, baixarPdfReciboLote, FORMA_ROTULO,
+  listarNotificacoes,
 } from "./src/lib/api.js";
 import { calcularLote, elegivelLote, chaveLote, ordenarLote } from "./src/lib/receber-lote.js";
+import { formatarNotificacao, contarNaoVistas, ehNova, horaCurta, chaveVisto, maisRecente } from "./src/lib/notificacoes.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
 import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado, valorDaColuna, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
@@ -217,6 +219,12 @@ const ONBOARDING_STEPS = [
 const K_ONB = "cm_primeiros_passos"; // { [condominioId]: { welcomed, hidden } } — só estado de UI; conclusão vem dos dados
 const lerOnb = (cid) => { try { return JSON.parse(localStorage.getItem(K_ONB))?.[cid] || {}; } catch { return {}; } };
 const salvarOnb = (cid, patch) => { try { const all = JSON.parse(localStorage.getItem(K_ONB)) || {}; all[cid] = { ...all[cid], ...patch }; localStorage.setItem(K_ONB, JSON.stringify(all)); } catch { /* sem storage */ } };
+
+/* "visto até" do feed de movimentações do sino — { [condId:role]: ISO }.
+   Só estado de leitura, por aparelho; o feed em si vive no banco. */
+const K_VISTO = "cm_notif_visto";
+const lerVisto = (cid, role) => { try { return JSON.parse(localStorage.getItem(K_VISTO))?.[chaveVisto(cid, role)] || null; } catch { return null; } };
+const salvarVisto = (cid, role, iso) => { try { const all = JSON.parse(localStorage.getItem(K_VISTO)) || {}; all[chaveVisto(cid, role)] = iso; localStorage.setItem(K_VISTO, JSON.stringify(all)); } catch { /* sem storage */ } };
 
 /* ══════════════ DADOS (Supabase) ══════════════ */
 const DataCtx = React.createContext(null);
@@ -5609,6 +5617,55 @@ export default function App() {
     return n.filter((x) => NAV.some((nv) => nv.id === x.s && nv.roles.includes(role)));
   }, [db, role, lang]); // lang: os textos passam por L(), então trocar o idioma precisa recalcular
 
+  /* feed de movimentações (entrada recebida / conta paga) — as linhas nascem
+     de triggers no banco (supabase-notificacoes.sql) e chegam por polling de
+     30 s: o client Supabase é recriado a cada renovação de token, então um
+     canal Realtime morreria em silêncio (ver src/lib/supabase.js). `db` nas
+     dependências re-sonda logo após cada reload() — quem registrou a baixa
+     vê a própria movimentação na hora. Sem o SQL rodado, o feed fica null e
+     o sino segue só com as pendências (degrada aberto). */
+  const [feed, setFeed] = useState(null);
+  const [vistoAte, setVistoAte] = useState(null); // ISO do último "abrir o sino"
+  const vistoAntesRef = useRef(null); // visto de ANTES da abertura atual (destaque dos novos)
+  const topoFeedRef = useRef(); // undefined = nunca sondou; null = sondou e estava vazio; ISO = topo já visto
+  useEffect(() => { setVistoAte(lerVisto(condId, role)); topoFeedRef.current = undefined; }, [condId, role]);
+  const roleComFeed = role === "diretor" || role === "sindico" || role === "tesouraria";
+  useEffect(() => {
+    if (!condId || !roleComFeed) { setFeed(null); return; }
+    let vivo = true;
+    const sondar = () => {
+      if (document.hidden) return; // aba em segundo plano não gasta consulta
+      listarNotificacoes(condId).then((f) => {
+        if (!vivo || !f) return;
+        setFeed(f);
+        /* o feed dobra de sinal de mudança: topo avançou = alguém (inclusive
+           outra janela/usuário) registrou movimentação → recarrega o db para
+           saldo, cards, gráfico e pendências acompanharem, não só o sino.
+           A primeira sondagem só memoriza o topo (senão todo login recarregaria). */
+        const topo = maisRecente(f);
+        const anterior = topoFeedRef.current;
+        topoFeedRef.current = topo ?? anterior ?? null;
+        if (anterior !== undefined && topo != null && ehNova(topo, anterior)) reload();
+      });
+    };
+    sondar();
+    const timer = setInterval(sondar, 30_000);
+    document.addEventListener("visibilitychange", sondar); // voltou à aba → sonda na hora
+    return () => { vivo = false; clearInterval(timer); document.removeEventListener("visibilitychange", sondar); };
+  }, [condId, roleComFeed, db, reload]);
+  const movs = useMemo(() => (feed || []).map(formatarNotificacao), [feed]);
+  const naoVistas = contarNaoVistas(feed, vistoAte);
+  const abrirSino = () => {
+    if (!notifOpen) { // abrir marca tudo como visto; o destaque usa o visto anterior
+      vistoAntesRef.current = vistoAte;
+      const agora = new Date().toISOString();
+      salvarVisto(condId, role, agora);
+      setVistoAte(agora);
+    }
+    setNotifOpen((v) => !v);
+  };
+  const totalSino = notifs.length + naoVistas;
+
   /* ── Primeiros passos (onboarding): conclusão derivada do db; só o estado de
      UI (welcomed/hidden) persiste, por condomínio, em localStorage ── */
   const [obOpen, setObOpen] = useState(false);
@@ -5829,25 +5886,42 @@ export default function App() {
               </div>
               <LangSel t={t} lang={lang} onLang={onLang} />
               <div className="relative">
-                <button onClick={() => setNotifOpen((v) => !v)} className="relative rounded-lg p-2" style={{ background: t.surface2 }} title={L("Notificações")}>
-                  <Bell size={16} color={notifs.length ? t.gold : t.dim} />
-                  {notifs.length > 0 && (
+                <button onClick={abrirSino} className="relative rounded-lg p-2" style={{ background: t.surface2 }} title={L("Notificações")}>
+                  <Bell size={16} color={totalSino ? t.gold : t.dim} />
+                  {totalSino > 0 && (
                     <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold"
-                      style={{ background: t.danger, color: "#fff" }}>{notifs.length}</span>)}
+                      style={{ background: t.danger, color: "#fff" }}>{totalSino}</span>)}
                 </button>
                 {notifOpen && (<>
                   <div className="fixed inset-0 z-30" onClick={() => setNotifOpen(false)} />
-                  <div className="absolute right-0 z-40 mt-2 w-80 max-w-[85vw] rounded-2xl border p-2 shadow-xl" style={{ background: t.surface, borderColor: t.border }}>
+                  <div className="absolute right-0 z-40 mt-2 max-h-[70vh] w-80 max-w-[85vw] overflow-y-auto rounded-2xl border p-2 shadow-xl" style={{ background: t.surface, borderColor: t.border }}>
                     <div className="px-2 py-1.5 text-xs font-semibold" style={{ color: t.dim, fontFamily: "'Sora',sans-serif" }}>{L("NOTIFICAÇÕES")}</div>
-                    {notifs.length === 0 ? (
-                      <div className="px-2 py-3 text-xs" style={{ color: t.dim }}>{L("Nenhuma notificação — tudo em dia!")}</div>
-                    ) : notifs.map((n, i) => (
-                      <button key={i} onClick={() => { go(n.s); setNotifOpen(false); }}
-                        className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left hover:opacity-80">
-                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: t[n.c] }} />
-                        <span className="min-w-0 flex-1 text-xs">{n.txt}</span>
-                        <ChevronRight size={13} color={t.dim} />
-                      </button>))}
+                    {notifs.length === 0 && movs.length === 0 && (
+                      <div className="px-2 py-3 text-xs" style={{ color: t.dim }}>{L("Nenhuma notificação — tudo em dia!")}</div>)}
+                    {notifs.length > 0 && (<>
+                      <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: t.dim }}>{L("Pendências")}</div>
+                      {notifs.map((n, i) => (
+                        <button key={i} onClick={() => { go(n.s); setNotifOpen(false); }}
+                          className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left hover:opacity-80">
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: t[n.c] }} />
+                          <span className="min-w-0 flex-1 text-xs">{n.txt}</span>
+                          <ChevronRight size={13} color={t.dim} />
+                        </button>))}
+                    </>)}
+                    {movs.length > 0 && (<>
+                      <div className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide" style={{ color: t.dim }}>{L("Movimentações")}</div>
+                      {movs.slice(0, 15).map((m) => (
+                        <button key={m.id} onClick={() => { go(m.tela); setNotifOpen(false); }}
+                          className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left hover:opacity-80"
+                          style={ehNova(m.quando, vistoAntesRef.current) ? { background: t.goldSoft } : undefined}>
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: t[m.cor] }} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-xs">{m.chave ? L(m.chave) : m.detalhe}{m.chave && m.detalhe ? ` — ${m.detalhe}` : ""}</span>
+                            <span className="block text-[10px]" style={{ color: t.dim }}>{m.valor != null ? `${BRL(m.valor)} · ` : ""}{horaCurta(m.quando)}</span>
+                          </span>
+                          <ChevronRight size={13} color={t.dim} />
+                        </button>))}
+                    </>)}
                   </div>
                 </>)}
               </div>

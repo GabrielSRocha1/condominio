@@ -187,6 +187,7 @@ export default {
   "Selecionar cobrança": "청구 선택", "Selecione cobranças do mesmo responsável": "같은 담당자의 청구만 선택하세요",
   "selecionada(s)": "건 선택됨", "Limpar seleção": "선택 해제", "Selecionar todas deste responsável": "이 담당자의 청구 모두 선택",
   "Receber em lote": "일괄 수금", "Recebimento em lote": "일괄 수금", "recebida(s)": "건 수금됨", "competências": "귀속월",
+  "Pendências": "대기 중", "Movimentações": "입출금", "Entrada recebida": "입금 완료", "Conta paga": "지출 완료", "Receita recebida": "수입 입금",
   "Ao confirmar: cada cobrança é baixada individualmente — pagamento na auditoria e Entrada no caixa, uma transação por cobrança.": "확인 시: 각 청구는 개별 처리됩니다 — 결제는 감사 기록에, 수입은 현금으로 들어가며 청구마다 한 건의 트랜잭션입니다.",
   "Algumas baixas falharam — as cobranças não recebidas continuam selecionadas; tente novamente.": "일부 처리가 실패했습니다 — 수금되지 않은 청구는 선택된 상태로 남습니다. 다시 시도하세요.",
   "Recibo": "영수증", "Recibo de pagamento": "납부 영수증", "Taxa condominial": "관리비",
