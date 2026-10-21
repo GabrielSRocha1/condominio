@@ -6,6 +6,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { semCuringas } from "../api/_lib/validar.js";
 
 const env = Object.fromEntries(
   readFileSync(new URL("../.env", import.meta.url), "utf8").split(/\r?\n/)
@@ -101,6 +102,46 @@ const { data: uDepois } = await admin.from("usuarios").select("senha_hash").eq("
 ok("hash migrado para scrypt no login", uDepois?.senha_hash?.startsWith("s2$"), uDepois?.senha_hash?.slice(0, 6));
 const TOKEN_SINDICO = lgLeg.corpo.token;
 
+/* ══ 2b · curingas no login por nome (morador) ══
+   % e _ são curingas do ILIKE (e * é apelido de % no PostgREST): sem o
+   semCuringas(), nome "%" casaria TODAS as contas de morador do banco e a
+   senha seria testada contra cada uma — spraying numa request só. */
+console.log("\n━━ curingas no login por nome ━━");
+ok("semCuringas neutraliza % _ \\ e remove *",
+  semCuringas("Jo%_o*\\") === "Jo\\%\\_o\\\\" && semCuringas("%") === "\\%");
+
+const nomeSonda = `Sonda Curinga ${Date.now()}`;
+const { data: pCur, error: ePCur } = await admin.from("pessoas").insert({
+  condominio_id: COND, nome: nomeSonda, tipo_pessoa: "fisica", cpf_cnpj: `P-cur-${Date.now() % 1e9}`,
+}).select("id").single();
+if (ePCur) { console.error("não criou a pessoa da sonda de curinga:", ePCur.message); process.exit(1); }
+const { data: uCur, error: eUCur } = await admin.from("usuarios").insert({
+  email: `curinga.${Date.now()}@teste.condomaster.dev`, pessoa_id: pCur.id,
+  senha_hash: createHash("sha256").update(SENHA).digest("hex"),
+}).select("id").single();
+if (eUCur) { console.error("não criou o usuário da sonda de curinga:", eUCur.message); process.exit(1); }
+const { data: perfilMor } = await admin.from("perfis").select("id").eq("nome", "morador").single();
+await admin.from("usuario_perfis").insert({ usuario_id: uCur.id, condominio_id: COND, perfil_id: perfilMor.id });
+
+const w1 = await post("auth/login", { perfil: "morador", nome: nomeSonda, senha: SENHA });
+ok("morador loga pelo nome exato", w1.http === 200, `${w1.http}`);
+const w2 = await post("auth/login", { perfil: "morador", nome: "%", senha: SENHA });
+ok('nome "%" (casaria todas as contas) → 401', w2.http === 401, `${w2.http}`);
+const w3 = await post("auth/login", { perfil: "morador", nome: nomeSonda.slice(0, -1) + "_", senha: SENHA });
+ok('nome com "_" no lugar do último caractere → 401', w3.http === 401, `${w3.http}`);
+const w4 = await post("auth/login", { perfil: "morador", nome: nomeSonda.slice(0, 8) + "%", senha: SENHA });
+ok('prefixo do nome + "%" → 401', w4.http === 401, `${w4.http}`);
+
+/* limpeza — chaves de lockout por lista EXATA (nada de .like: o banco é
+   compartilhado e apagaria bloqueios reais de morador) */
+await admin.from("auth_protecao").delete().in("chave",
+  ["%", (nomeSonda.slice(0, -1) + "_").toLowerCase(), (nomeSonda.slice(0, 8) + "%").toLowerCase()]
+    .map((i) => `login:morador:${i}`));
+await admin.from("usuario_perfis").delete().eq("usuario_id", uCur.id);
+await admin.from("auth_sessoes").delete().eq("usuario_id", uCur.id).then(() => {}, () => {});
+await admin.from("usuarios").delete().eq("id", uCur.id);
+await admin.from("pessoas").delete().eq("id", pCur.id);
+
 /* ══ 3 · refresh token (rotação + reuso + logout) ══ */
 console.log("\n━━ refresh token ━━");
 if (!sqlAplicado || !lg.refreshCookie) {
@@ -110,10 +151,22 @@ if (!sqlAplicado || !lg.refreshCookie) {
   const c1 = `cm_refresh=${lg.refreshCookie}`;
   const r1 = await post("auth/refresh", undefined, { cookie: c1 });
   ok("refresh devolve token novo + cookie rotacionado", r1.http === 200 && !!r1.corpo.token && !!r1.refreshCookie && r1.refreshCookie !== lg.refreshCookie);
+
+  /* reuso IMEDIATO = corrida benigna (duas abas, timers da suspensão —
+     REUSO_GRACA_MS de 30 s): nega sem punir, a família sobrevive. Só o
+     replay TARDIO é roubo e derruba a cadeia — simulado aqui com backdate
+     do usado_em via admin, para a sonda não dormir 30 s. */
   const r2 = await post("auth/refresh", undefined, { cookie: c1 });
-  ok("REUSO do cookie antigo → 401 (roubo detectado)", r2.http === 401, `${r2.http}`);
-  const r3 = await post("auth/refresh", undefined, { cookie: `cm_refresh=${r1.refreshCookie}` });
-  ok("família inteira revogada após o reuso", r3.http === 401, `${r3.http}`);
+  ok("REUSO imediato do cookie antigo → 401 (corrida benigna)", r2.http === 401, `${r2.http}`);
+  const r2b = await post("auth/refresh", undefined, { cookie: `cm_refresh=${r1.refreshCookie}` });
+  ok("família SOBREVIVE à corrida benigna (cookie vivo segue válido)", r2b.http === 200, `${r2b.http}`);
+  const { data: uDir } = await admin.from("usuarios").select("id").eq("email", EMAIL_DIRETOR).single();
+  await admin.from("auth_sessoes").update({ usado_em: new Date(Date.now() - 31_000).toISOString() })
+    .eq("usuario_id", uDir.id).not("usado_em", "is", null);
+  const r2c = await post("auth/refresh", undefined, { cookie: c1 });
+  ok("replay TARDIO (fora da graça de 30 s) → 401", r2c.http === 401, `${r2c.http}`);
+  const r3 = await post("auth/refresh", undefined, { cookie: `cm_refresh=${r2b.refreshCookie}` });
+  ok("família inteira revogada após o replay tardio", r3.http === 401, `${r3.http}`);
 
   const lg2 = await post("auth/login", { perfil: "diretor", email: EMAIL_DIRETOR, senha: SENHA });
   const rOrigem = await post("auth/refresh", undefined, { cookie: `cm_refresh=${lg2.refreshCookie}`, origin: "https://site-malicioso.dev" });

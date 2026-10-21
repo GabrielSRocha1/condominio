@@ -9,10 +9,10 @@ ficam inertes (com aviso no log do servidor).
 | Camada | Onde | O que garante |
 |---|---|---|
 | RLS por condomínio | `supabase-rls.sql` | navegador só enxerga o próprio prédio; `senha_hash` invisível; `usuarios`/`usuario_perfis` só via backend |
-| JWT curto + refresh | `api/_lib/seguranca.js` + `auth_sessoes` | acesso de 1h; cookie HttpOnly SameSite=Strict com rotação; reuso = roubo detectado → família revogada |
+| JWT curto + refresh | `api/_lib/seguranca.js` + `auth_sessoes` | acesso de 1h; cookie HttpOnly SameSite=Strict com rotação; reuso TARDIO (> 30 s) = roubo → família revogada; reuso imediato = corrida benigna de abas, só nega |
 | Senhas | scrypt+salt (`s2$…`) | legado SHA-256 aceito e migrado no login; mínimo 8 caracteres |
 | Força bruta | `auth_protecao` (RPC `registrar_tentativa`) | lockout por conta/IP no login; limites no registro, cripto on-chain e endpoints Stripe |
-| Validação | `api/_lib/validar.js` | deny-by-default em todo payload: UUID/enum/limites, campos desconhecidos descartados |
+| Validação | `api/_lib/validar.js` | deny-by-default em todo payload: UUID/enum/limites, campos desconhecidos descartados; curingas de ILIKE (`% _ *`) neutralizados em filtro com valor do usuário (`semCuringas` — login/recuperação de morador por nome) |
 | Idempotência | `api_idempotencia` + header `Idempotency-Key` | retry de rede nunca duplica pagamento/informe; chave repassada à Stripe |
 | Origem estrita | `origemBloqueada()` | POSTs que escrevem exigem Origin do próprio host ou de `APP_ORIGINS` (nunca wildcard) |
 | CSP/headers | `vercel.json` | `default-src 'self'`, frame-ancestors none, HSTS, nosniff; câmera liberada só para o QR da portaria |
@@ -31,7 +31,7 @@ todas as policies antes de recriar as suas.)
 
 | Script | Para quê |
 |---|---|
-| `scripts/testar-seguranca.mjs` | sondas da Etapa 1 (23): auth, lockout, refresh, RLS |
+| `scripts/testar-seguranca.mjs` | sondas da Etapa 1 (30): auth, lockout, curingas do ILIKE, refresh, RLS |
 | `scripts/testar-seguranca2.mjs` | sondas da Etapa 2 (14): origem, idempotência, redação |
 | `scripts/testar-seguranca3.mjs` | pentest: isolamento entre condomínios, fuzzing, auditoria |
 | `scripts/testar-recuperacao.mjs` | sondas da Etapa 4: recuperação de senha por código |

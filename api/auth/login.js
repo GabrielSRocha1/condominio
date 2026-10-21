@@ -11,7 +11,7 @@
      rotação em /api/auth/refresh);
    · payload validado deny-by-default. */
 import { createClient } from "@supabase/supabase-js";
-import { corpoValidado } from "../_lib/validar.js";
+import { corpoValidado, semCuringas } from "../_lib/validar.js";
 import {
   assinarToken, verificarSenha, migrarSenhaSeLegada, emitirRefresh,
   limitar, limparLimite, ipDoRequest, origemBloqueada, logSeguro, auditar,
@@ -91,11 +91,14 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: "Credenciais incorretas." });
     };
 
-    /* morador entra pelo nome cadastrado em Gerenciar Acessos */
+    /* morador entra pelo nome cadastrado em Gerenciar Acessos. O nome é
+       identificador, não busca: semCuringas() faz o ILIKE ser comparação
+       exata (case-insensitive) — sem isso, nome "%" testaria a senha
+       contra TODAS as contas de morador numa request só. */
     if (f.perfil === "morador") {
       const buscar = (pref) => supabase.from("usuarios")
         .select(`id, senha_hash, ${pref}pessoas!inner(nome, pessoa_vinculos(papel, unidade_id, unidades(numero, blocos(nome)))), usuario_perfis(condominio_id, perfis(nome))`)
-        .ilike("pessoas.nome", f.nome || "");
+        .ilike("pessoas.nome", semCuringas(f.nome));
       let { data: rows, error } = await buscar("preferencias, ");
       if (semColunaPreferencias(error)) ({ data: rows, error } = await buscar(""));
       if (error) throw new Error(error.message);

@@ -16,7 +16,7 @@
      não rodado) responde 503 sem derrubar nada. */
 import { createClient } from "@supabase/supabase-js";
 import { timingSafeEqual } from "crypto";
-import { corpoValidado } from "../_lib/validar.js";
+import { corpoValidado, semCuringas } from "../_lib/validar.js";
 import {
   gerarHashSenha, sha256Hex, limitar, limparLimite, ipDoRequest,
   origemBloqueada, logSeguro, auditar,
@@ -87,12 +87,13 @@ export default async function handler(req, res) {
     const hash = sha256Hex(normalizarCodigo(f.codigo));
 
     /* localiza a conta e o código que bate — morador pode ter homônimos,
-       então o código é quem desambigua (mesma lógica da senha no login) */
+       então o código é quem desambigua (mesma lógica da senha no login).
+       semCuringas(): nome é identificador — ILIKE exato, nunca busca parcial */
     let usuarioId = null, nomeConta = null, condominioId = null, codigo = null;
     if (f.perfil === "morador") {
       const { data: rows, error } = await supabase.from("usuarios")
         .select("id, pessoas!inner(nome), usuario_perfis(condominio_id, perfis(nome))")
-        .ilike("pessoas.nome", f.nome || "");
+        .ilike("pessoas.nome", semCuringas(f.nome));
       if (error) throw new Error(error.message);
       for (const r of rows || []) {
         const vinc = (r.usuario_perfis || []).find((up) => up.perfis?.nome === "morador");

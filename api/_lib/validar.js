@@ -80,3 +80,12 @@ export function corpoValidado(res, corpo, esquema) {
   if (!r.ok) { res.status(400).json({ error: r.erro }); return null; }
   return r.dados;
 }
+
+/* Neutraliza curingas de LIKE/ILIKE em valor vindo do usuário: % e _ são
+   padrões do SQL (e o PostgREST trata * como apelido de %), então um nome
+   com "%" viraria busca parcial em vez de identidade. Escapa \ % _ e
+   remove * (o PostgREST não tem escape para ele) — o filtro resultante é
+   comparação exata case-insensitive. */
+export function semCuringas(texto) {
+  return String(texto || "").replace(/\*/g, "").replace(/([\\%_])/g, "\\$1");
+}
