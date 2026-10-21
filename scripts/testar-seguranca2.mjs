@@ -5,6 +5,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { assinarToken } from "../api/_lib/seguranca.js";
 
 const env = Object.fromEntries(
   readFileSync(new URL("../.env", import.meta.url), "utf8").split(/\r?\n/)
@@ -119,6 +120,35 @@ ok("JWT redigido", !capturado.includes("eyJhbGciOiJIUzI1NiJ9"), "");
 ok("chave Stripe redigida", !capturado.includes("sk_test_abc123XYZ"));
 ok("segredo de webhook redigido", !capturado.includes("whsec_topsecret"));
 ok("cookie de refresh redigido", !capturado.includes("tokenzao"));
+
+/* ══ 4 · encoding contextual (impressão de multa) ══
+   único sink de HTML manual do app: o document.write do timbrado. O esc()
+   precisa escapar TAMBÉM aspas — logoUrl entra em atributo src="…" e uma
+   aspa sem &quot; escaparia do atributo (injeção de handler = XSS). */
+console.log("\n━━ encoding da impressão ━━");
+const jsx = readFileSync(new URL("../CondoMasterPro.jsx", import.meta.url), "utf8");
+const mEsc = jsx.match(/const esc = (\(s\) => String\(s \|\| ""\)[^\n]*);/);
+const escFn = mEsc ? eval(mEsc[1]) : null;
+ok('esc() escapa & < > e aspas (contexto de atributo src="…")',
+  !!escFn && escFn('"<x>&') === "&quot;&lt;x&gt;&amp;",
+  escFn ? escFn('"<x>&') : "esc() não encontrado no CondoMasterPro.jsx");
+
+/* ══ 5 · rate limit da criação de condomínio ══
+   o token pré-condomínio (condominio_id nulo) vale 1h — sem limite, replays
+   criariam condomínios sem fim. A sonda usa uma conta FANTASMA: o limitador
+   responde antes da busca do usuário, então nada é criado no banco. */
+console.log("\n━━ rate limit do condomínio ━━");
+const subSonda = randomUUID();
+const tokenPre = assinarToken({ sub: subSonda, email: "sonda.condominio@teste.condomaster.dev",
+  nome: "Sonda", perfil: "diretor", condominio_id: null }, env.SUPABASE_JWT_SECRET);
+const corpoCond = { nome: "Sonda Cond", cnpj: "11.111.111/0001-11", cpf: "111.111.111-11", endereco: "Rua X, 1" };
+const c5a = await post("auth/condominio", corpoCond, { token: tokenPre });
+ok("1ª chamada passa do limitador (401: conta fantasma não existe)", c5a.http === 401, `${c5a.http}`);
+for (let i = 0; i < 5; i++)
+  await admin.rpc("registrar_tentativa", { p_chave: `condominio:${subSonda}`, p_janela_seg: 3600, p_max: 5, p_bloqueio_seg: 3600 });
+const c5b = await post("auth/condominio", corpoCond, { token: tokenPre });
+ok("balde estourado → 429 (nada criado)", c5b.http === 429, `${c5b.http}`);
+await admin.from("auth_protecao").delete().eq("chave", `condominio:${subSonda}`);
 
 console.log(falhas
   ? `\n❌ ${falhas} sonda(s) falharam${puladas ? ` · ${puladas} pulada(s)` : ""}`

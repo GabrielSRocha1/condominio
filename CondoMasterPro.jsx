@@ -3663,7 +3663,9 @@ function Multas({ t, role }) {
     const c = db.cond || {};
     const w = window.open("", "_blank", "width=800,height=900");
     if (!w) { alert(L("Libere pop-ups do site para imprimir o documento.")); return; }
-    const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    /* aspas também: logoUrl entra em atributo src="…" — sem &quot; um valor
+       com aspa escaparia do atributo e injetaria handlers (XSS na impressão) */
+    const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${m.valor > 0 ? "Multa" : "Advertência"} ${esc(m.num)}</title>
       <style>body{font-family:Georgia,'Times New Roman',serif;background:#fff;color:#1A1A1A;margin:48px auto;max-width:640px;line-height:1.6}
       .topo{display:flex;align-items:center;gap:14px;border-bottom:2px solid #D4AF37;padding-bottom:14px}

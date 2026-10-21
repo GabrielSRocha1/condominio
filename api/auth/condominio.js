@@ -8,7 +8,7 @@
    o condomínio novo (a sessão antiga, sem condomínio, é revogada). */
 import { createClient } from "@supabase/supabase-js";
 import { corpoValidado } from "../_lib/validar.js";
-import { assinarToken, lerClaimsReq, emitirRefresh, revogarRefresh, origemBloqueada, logSeguro, auditar, ipDoRequest } from "../_lib/seguranca.js";
+import { assinarToken, lerClaimsReq, emitirRefresh, revogarRefresh, origemBloqueada, logSeguro, auditar, ipDoRequest, limitar } from "../_lib/seguranca.js";
 import { resolverGeo } from "../_lib/geo.js";
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
@@ -42,6 +42,14 @@ export default async function handler(req, res) {
       plano:    { tipo: "texto", max: 80 },
     });
     if (!f) return;
+
+    /* anti-spam: o token pré-condomínio vale 1h com condominio_id nulo —
+       sem limite, replays dele criariam condomínios (e assinaturas) sem fim */
+    const ritmo = await limitar(supabase, `condominio:${claims.sub}`,
+      { janelaSeg: 60 * 60, max: 5, bloqueioSeg: 60 * 60 });
+    if (ritmo.bloqueado)
+      return res.status(429).json({ error: "Muitos condomínios criados — tente mais tarde." });
+
     const TIPO = { Residencial: "residencial", Comercial: "comercial", Misto: "misto" };
     const PORTE = { "Alto padrão": "alto", "Médio padrão": "medio", "Baixo padrão": "baixo" };
 
