@@ -68,13 +68,26 @@ export default async function handler(req, res) {
       endereco: { texto: f.endereco }, tipo: TIPO[f.tipo] || "residencial", porte: PORTE[f.porte] || "medio",
       regras_internas: { moeda: geo.moeda || "USD", pais: geo.pais || "" },
     }).select().single();
+    /* `condominios.cnpj` é UNIQUE. O erro mais comum aqui não é falha de
+       sistema — é prédio já cadastrado — e virava um 500 "Erro ao criar o
+       condomínio", que não dizia nada a quem estava na tela. */
+    if (e1?.code === "23505")
+      return res.status(409).json({ error:
+        "Já existe um condomínio cadastrado com este documento. Se ele é o seu, peça um acesso ao diretor atual (tela Gerenciar Acessos); se o documento saiu errado, corrija e tente de novo." });
     if (e1) throw new Error(e1.message);
 
     const { data: pessoa, error: e2 } = await supabase.from("pessoas").insert({
       condominio_id: cond.id, nome: claims.nome || "Diretor", tipo_pessoa: "fisica",
       cpf_cnpj: f.cpf, email: usuario.email,
     }).select().single();
-    if (e2) throw new Error(e2.message);
+    /* falhar DEPOIS do condomínio criado deixava um órfão — e, com ele, o
+       documento QUEIMADO na unique: a tentativa seguinte caía no 409 acima
+       sem que nenhum condomínio utilizável existisse. Desfaz e devolve. */
+    if (e2) {
+      await supabase.from("condominios").delete().eq("id", cond.id)
+        .then(() => {}, () => {}); // melhor esforço: o erro de baixo é o que importa
+      throw new Error(e2.message);
+    }
 
     await supabase.from("pessoa_vinculos").insert({
       condominio_id: cond.id, pessoa_id: pessoa.id, papel: "diretor",
