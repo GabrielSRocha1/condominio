@@ -19,7 +19,7 @@ import {
 import { carregarPerms } from "../_lib/permissoes.js";
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
-const PERFIS = ["diretor", "sindico", "tesouraria", "morador", "administradora"];
+const PERFIS = ["diretor", "administrador_predial", "sindico", "tesouraria", "morador", "administradora"];
 const LOCK = { janelaSeg: 15 * 60, max: 5, bloqueioSeg: 15 * 60 };       // por conta
 const LOCK_IP = { janelaSeg: 15 * 60, max: 30, bloqueioSeg: 15 * 60 };   // por IP (várias contas)
 

@@ -170,7 +170,7 @@ if (temFila.error || !perfilAdm) {
   const limpar = async () => {
     await admin.from("alteracoes_pendentes").delete().eq("condominio_id", COND).like("resumo", `${MARCA}%`);
     await admin.from("blocos").delete().eq("condominio_id", COND).like("nome", `${MARCA}%`);
-    await admin.from("acessos_portaria").delete().eq("condominio_id", COND).like("visitante", `${MARCA}%`);
+    await admin.from("acessos_portaria").delete().eq("condominio_id", COND).like("pessoa_nome", `${MARCA}%`);
   };
 
   try {
@@ -261,15 +261,16 @@ if (temFila.error || !perfilAdm) {
       /* 8 · portaria NÃO espera: o visitante está no portão */
       const visitante = `${MARCA} visitante`;
       const rPort = await app.from("acessos_portaria").insert({
-        condominio_id: COND, visitante, tipo: "visitante", entrada: new Date().toISOString(),
+        condominio_id: COND, pessoa_nome: visitante, tipo: "entrada",
+        registrado_por: usuarioAdm, ocorrido_em: new Date().toISOString(),
       }).select();
       const { count: naPortaria } = await admin.from("acessos_portaria")
-        .select("*", { count: "exact", head: true }).eq("condominio_id", COND).eq("visitante", visitante);
-      if (rPort.error && /column|schema cache/i.test(rPort.error.message))
-        pula(NOMES_B[7], `acessos_portaria com outro formato: ${rPort.error.message.slice(0, 50)}`);
-      else
-        ok(NOMES_B[7], !rPort.error && (naPortaria || 0) === 1,
-          rPort.error ? rPort.error.message.slice(0, 60) : "entrou direto, sem fila");
+        .select("*", { count: "exact", head: true }).eq("condominio_id", COND).eq("pessoa_nome", visitante);
+      const { count: naFila } = await admin.from("alteracoes_pendentes")
+        .select("*", { count: "exact", head: true }).eq("condominio_id", COND).eq("tabela", "acessos_portaria");
+      ok(NOMES_B[7], !rPort.error && (naPortaria || 0) === 1 && (naFila || 0) === 0,
+        rPort.error ? rPort.error.message.slice(0, 70)
+          : `na portaria: ${naPortaria} · na fila: ${naFila} (tem de ser 0)`);
     }
   } finally {
     await limpar();

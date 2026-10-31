@@ -686,7 +686,7 @@ function Login({ t, onEnter, dark, setDark, lang, onLang, aviso }) {
   const [posLogin, setPosLogin] = useState(null); // { args, codigo } — sugestão de código após entrar
   const [copiadoCod, setCopiadoCod] = useState(false);
   const [linkEnviado, setLinkEnviado] = useState(false); // "Esqueci" por e-mail: pedido enviado
-  const linkPorEmail = role === "diretor" || role === "sindico"; // Etapa 5: recuperação por link no e-mail
+  const linkPorEmail = ["diretor", "administrador_predial", "sindico"].includes(role); // Etapa 5: recuperação por link no e-mail
 
   /* Entrou: o idioma guardado na conta passa a valer neste aparelho. Quem
      acabou de trocar no seletor aqui na tela de login não perde a escolha —

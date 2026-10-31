@@ -46,7 +46,7 @@ export default async function handler(req, res) {
 
   try {
     const f = corpoValidado(res, typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {}), {
-      perfil: { tipo: "enum", valores: ["diretor", "sindico"], obrigatorio: true },
+      perfil: { tipo: "enum", valores: ["diretor", "administrador_predial", "sindico"], obrigatorio: true },
       email:  { tipo: "email", obrigatorio: true },
     });
     if (!f) return;

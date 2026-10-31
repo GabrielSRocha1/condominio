@@ -28,8 +28,8 @@ export default async function handler(req, res) {
 
   const claims = lerClaimsReq(req);
   if (!claims?.sub) return res.status(401).json({ error: "Entre novamente para gerar o código." });
-  if (claims.perfil === "diretor" || claims.perfil === "sindico")
-    return res.status(403).json({ error: "Diretor e síndico recuperam a senha por link enviado ao e-mail — o código vale só para tesouraria e morador." });
+  if (["diretor", "administrador_predial", "sindico"].includes(claims.perfil))
+    return res.status(403).json({ error: "Diretor, administrador e síndico recuperam a senha por link enviado ao e-mail — o código vale só para tesouraria e morador." });
   if (origemBloqueada(req, res)) return;
   const supabase = createClient(envVal("SUPABASE_URL") || process.env.VITE_SUPABASE_URL, serviceKey);
 
