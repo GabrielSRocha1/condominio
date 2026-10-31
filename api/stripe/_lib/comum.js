@@ -21,16 +21,62 @@ export const stripeClient = () => {
 
 export const corpoJson = (req) => (typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {}));
 
-/* corpo bruto para validar a assinatura do webhook (stripe-signature exige o
-   payload exato). Em dev o plugin apiDev já injeta req.body como string. */
+/* corpo BRUTO para validar a assinatura do webhook: a Stripe assina os bytes
+   exatos que enviou. Em dev o plugin apiDev injeta req.body como string.
+
+   Aqui morava o bug que derrubou o webhook live: quando a plataforma entrega
+   o corpo já PARSEADO, o código reconstruía os bytes com JSON.stringify — e
+   o resultado não é igual ao original (1.0 volta como 1, espaço entre
+   campos some, escape de unicode muda). A assinatura então nunca conferia e
+   todo evento real levava 401. Devolver `null` é a resposta honesta: os
+   bytes se perderam, e quem chama decide o que fazer (ver autenticarEvento).
+
+   A leitura do stream também passa a acumular BUFFERS: com `data += chunk`,
+   um caractere multibyte partido entre dois chunks era corrompido na
+   conversão de cada pedaço — invisível em payload pequeno, certeiro nos
+   grandes. */
 export const lerCorpoBruto = (req) =>
   new Promise((resolve, reject) => {
-    if (req.body !== undefined) return resolve(typeof req.body === "string" ? req.body : JSON.stringify(req.body));
-    let data = "";
-    req.on("data", (c) => (data += c));
-    req.on("end", () => resolve(data));
+    if (Buffer.isBuffer(req.rawBody)) return resolve(req.rawBody.toString("utf8"));
+    if (typeof req.rawBody === "string") return resolve(req.rawBody);
+    if (Buffer.isBuffer(req.body)) return resolve(req.body.toString("utf8"));
+    if (typeof req.body === "string") return resolve(req.body);
+    if (req.body !== undefined) return resolve(null); // já parseado: bytes perdidos
+    const partes = [];
+    req.on("data", (c) => partes.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+    req.on("end", () => resolve(Buffer.concat(partes).toString("utf8")));
     req.on("error", reject);
   });
+
+/* ── autenticação do evento de webhook ──
+   Caminho normal: assinatura da Stripe sobre o corpo bruto.
+   Caminho de contingência (corpo bruto indisponível — a Vercel parseia o
+   corpo em função Node avulsa, onde `export const config = { api: {
+   bodyParser: false } }` é convenção do Next e não tem efeito): a
+   autenticidade vem da PRÓPRIA Stripe — busca-se o evento pelo id com a
+   nossa chave secreta e usa-se o objeto que ela devolver, nunca o do corpo.
+   Um id forjado não existe lá; um id real reenviado é inofensivo, porque os
+   handlers sincronizam do estado vivo da assinatura, não do delta. */
+const ID_EVENTO = /^evt_[A-Za-z0-9]{8,64}$/;
+
+export async function autenticarEvento({ stripe, req, secret, corpo }) {
+  if (corpo != null) {
+    try {
+      return { event: stripe.webhooks.constructEvent(corpo, req.headers["stripe-signature"], secret) };
+    } catch (e) {
+      return { erro: `Assinatura inválida: ${e.message}` };
+    }
+  }
+  const parseado = req.body && typeof req.body === "object" ? req.body : null;
+  const id = String(parseado?.id || "");
+  if (!ID_EVENTO.test(id)) return { erro: "Sem corpo bruto e sem id de evento utilizável." };
+  /* evento de conta conectada precisa ser lido no contexto dela */
+  const opcoes = parseado.account ? { stripeAccount: parseado.account } : undefined;
+  const event = await stripe.events.retrieve(id, {}, opcoes).catch(() => null);
+  if (!event) return { erro: "Evento não confirmado pela Stripe." };
+  console.warn(`[stripe] corpo bruto indisponível — evento ${id} autenticado por consulta à Stripe.`);
+  return { event, porConsulta: true };
+}
 
 /* claims do JWT caseiro (mesmo formato assinado em api/auth/*) — null se
    ausente/expirado/adulterado. Todos os endpoints Stripe exigem sessão. */

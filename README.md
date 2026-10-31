@@ -118,6 +118,7 @@ idiomas, instalável como PWA.
 | `testar-fundo-reserva.mjs` | sondas do fundo de reserva na baixa: divisão taxa + fundo pelo FR% embutido, mora fora do fundo e desconto proporcional (pula se o supabase-fundo-reserva.sql não rodou) |
 | `testar-notificacoes.mjs` | sondas do feed de movimentações do sino (motor puro): os 3 eventos, fallback de evento desconhecido, payload corrompido, contagem/destaque de não-vistas por instante absoluto, hora no fuso local e o topo do feed que dispara o reload entre janelas |
 | `testar-permissoes.mjs` | sondas da matriz de permissões: catálogo, padrão que reproduz o comportamento pré-matriz, override que SUBSTITUI (e zera) o padrão, paridade JS ≡ SQL ≡ NAV e, com banco, policies por permissão + gatilho de aprovação + blindagem da própria matriz (bloco B pula se o supabase-permissoes.sql não rodou) |
+| `testar-webhook-stripe.mjs` | sondas da autenticação dos webhooks da Stripe: corpo bruto preservado byte a byte (inclusive multibyte partido entre chunks), recusa de corpo re-serializado e a contingência que confirma o evento na própria Stripe quando a plataforma já parseou o corpo |
 | `relatorio-seguranca.mjs` | auditoria semanal (sessões, eventos, anomalias) |
 | `emergencia-sessoes.mjs` | resposta a incidente: revoga sessões em massa |
 | `verificar-segredos-bundle.mjs` | confere que nenhum segredo vazou no build |

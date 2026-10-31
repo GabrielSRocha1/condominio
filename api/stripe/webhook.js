@@ -5,7 +5,7 @@
    Eventos de cobranças condominiais chegam no endpoint Connect separado
    (/api/stripe/webhook-connect). Registro: scripts/preparar-stripe-producao.mjs.
    Teste local: stripe listen --forward-to localhost:5173/api/stripe/webhook */
-import { stripeClient, supabaseAdmin, envVal, lerCorpoBruto, sincronizarLicenca, condominioDaSub } from "./_lib/comum.js";
+import { stripeClient, supabaseAdmin, envVal, lerCorpoBruto, autenticarEvento, sincronizarLicenca, condominioDaSub } from "./_lib/comum.js";
 
 export const config = { api: { bodyParser: false } }; // a assinatura exige o corpo bruto
 
@@ -17,12 +17,8 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: "STRIPE_SECRET_KEY/STRIPE_WEBHOOK_SECRET não configurados no .env do servidor." });
 
   const corpo = await lerCorpoBruto(req);
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(corpo, req.headers["stripe-signature"], secret);
-  } catch (e) {
-    return res.status(401).json({ error: `Assinatura inválida: ${e.message}` });
-  }
+  const { event, erro } = await autenticarEvento({ stripe, req, secret, corpo });
+  if (erro) return res.status(401).json({ error: erro });
 
   const supabase = supabaseAdmin();
   try {

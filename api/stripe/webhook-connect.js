@@ -8,7 +8,7 @@
      registrar_pagamento_stripe: INSERT pagamentos (idempotente por payment
      intent) + cobranca → paga/paga_em_atraso + receita "Entrada" no caixa.
    Teste local: stripe listen --forward-connect-to localhost:5173/api/stripe/webhook-connect */
-import { stripeClient, supabaseAdmin, envVal, lerCorpoBruto, deMenorUnidade, registrarPagamentoStripe } from "./_lib/comum.js";
+import { stripeClient, supabaseAdmin, envVal, lerCorpoBruto, autenticarEvento, deMenorUnidade, registrarPagamentoStripe } from "./_lib/comum.js";
 
 export const config = { api: { bodyParser: false } }; // a assinatura exige o corpo bruto
 
@@ -20,12 +20,8 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: "STRIPE_SECRET_KEY/STRIPE_CONNECT_WEBHOOK_SECRET não configurados no .env do servidor." });
 
   const corpo = await lerCorpoBruto(req);
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(corpo, req.headers["stripe-signature"], secret);
-  } catch (e) {
-    return res.status(401).json({ error: `Assinatura inválida: ${e.message}` });
-  }
+  const { event, erro } = await autenticarEvento({ stripe, req, secret, corpo });
+  if (erro) return res.status(401).json({ error: erro });
 
   const supabase = supabaseAdmin();
   try {
