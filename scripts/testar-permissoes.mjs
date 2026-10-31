@@ -22,7 +22,7 @@ import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import {
   PERMISSOES, CODIGOS, MATRIZ_PADRAO, PERMISSAO_DA_TABELA, ESCRITA_PADRAO,
-  PERMISSOES_FIXAS, PERFIS_EDITAVEIS, PERMS_DO_MORADOR,
+  PERMISSOES_FIXAS, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, PERMS_VEDADAS_AO_ADMIN,
   permsPadrao, permsEfetivas, pode, podeTela, sanearPerms, mesmoConjunto,
 } from "../src/lib/permissoes.js";
 
@@ -80,7 +80,7 @@ ok("todo código tem rótulo e grupo",
   const bloco = jsx.slice(jsx.indexOf("const NAV = ["), jsx.indexOf("const PermsCtx"));
   const itens = [...bloco.matchAll(/\{\s*id:\s*"([a-z]+)".*?perm:\s*"([a-z.]+)"/gs)]
     .map(([, id, perm]) => ({ id, perm }));
-  ok("NAV declara perm em todas as telas", itens.length === 13, `${itens.length} itens`);
+  ok("NAV declara perm em todas as telas", itens.length === 14, `${itens.length} itens`);
   const semCatalogo = itens.filter((i) => !CODIGOS.includes(i.perm));
   ok("toda perm do NAV existe no catálogo", semCatalogo.length === 0,
     semCatalogo.map((i) => i.perm).join(", "));
@@ -133,14 +133,31 @@ ok("diretor ignora override", mesmoConjunto(permsEfetivas({ perfil: "diretor", o
   const m = sanearPerms("morador", ["tela.financeiro", "chamado.abrir", "financeiro.baixar"]);
   ok("sanear fecha o conjunto do morador", mesmoConjunto(m, ["chamado.abrir"]), m.join(","));
   ok("fixas não são delegáveis", PERMISSOES_FIXAS.includes("permissao.gerir"));
+
+  /* o que a fila de aprovação não alcança não pode ser dado ao
+     administrador NEM pelo diretor — `acesso.gerir` é a pior: com ela ele
+     criaria um síndico e escreveria por fora da fila */
+  const adm = sanearPerms("administrador_predial",
+    ["tela.financeiro", ...PERMS_VEDADAS_AO_ADMIN]);
+  ok("sanear veta ao administrador o que a fila não alcança",
+    mesmoConjunto(adm, ["tela.financeiro"]), adm.join(","));
+  ok("acesso.gerir está entre as vedadas", PERMS_VEDADAS_AO_ADMIN.includes("acesso.gerir"));
 }
 
 /* ── PARIDADE com o SQL (o arquivo é a fonte do banco) ── */
 {
   const s = sql("supabase-permissoes.sql");
 
-  /* catálogo: os ('codigo', 'descricao') do insert into permissoes */
-  const ins = s.slice(s.indexOf("insert into public.permissoes"), s.indexOf("on conflict (codigo)"));
+  /* catálogo: os ('codigo', 'descricao') dos inserts em `permissoes`. São
+     DOIS arquivos — o de permissões semeia o catálogo base e o de
+     aprovações acrescenta o `alteracao.aprovar` junto do perfil que ele
+     cria. Ler só um daria falso alarme de divergência. */
+  const sAprov = sql("supabase-aprovacoes.sql");
+  const trechoCatalogo = (txt) => {
+    const i = txt.indexOf("insert into public.permissoes");
+    return i < 0 ? "" : txt.slice(i, txt.indexOf("on conflict (codigo)", i));
+  };
+  const ins = trechoCatalogo(s) + trechoCatalogo(sAprov);
   const doSql = [...ins.matchAll(/\('([a-z][a-z._]+)',/g)].map(([, c]) => c);
   const faltamNoSql = CODIGOS.filter((c) => !doSql.includes(c));
   const faltamNoJs = doSql.filter((c) => !CODIGOS.includes(c));
@@ -155,6 +172,18 @@ ok("diretor ignora override", mesmoConjunto(permsEfetivas({ perfil: "diretor", o
     const lista = m ? [...m[1].matchAll(/'([a-z][a-z._]+)'/g)].map(([, c]) => c) : [];
     ok(`padrão do ${perfil}: JS ≡ SQL`, mesmoConjunto(lista, MATRIZ_PADRAO[perfil] || []),
       `${lista.length} no SQL vs ${(MATRIZ_PADRAO[perfil] || []).length} no JS`);
+  }
+
+  /* o padrão do administrador predial mora no arquivo de aprovações */
+  {
+    const vw = sAprov.slice(sAprov.indexOf("create or replace view public._padrao_administrador"),
+      sAprov.indexOf("revoke all on public._padrao_administrador"));
+    const lista = [...vw.matchAll(/'([a-z][a-z._]+)'/g)].map(([, c]) => c);
+    ok("padrão do administrador_predial: JS ≡ SQL",
+      mesmoConjunto(lista, MATRIZ_PADRAO.administrador_predial || []),
+      `${lista.length} no SQL vs ${(MATRIZ_PADRAO.administrador_predial || []).length} no JS`);
+    const vedadas = lista.filter((c) => PERMS_VEDADAS_AO_ADMIN.includes(c));
+    ok("o padrão do administrador não traz permissão vedada", vedadas.length === 0, vedadas.join(", "));
   }
 
   /* mapa tabela → permissão */
@@ -229,10 +258,19 @@ if (temMatriz.error) {
       .select("perfis!inner(nome), permissoes!inner(codigo)").is("condominio_id", null);
     const porPerfil = {};
     for (const r of sem || []) (porPerfil[r.perfis.nome] ||= []).push(r.permissoes.codigo);
+    /* perfil que o JS conhece mas o banco ainda não (SQL da etapa não
+       rodado) é PULADO, não reprovado — senão a sonda acusa falha onde a
+       regra é "degrada aberto". Só diverge o que existe dos dois lados. */
+    const ausentes = Object.keys(MATRIZ_PADRAO).filter((p) => !porPerfil[p]);
     const divergentes = Object.entries(MATRIZ_PADRAO)
-      .filter(([p, lista]) => !mesmoConjunto(porPerfil[p] || [], lista));
+      .filter(([p]) => porPerfil[p])
+      .filter(([p, lista]) => !mesmoConjunto(porPerfil[p], lista));
     ok(NOMES_B[0], divergentes.length === 0,
-      divergentes.length ? divergentes.map(([p]) => p).join(", ") : Object.keys(porPerfil).sort().join("/"));
+      divergentes.length ? `divergem: ${divergentes.map(([p]) => p).join(", ")}`
+        : Object.keys(porPerfil).sort().join("/")
+          + (ausentes.length ? ` · ainda sem SQL: ${ausentes.join(", ")}` : ""));
+    if (ausentes.includes("administrador_predial"))
+      pula("administrador predial semeado", "supabase-aprovacoes.sql não rodou");
 
     if (!app) {
       for (const n of NOMES_B.slice(1)) pula(n, "login da tesouraria de teste falhou");

@@ -104,6 +104,49 @@ const q = async (promise, label) => {
   return data;
 };
 
+/* ─────────── fila de aprovação (administrador predial) ───────────
+   Para esse perfil, o gatilho do banco (supabase-aprovacoes.sql) CANCELA a
+   escrita e guarda a linha proposta. Do lado do cliente isso chega como
+   "0 linhas retornadas" — que, sem tratamento, viraria um `undefined.id`
+   algumas linhas adiante e um erro incompreensível na tela.
+
+   O perfil vem do próprio JWT: api.js não enxerga o estado do React. */
+const perfilDaSessao = () => {
+  try {
+    const t = getAuthToken();
+    if (!t) return null;
+    return JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).perfil || null;
+  } catch { return null; }
+};
+export const escritaVaiParaFila = () => perfilDaSessao() === "administrador_predial";
+
+/* Aviso (não falha) de que a ação virou pendência. `fila: true` deixa a UI
+   mostrar isto como informação, não como erro de salvamento. */
+export function erroFila() {
+  const e = new Error("Enviado para aprovação do diretor — a alteração aparece aqui depois que ele aprovar.");
+  e.fila = true;
+  return e;
+}
+
+/* Cadastro composto (pessoa + vínculo, comunicado + destinatários…) precisa
+   do id da mãe ANTES de ela existir: com a escrita indo para a fila, o
+   insert não devolve linha nenhuma. Gerar o id aqui faz mãe e filha serem
+   enfileiradas já apontando uma para a outra — na aprovação, a chave
+   estrangeira fecha. Fora da fila, o banco segue gerando o id. */
+const idDaFila = () => (escritaVaiParaFila() && globalThis.crypto?.randomUUID
+  ? globalThis.crypto.randomUUID() : null);
+const comId = (id) => (id ? { id } : {});
+
+/* Linha de um insert que pode ter sido desviado. Devolve o id conhecido de
+   antemão quando a escrita foi para a fila. */
+const linhaOuFila = (data, idPrevio, label) => {
+  const linha = (data || [])[0];
+  if (linha) return linha;
+  if (idPrevio) return { id: idPrevio };
+  if (escritaVaiParaFila()) throw erroFila();
+  throw new Error(`${label}: nenhuma linha retornada.`);
+};
+
 /* ─────────── mapas de rótulos ─────────── */
 const PAPEL_LABEL = {
   /* "inquilino" no banco é exibido como "Temporário" (aluguel por dia) */
@@ -633,6 +676,45 @@ export async function removerAcesso(usuarioId) {
   await chamarAuth("acessos", { acao: "remover", usuarioId });
 }
 
+/* ─────────── fila de aprovação (tela Aprovações) ───────────
+   O administrador predial lê a própria fila (vê o que mandou); só quem tem
+   `alteracao.aprovar` — o diretor — decide. As RPCs conferem isso no banco,
+   então esconder o botão é conforto, não controle. */
+export async function listarAlteracoesPendentes(ctx, incluirDecididas = false) {
+  let consulta = supabase.from("alteracoes_pendentes")
+    .select("*, solicitante:usuarios!alteracoes_pendentes_solicitado_por_fkey(email, pessoas(nome))")
+    .eq("condominio_id", ctx.condominioId)
+    .order("solicitado_em", { ascending: true });
+  if (!incluirDecididas) consulta = consulta.eq("status", "pendente");
+  const dados = await q(consulta, "alteracoes_pendentes");
+  return (dados || []).map((a) => ({
+    ...a, solicitante: a.solicitante?.pessoas?.nome || a.solicitante?.email || "—",
+  }));
+}
+
+/* Aprova aplicando o que foi pedido; `correcao` sobrepõe campo a campo o
+   que o diretor quis corrigir antes de valer. */
+export async function aprovarAlteracao(id, correcao = null, parecer = null) {
+  const r = await q(supabase.rpc("aprovar_alteracao",
+    { p_id: id, p_correcao: correcao, p_parecer: parecer }), "aprovar_alteracao");
+  if (r?.ok === false) {
+    const motivo = {
+      nao_autorizado: "Só o diretor aprova alterações.",
+      inexistente: "Esta alteração não existe mais.",
+      falha_ao_aplicar: `Não foi possível aplicar: ${r.detalhe || ""}. A alteração continua pendente.`,
+    }[r.erro] || `Não foi possível aprovar (${r.erro}).`;
+    throw new Error(motivo);
+  }
+  return r;
+}
+
+export async function rejeitarAlteracao(id, parecer = null) {
+  const r = await q(supabase.rpc("rejeitar_alteracao", { p_id: id, p_parecer: parecer }), "rejeitar_alteracao");
+  if (r?.ok === false) throw new Error(r.erro === "nao_autorizado"
+    ? "Só o diretor rejeita alterações." : `Não foi possível rejeitar (${r.erro}).`);
+  return r;
+}
+
 /* ─────────── matriz de permissões (Gerenciar Acessos → Permissões) ───────────
    Só o diretor: editar a matriz é o atalho para um perfil se promover a
    tudo, então `permissao.gerir` não é delegável (nem na API, nem no
@@ -1027,12 +1109,15 @@ async function uploadArquivos(ctx, valor, pasta) {
 export async function criarPessoa(ctx, f) {
   const [doc] = await uploadArquivos(ctx, f.arquivo, "pessoas");
   const documentoUrl = doc?.url || null;
-  const [p] = await q(supabase.from("pessoas").insert({
+  const idPessoa = idDaFila();
+  const dados = await q(supabase.from("pessoas").insert({
+    ...comId(idPessoa),
     condominio_id: ctx.condominioId, nome: f.nome,
     tipo_pessoa: String(f.doc || "").replace(/\D/g, "").length > 11 ? "juridica" : "fisica",
     cpf_cnpj: f.doc, telefone: String(f.tel || "").slice(0, 20) || null, email: f.email || null,
     documento_url: documentoUrl,
   }).select(), "pessoas");
+  const p = linhaOuFila(dados, idPessoa, "pessoas");
   await q(supabase.from("pessoa_vinculos").insert({
     condominio_id: ctx.condominioId, pessoa_id: p.id,
     unidade_id: f.unidade || null, papel: PAPEL_ENUM[f.papel] || "morador",
@@ -1041,6 +1126,7 @@ export async function criarPessoa(ctx, f) {
   /* vincular a uma unidade torna a pessoa o responsável financeiro dela
      automaticamente (pode ser trocado depois, na tela Unidades) */
   if (f.unidade) await salvarResponsavelUnidade(ctx, f.unidade, p.id);
+  if (escritaVaiParaFila()) throw erroFila(); // as 3 escritas estão na fila
 }
 
 /* Importação em massa (planilha da tela Pessoas). Segue o molde criarUnidade:
@@ -1179,7 +1265,9 @@ export async function criarPenalidade(ctx, f) {
   const tipo = String(f.tipo || "").startsWith("Multa") ? "multa" : "advertencia";
   const ano = new Date().getFullYear();
   const provas = await uploadArquivos(ctx, f.provas, "provas");
-  const [pen] = await q(supabase.from("penalidades").insert({
+  const idPen = idDaFila();
+  const dadosPen = await q(supabase.from("penalidades").insert({
+    ...comId(idPen),
     condominio_id: ctx.condominioId, numero: `${ano}-${String(ctx.maxPenalidade + 1).padStart(3, "0")}`,
     tipo, unidade_id: f.unidade, categoria_infracao: f.categoria,
     descricao: f.desc || f.categoria, base_normativa: f.base || "Regimento interno",
@@ -1188,10 +1276,12 @@ export async function criarPenalidade(ctx, f) {
     prazo_defesa: f.prazo || null,
     status: tipo === "multa" ? "em_defesa" : "registrada", registrada_por: uid,
   }).select(), "penalidades");
+  const pen = linhaOuFila(dadosPen, idPen, "penalidades");
   if (provas.length)
     await q(supabase.from("penalidade_provas").insert(provas.map((p) => ({
       penalidade_id: pen.id, tipo: provaTipo(p.mime), arquivo_url: p.url, hash_sha256: p.hash,
     }))).select(), "provas");
+  if (escritaVaiParaFila()) throw erroFila();
 }
 
 /* Envia a penalidade aprovada ao responsável: registra a entrega e, se for
@@ -1206,11 +1296,14 @@ export async function enviarPenalidade(ctx, m) {
       throw new Error("A unidade desta multa não tem responsável financeiro definido. Vincule a pessoa na tela Pessoas (papel proprietário/inquilino).");
     const venc = m.prazoISO && m.prazoISO > new Date().toISOString().slice(0, 10)
       ? m.prazoISO : new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
-    const [cob] = await q(supabase.from("cobrancas").insert({
+    const idCob = idDaFila();
+    const dadosCob = await q(supabase.from("cobrancas").insert({
+      ...comId(idCob),
       condominio_id: ctx.condominioId, unidade_id: m.unidadeId, responsavel_id: u.responsavelId,
       competencia: new Date().toISOString().slice(0, 7), tipo: "multa",
       valor_original: m.valor, vencimento: venc, status: "emitida",
     }).select(), "cobrancas");
+    const cob = linhaOuFila(dadosCob, idCob, "cobrancas");
     upd.cobranca_id = cob.id;
     upd.status = "lancada";
   }
@@ -1291,11 +1384,14 @@ async function gerarPdfTimbrado(ctx, d) {
 async function arquivarPdfTimbrado(ctx, uid, { tipoDoc, titulo, unidadeId = null, arquivo }) {
   const [up] = await uploadArquivos(ctx, arquivo, "documentos-timbrados");
   const retencao = new Date(); retencao.setFullYear(retencao.getFullYear() + 5);
-  const [docRow] = await q(supabase.from("documentos").insert({
+  const idDoc = idDaFila();
+  const dadosDoc = await q(supabase.from("documentos").insert({
+    ...comId(idDoc),
     condominio_id: ctx.condominioId, tipo: tipoDoc, titulo, unidade_id: unidadeId,
     arquivo_url: up.url, hash_sha256: up.hash, template_versao: "v1",
     emitido_por: uid, retencao_ate: retencao.toISOString().slice(0, 10),
   }).select(), "documentos");
+  const docRow = linhaOuFila(dadosDoc, idDoc, "documentos");
   return { url: up.url, id: docRow.id };
 }
 
@@ -1571,15 +1667,19 @@ export async function criarComunicado(ctx, f) {
     pdfUrl = arq.url; documentoId = arq.id;
   }
 
-  const [com] = await q(supabase.from("comunicados").insert({
+  const idCom = idDaFila();
+  const dadosCom = await q(supabase.from("comunicados").insert({
+    ...comId(idCom),
     condominio_id: ctx.condominioId, tipo: tipoEnum,
     titulo: f.titulo, corpo: f.corpo || f.titulo,
     segmento: { descricao: rotulo, filtro: seg, pdf_url: pdfUrl, documento_id: documentoId },
     canais: canais.length ? [...new Set(canais)] : ["portal"],
     publicado_em: new Date().toISOString(), publicado_por: uid,
   }).select(), "comunicados");
+  const com = linhaOuFila(dadosCom, idCom, "comunicados");
   if (alvo.length)
     await q(supabase.from("comunicado_destinatarios").insert(alvo.map((p) => ({ comunicado_id: com.id, pessoa_id: p.id }))).select(), "destinatários");
+  if (escritaVaiParaFila()) throw erroFila();
   return alvo.length;
 }
 

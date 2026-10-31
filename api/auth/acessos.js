@@ -23,7 +23,7 @@ import {
 import { carregarPerms, doClaims } from "../_lib/permissoes.js";
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
-const PERFIS_CRIAVEIS = ["sindico", "tesouraria", "morador"];
+const PERFIS_CRIAVEIS = ["administrador_predial", "sindico", "tesouraria", "morador"];
 /* papel do morador NA UNIDADE (pessoa_vinculos.papel) — eixo diferente do
    perfil de acesso: todo mundo aqui entra como "morador", e é o papel que
    diz se a conta é do dono. O enum vinculo_papel do schema aceita mais

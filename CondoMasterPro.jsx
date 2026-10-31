@@ -8,7 +8,7 @@ import {
   TrendingDown, CircleDot, User, KeyRound, Car, Package, DoorOpen, Star,
   ListChecks, Ban,
   Mail, EyeOff, Trash2, UserPlus, Upload, Copy, MapPin, Banknote, CreditCard,
-  ChevronDown, Rocket, Circle, Receipt,
+  ChevronDown, Rocket, Circle, Receipt, ClipboardCheck,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -26,6 +26,7 @@ import {
   obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
   listarPermissoes, salvarPermissoes, restaurarPermissoes,
+  listarAlteracoesPendentes, aprovarAlteracao, rejeitarAlteracao, escritaVaiParaFila,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
   salvarPreferencias, importarPessoas, LOCALE_MOEDA, definirPapelAcesso,
   carregarPlanilhaCobrancas, salvarPlanilhaCobrancas, salvarColunasPlanilha, atualizarCelulaPlanilha,
@@ -39,7 +40,8 @@ import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.
 import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado, valorDaColuna, valorExibido, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
 import { familiaCarteira, uriVerumPay, redesDaFamilia } from "./src/lib/qr-pagamento.js";
-import { pode, permsPadrao, permsEfetivas, PERMISSOES, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, mesmoConjunto } from "./src/lib/permissoes.js";
+import { pode, permsPadrao, permsEfetivas, PERMISSOES, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, PERMS_VEDADAS_AO_ADMIN, PERFIL_SOB_APROVACAO, mesmoConjunto } from "./src/lib/permissoes.js";
+import { rotuloTabela, rotuloOperacao, rotuloCampo, valorTexto, diff, resumir, pendentes } from "./src/lib/aprovacoes.js";
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
 import { geoCache } from "./src/lib/geo.js";
@@ -146,6 +148,8 @@ setAuthToken(lerSessao()?.token || null); // restaura o token do RLS antes da pr
 /* ══════════════ PERFIS E NAVEGAÇÃO ══════════════ */
 const PROFILES = {
   diretor:       { label: "Diretor",        icon: Star,        desc: "Visão estratégica, aprovações e auditoria" },
+  administrador_predial: { label: "Administrador", icon: ClipboardCheck,
+    desc: "Opera como o diretor; toda alteração espera aprovação dele" },
   sindico:       { label: "Síndico",        icon: ShieldCheck, desc: "Operação, multas, comunicados e manutenção" },
   tesouraria:    { label: "Tesouraria",     icon: Wallet,      desc: "Financeiro, cobranças e conciliação" },
   morador:       { label: "Morador",        icon: Home,        desc: "Boletos, comprovantes, comunicados e chamados" },
@@ -175,6 +179,7 @@ const NAV = [
   { id: "chamados",   label: "Manutenção",       icon: Wrench,          perm: "tela.chamados" },
   { id: "portaria",   label: "Portaria",         icon: DoorOpen,        perm: "tela.portaria" },
   { id: "emails",     label: "Gerenciar Acessos",icon: Mail,            perm: "tela.acessos" },
+  { id: "aprovacoes", label: "Aprovações",       icon: ClipboardCheck,  perm: "alteracao.aprovar" },
   { id: "planos",     label: "Planos",           icon: Star,            perm: "tela.planos" },
 ];
 /* Permissões da sessão. Contexto (e não prop) para não mudar a assinatura
@@ -258,7 +263,14 @@ const useSubmit = (action) => {
     const f = {};
     for (const [k, v] of new FormData(e.currentTarget).entries()) f[k] = k in f ? [].concat(f[k], v) : v;
     setSaving(true);
-    try { await action(f); } catch (err) { alert("Não foi possível salvar: " + (err?.message || err)); }
+    try { await action(f); }
+    catch (err) {
+      /* administrador predial: a escrita foi DESVIADA para a fila de
+         aprovação, não falhou. `err.fila` separa os dois casos — sem isso
+         a pessoa leria "não foi possível salvar" e tentaria de novo, e
+         cada tentativa viraria uma pendência a mais para o diretor. */
+      alert(err?.fila ? (err.message || "") : "Não foi possível salvar: " + (err?.message || err));
+    }
     finally { setSaving(false); }
   };
   return [onSubmit, saving];
@@ -4383,7 +4395,7 @@ function AcessosDoCondominio({ t }) {
   const [codigoGerado, setCodigoGerado] = useState(null); // { codigo, nome, permanente } — mostrado UMA vez
   const [gerando, setGerando] = useState(false);
   const [copiado, setCopiado] = useState(false);
-  const perfis = ["sindico", "tesouraria", "morador"];
+  const perfis = ["administrador_predial", "sindico", "tesouraria", "morador"];
   /* atalhos do seletor de perfil: "Proprietário" (morador já marcado como
      dono, que vê o dashboard do condomínio) e os CARGOS criados na aba
      Gestão — o cargo é rótulo; o PODER é o nível escolhido na hora */
@@ -4567,6 +4579,170 @@ function AcessosDoCondominio({ t }) {
               {L("Entregue este código à pessoa: com ele, ela redefine a própria senha na tela de entrada, em \"Esqueci minha senha\". Vale por 24 horas, é mostrado uma única vez e substitui o código anterior.")}</div>
           </div>
           <div className="mt-5 flex justify-end"><Btn t={t} onClick={() => setCodigoGerado(null)}>Fechar</Btn></div>
+        </Modal>)}
+    </div>
+  );
+}
+
+/* ══════════════ Aprovações (fila do administrador predial) ══════════════
+   Nada aqui "libera" nada: o desvio das escritas é feito por gatilho no
+   banco (supabase-aprovacoes.sql) e as decisões passam pelas RPCs
+   aprovar_alteracao/rejeitar_alteracao, que conferem a permissão lá dentro.
+   Esta tela é a LEITURA da fila e o formulário de correção.
+
+   A ordem é cronológica de propósito: uma ação do app vira várias linhas
+   (criar pessoa = pessoa + vínculo + responsável da unidade), e a mãe
+   precisa ser aprovada antes da filha, senão a chave estrangeira recusa.
+   Aprovar fora de ordem não corrompe nada — a alteração fica pendente com
+   o erro à vista —, mas é atrito evitável. */
+function Aprovacoes({ t, role }) {
+  const { db, reload } = useData();
+  /* o administrador acompanha a própria fila, mas não decide — as RPCs
+     recusam ele mesmo que o botão apareça (e recusam por perfil, não só
+     por permissão: ninguém aprova a si mesmo) */
+  const sohLeitura = role === PERFIL_SOB_APROVACAO;
+  const [fila, setFila] = useState(null);     // null = carregando
+  const [verDecididas, setVerDecididas] = useState(false);
+  const [sel, setSel] = useState(null);       // alteração aberta
+  const [correcao, setCorrecao] = useState({});
+  const [parecer, setParecer] = useState("");
+  const [agindo, setAgindo] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const recarregar = useCallback(async () => {
+    try { setFila(await listarAlteracoesPendentes(db.ctx, verDecididas)); setErro(""); }
+    catch (e) { setErro(e.message); setFila([]); }
+  }, [db.ctx, verDecididas]);
+  useEffect(() => { recarregar(); }, [recarregar]);
+
+  const abrir = (a) => { setSel(a); setCorrecao({}); setParecer(""); setErro(""); };
+  const decidir = async (aprovar) => {
+    setAgindo(true); setErro("");
+    try {
+      if (aprovar) await aprovarAlteracao(sel.id, Object.keys(correcao).length ? correcao : null, parecer || null);
+      else await rejeitarAlteracao(sel.id, parecer || null);
+      setSel(null);
+      await recarregar();
+      await reload(); // a linha aprovada passa a existir: o painel inteiro muda
+    } catch (e) { setErro(e.message); }
+    finally { setAgindo(false); }
+  };
+
+  const abertas = (fila || []).filter((a) => a.status === "pendente");
+  const linhas = verDecididas ? (fila || []) : abertas;
+
+  if (fila === null) return <Skeleton t={t} />;
+
+  return (
+    <div className="vfade space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+        <StatCard t={t} icon={ClipboardCheck} label="Aguardando você" value={String(abertas.length)}
+          color={abertas.length ? t.warn : undefined} />
+        <StatCard t={t} icon={Users} label="Quem solicitou"
+          value={String(new Set(abertas.map((a) => a.solicitante)).size)} />
+        <StatCard t={t} icon={AlertCircle} label="Falharam ao aplicar"
+          value={String(abertas.filter((a) => a.erro).length)}
+          color={abertas.some((a) => a.erro) ? t.danger : undefined} />
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs" style={{ color: t.dim }}>
+          {sohLeitura
+            ? L("Estas são as suas alterações aguardando o diretor. Elas só passam a valer — e só aparecem nas outras telas — depois que ele aprovar.")
+            : L("Tudo que o Administrador cadastra, edita ou exclui para aqui e só vale depois que você aprovar. Você pode corrigir os valores antes de aplicar.")}{" "}
+          {!sohLeitura && abertas.length > 1 && L("Aprove de cima para baixo: itens de um mesmo cadastro dependem uns dos outros.")}</div>
+        <Btn t={t} kind="soft" onClick={() => setVerDecididas((v) => !v)}>
+          <ListChecks size={14} /> {verDecididas ? L("Só pendentes") : L("Ver histórico")}</Btn>
+      </div>
+
+      {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
+
+      {!linhas.length ? (
+        <EmptyState t={t} icon={ClipboardCheck} title="Nada aguardando aprovação"
+          hint="Quando o Administrador cadastrar, editar ou excluir alguma coisa, aparece aqui para você decidir." />
+      ) : (
+        <div className="space-y-2">
+          {linhas.map((a) => {
+            const mudancas = diff(a);
+            const cor = a.operacao === "DELETE" ? t.danger : a.operacao === "INSERT" ? t.ok : t.info;
+            return (
+              <Card t={t} key={a.id}>
+                <button type="button" onClick={() => abrir(a)} className="flex w-full flex-wrap items-center gap-3 text-left">
+                  <div className="rounded-xl p-2" style={{ background: cor + "1A" }}>
+                    <ClipboardCheck size={16} color={cor} /></div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold">{resumir(a)}</div>
+                    <div className="text-xs" style={{ color: t.dim }}>
+                      {a.solicitante} · {new Date(a.solicitado_em).toLocaleString()} · {mudancas.length} {L("campo(s)")}</div>
+                  </div>
+                  {a.erro && <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.danger + "1A", color: t.danger }}>
+                    {L("falhou ao aplicar")}</span>}
+                  <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.surface2, color: t.dim }}>
+                    {a.status === "pendente" ? L("pendente") : a.status === "aprovada" ? L("aprovada") : L("rejeitada")}</span>
+                  {a.status === "pendente" && <ChevronRight size={16} color={t.dim} />}
+                </button>
+              </Card>);
+          })}
+        </div>)}
+
+      {sel && (
+        <Modal t={t} onClose={() => setSel(null)} wide>
+          <ModalHeader t={t} title={resumir(sel)} onClose={() => setSel(null)} />
+          <div className="space-y-3">
+            <div className="text-xs" style={{ color: t.dim }}>
+              {rotuloOperacao(sel.operacao)} em <b>{rotuloTabela(sel.tabela)}</b> · {L("pedido por")} {sel.solicitante} · {new Date(sel.solicitado_em).toLocaleString()}</div>
+            {sel.erro && (
+              <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.danger + "55", background: t.danger + "0D", color: t.danger }}>
+                {L("A última tentativa de aplicar falhou:")} {sel.erro}</div>)}
+
+            {sel.operacao === "DELETE" ? (
+              <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.danger + "55", background: t.danger + "0D", color: t.danger }}>
+                {L("Aprovar aqui EXCLUI o registro de verdade. Confira os valores abaixo antes.")}</div>
+            ) : (
+              <div className="text-xs" style={{ color: t.dim }}>
+                {L("Pode corrigir qualquer campo antes de aprovar — vale o que estiver na caixa.")}</div>)}
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr style={{ color: t.dim }}>
+                  <th className="px-2 py-1 text-left">{L("Campo")}</th>
+                  <th className="px-2 py-1 text-left">{L("Antes")}</th>
+                  <th className="px-2 py-1 text-left">{L("Vai ficar")}</th>
+                </tr></thead>
+                <tbody>
+                  {diff(sel).map(({ campo, de, para }) => {
+                    const editavel = sel.operacao !== "DELETE" && (para === null || typeof para !== "object");
+                    const atual = campo in correcao ? correcao[campo] : para;
+                    return (
+                      <tr key={campo} style={{ borderTop: `1px solid ${t.borderSoft}` }}>
+                        <td className="px-2 py-1.5 font-medium">{rotuloCampo(campo)}</td>
+                        <td className="px-2 py-1.5" style={{ color: t.dim }}>{valorTexto(de)}</td>
+                        <td className="px-2 py-1.5">
+                          {editavel ? (
+                            <input value={atual ?? ""} style={{ ...inputStyle(t), padding: "4px 8px", fontSize: 12 }}
+                              onChange={(e) => setCorrecao((c) => ({ ...c, [campo]: e.target.value === "" ? null : e.target.value }))} />
+                          ) : <span style={{ color: sel.operacao === "DELETE" ? t.danger : t.text }}>{valorTexto(para)}</span>}
+                        </td>
+                      </tr>);
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <Field t={t} label="Parecer (opcional — fica no histórico)">
+              <input value={parecer} onChange={(e) => setParecer(e.target.value)} style={inputStyle(t)}
+                placeholder={L("Ex.: aprovado com o valor corrigido")} /></Field>
+            {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
+          </div>
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <Btn t={t} onClick={() => setSel(null)}>{L("Fechar")}</Btn>
+            {!sohLeitura && (<>
+              <Btn t={t} kind="danger" disabled={agindo} onClick={() => decidir(false)}>
+                <Ban size={14} /> {L("Rejeitar")}</Btn>
+              <Btn t={t} kind="primary" disabled={agindo} onClick={() => decidir(true)}>
+                <Check size={14} /> {agindo ? L("Aplicando…") : Object.keys(correcao).length ? L("Aprovar com correção") : L("Aprovar")}</Btn>
+            </>)}
+          </div>
         </Modal>)}
     </div>
   );
@@ -5913,7 +6089,11 @@ export default function App() {
   }, [dark, db]);
 
   const go = useCallback((s) => { setScreen(s); setSideOpen(false); }, []);
-  const nav = NAV.filter((n) => role && pode(perms, n.perm));
+  /* o administrador também vê a tela Aprovações — só que em leitura: é lá
+     que ele acompanha o que mandou. Decidir continua sendo do diretor, e
+     quem garante isso são as RPCs, não este filtro. */
+  const nav = NAV.filter((n) => role && (pode(perms, n.perm)
+    || (n.id === "aprovacoes" && role === PERFIL_SOB_APROVACAO)));
   /* cargo de gestão do acesso logado (rótulo do menu lateral) — entra na
      sessão no login; quem já estava logado o recebe no próximo acesso */
   const cargoAcesso = lerSessao()?.cargo || null;
@@ -6120,7 +6300,7 @@ export default function App() {
     unidades: <Unidades t={t} role={role} />, pessoas: <Pessoas t={t} />, financeiro: <Financeiro t={t} />,
     cobrancas: <Cobrancas t={t} />, multas: <Multas t={t} role={role} />, comunicados: <Comunicados t={t} />,
     documentos: <Documentos t={t} />, chamados: <Chamados t={t} />, portaria: <Portaria t={t} />,
-    emails: <GerenciarEmails t={t} />, planos: <Planos t={t} />,
+    emails: <GerenciarEmails t={t} />, aprovacoes: <Aprovacoes t={t} role={role} />, planos: <Planos t={t} />,
   };
   const current = NAV.find((n) => n.id === screen);
 

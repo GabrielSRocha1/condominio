@@ -70,13 +70,24 @@ idiomas, instalável como PWA.
       (o banco era mais frouxo que a interface). Sem ele o app funciona com
       o comportamento antigo e a aba Permissões abre em leitura, avisando.
 
+   11. `supabase-aprovacoes.sql` — perfil **Administrador** (`administrador_predial`):
+      opera como o diretor, mas toda escrita dele é DESVIADA por gatilho
+      para a fila `alteracoes_pendentes` e a operação original é cancelada
+      — a linha não existe até o diretor aprovar na tela Aprovações, onde
+      ele pode corrigir os valores antes de aplicar. Fora da fila ficam a
+      portaria em tempo real (visitante no portão) e o que não passa por
+      escrita direta (baixa, cancelar cobrança, criar acessos, licença) —
+      essas o perfil não recebe, senão a promessa seria falsa. Exige o
+      `supabase-permissoes.sql` antes. Sem ele o perfil não existe e nada muda.
+
    Banco **já instalado**? Não re-rode o schema inteiro — rode apenas o que
    faltar, na ordem: o `alter table usuarios add column if not exists
    preferencias …` que vem logo abaixo do `create table usuarios` (idioma por
    conta), `supabase-seguranca4.sql` e `supabase-seguranca5.sql` ("Esqueci
    minha senha"), `supabase-encargos.sql`, `supabase-planilhas.sql`,
    `supabase-fundo-reserva.sql`, `supabase-notificacoes.sql`,
-   `supabase-planilha-sync.sql` e `supabase-permissoes.sql` (passos 5–10
+   `supabase-planilha-sync.sql`, `supabase-permissoes.sql` e
+   `supabase-aprovacoes.sql` (passos 5–11
    acima — todos idempotentes e com degrade aberto: sem eles o app funciona
    com o comportamento antigo).
    Licença ancorada em USD (antes BRL)? Rode também o UPDATE dos planos:
@@ -119,6 +130,7 @@ idiomas, instalável como PWA.
 | `testar-notificacoes.mjs` | sondas do feed de movimentações do sino (motor puro): os 3 eventos, fallback de evento desconhecido, payload corrompido, contagem/destaque de não-vistas por instante absoluto, hora no fuso local e o topo do feed que dispara o reload entre janelas |
 | `testar-permissoes.mjs` | sondas da matriz de permissões: catálogo, padrão que reproduz o comportamento pré-matriz, override que SUBSTITUI (e zera) o padrão, paridade JS ≡ SQL ≡ NAV e, com banco, policies por permissão + gatilho de aprovação + blindagem da própria matriz (bloco B pula se o supabase-permissoes.sql não rodou) |
 | `testar-webhook-stripe.mjs` | sondas da autenticação dos webhooks da Stripe: corpo bruto preservado byte a byte (inclusive multibyte partido entre chunks), recusa de corpo re-serializado e a contingência que confirma o evento na própria Stripe quando a plataforma já parseou o corpo |
+| `testar-aprovacoes.mjs` | sondas do Administrador predial: diff e ordem da fila, paridade gatilho ⇄ rótulos, e a prova no banco de que a escrita dele não entra, vira pendência, não pode ser auto-aprovada e só nasce quando o diretor aprova (com ou sem correção) |
 | `relatorio-seguranca.mjs` | auditoria semanal (sessões, eventos, anomalias) |
 | `emergencia-sessoes.mjs` | resposta a incidente: revoga sessões em massa |
 | `verificar-segredos-bundle.mjs` | confere que nenhum segredo vazou no build |

@@ -64,6 +64,8 @@ export const PERMISSOES = [
     ajuda: "Os perfis criáveis seguem limitados a síndico, tesouraria e morador." },
   { codigo: "licenca.gerir",       grupo: "acao", rotulo: "Contratar, trocar e cancelar a licença",
     ajuda: "Inclui o portal de cobrança da Stripe e o onboarding de recebimento." },
+  { codigo: "alteracao.aprovar",   grupo: "acao", rotulo: "Aprovar as alterações do Administrador",
+    ajuda: "Abre a tela Aprovações. O próprio Administrador nunca recebe esta permissão — ninguém aprova a si mesmo." },
 
   /* base + fixas */
   { codigo: "dados.escrever",   grupo: "base", rotulo: "Escrever nos dados do condomínio",
@@ -86,8 +88,25 @@ export const PERMISSOES_FIXAS = PERMISSOES.filter((p) => p.fixo).map((p) => p.co
    administradora não pertence a condomínio nenhum.
    Os CARGOS criados na aba Gestão herdam o conjunto do NÍVEL escolhido —
    um cargo não é um perfil próprio no banco, é rótulo + nível. */
-export const PERFIS_EDITAVEIS = ["sindico", "tesouraria", "morador"];
+export const PERFIS_EDITAVEIS = ["administrador_predial", "sindico", "tesouraria", "morador"];
 export const PERFIL_TUDO = "diretor";
+
+/* Administrador predial: opera como o diretor, mas toda escrita dele é
+   desviada para a fila de aprovação por um gatilho no banco
+   (supabase-aprovacoes.sql). Estas permissões NUNCA podem ser dadas a ele —
+   não por política, por mecânica: são ações que não passam por escrita
+   direta em tabela (RPC SECURITY DEFINER ou endpoint com service role), ou
+   seja, a fila não as alcança. Concedê-las faria a promessa "tudo é
+   aprovado pelo diretor" virar mentira — e `acesso.gerir` é a pior delas:
+   com ela o administrador criaria um síndico e entraria por fora. */
+export const PERFIL_SOB_APROVACAO = "administrador_predial";
+export const PERMS_VEDADAS_AO_ADMIN = [
+  "financeiro.baixar",   // RPC registrar_pagamento_manual
+  "cobranca.cancelar",   // RPC cancelar_cobranca
+  "acesso.gerir",        // /api/auth/acessos (service role) — escalada
+  "licenca.gerir",       // /api/stripe/* (service role)
+  "alteracao.aprovar",   // ninguém aprova a si mesmo
+];
 
 /* ── Padrão do SaaS — ESPELHA o comportamento anterior à matriz ──
    Conferido contra NAV.roles (telas), supabase-rls.sql (escrita) e os
@@ -108,6 +127,16 @@ export const MATRIZ_PADRAO = {
     "tela.dashboard", "tela.unidades", "tela.financeiro", "tela.cobrancas", "tela.documentos",
     "dados.escrever", "financeiro.lancar", "financeiro.aprovar", "financeiro.baixar",
     "cobranca.emitir", "cobranca.cancelar", "documento.emitir",
+  ],
+  /* mesmas telas e escritas do diretor, menos o que a fila não alcança
+     (ver PERMS_VEDADAS_AO_ADMIN) — espelha a view _padrao_administrador */
+  administrador_predial: [
+    "tela.dashboard", "tela.condominio", "tela.unidades", "tela.pessoas", "tela.financeiro",
+    "tela.cobrancas", "tela.multas", "tela.comunicados", "tela.documentos", "tela.chamados",
+    "tela.portaria", "tela.acessos",
+    "condominio.editar", "unidade.criar", "financeiro.lancar", "financeiro.aprovar",
+    "cobranca.emitir", "multa.registrar", "multa.aprovar", "comunicado.publicar",
+    "documento.emitir", "chamado.abrir", "dados.escrever",
   ],
   morador: ["tela.portal", "chamado.abrir", "pagamento.informar"],
   administradora: ["saas.gerir"],
@@ -164,8 +193,12 @@ export function podeTela(perms, tela) {
    morador prometeria um poder que o banco nega. */
 export const PERMS_DO_MORADOR = ["tela.portal", "chamado.abrir", "pagamento.informar"];
 export function sanearPerms(perfil, lista) {
-  const permitidas = String(perfil) === "morador" ? PERMS_DO_MORADOR : CODIGOS;
+  const p = String(perfil);
+  const permitidas = p === "morador" ? PERMS_DO_MORADOR : CODIGOS;
   const fora = new Set(PERMISSOES_FIXAS);
+  /* o administrador predial não recebe o que a fila de aprovação não
+     alcança — nem que o diretor marque na tela */
+  if (p === PERFIL_SOB_APROVACAO) for (const c of PERMS_VEDADAS_AO_ADMIN) fora.add(c);
   return [...new Set((Array.isArray(lista) ? lista : []).map(String))]
     .filter((c) => ehCodigo(c) && !fora.has(c) && permitidas.includes(c))
     .sort();
