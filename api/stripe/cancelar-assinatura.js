@@ -7,6 +7,7 @@
 import { stripeClient, supabaseAdmin, corpoJson, lerClaims, dataISO, hojeISO } from "./_lib/comum.js";
 import { corpoValidado } from "../_lib/validar.js";
 import { limitar, origemBloqueada, logSeguro } from "../_lib/seguranca.js";
+import { temPerm } from "../_lib/permissoes.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -19,8 +20,13 @@ export default async function handler(req, res) {
     if (!corpo) return;
     const { condominioId } = corpo;
     const claims = lerClaims(req);
-    if (!claims || claims.condominio_id !== condominioId || claims.perfil !== "diretor")
+    if (!claims || claims.condominio_id !== condominioId)
       return res.status(401).json({ error: "Sessão inválida — entre de novo como diretor." });
+    /* autorização pela MATRIZ (antes era `perfil === "diretor"` cravado).
+       Sem o supabase-permissoes.sql, degrada no padrão — onde só o diretor
+       tem licenca.gerir, exatamente como antes. */
+    if (!(await temPerm(supabase, claims, "licenca.gerir")))
+      return res.status(403).json({ error: "Seu perfil não pode gerenciar a licença." });
     if (origemBloqueada(req, res)) return;
     const ritmo = await limitar(supabase, `stripe-cancelar:${claims.sub}`,
       { janelaSeg: 10 * 60, max: 10, bloqueioSeg: 10 * 60 });

@@ -21,6 +21,7 @@
    não consegue trocar a conta recebedora via supabase-js). */
 import { stripeClient, supabaseAdmin, corpoJson, lerClaims, integracaoStripe, PAISES_CONNECT } from "../_lib/comum.js";
 import { limitar, origemBloqueada, logSeguro } from "../../_lib/seguranca.js";
+import { temPerm } from "../../_lib/permissoes.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
@@ -30,8 +31,11 @@ export default async function handler(req, res) {
 
   try {
     const claims = lerClaims(req);
-    if (!claims?.condominio_id || claims.perfil !== "diretor")
+    if (!claims?.condominio_id)
       return res.status(401).json({ error: "Sessão inválida — entre de novo como diretor." });
+    /* autorização pela MATRIZ (antes era `perfil === "diretor"` cravado) */
+    if (!(await temPerm(supabase, claims, "licenca.gerir")))
+      return res.status(403).json({ error: "Seu perfil não pode configurar o recebimento." });
     if (origemBloqueada(req, res)) return;
     const condominioId = claims.condominio_id;
     const ritmo = await limitar(supabase, `stripe-onboarding:${claims.sub}`,

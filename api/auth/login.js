@@ -16,6 +16,7 @@ import {
   assinarToken, verificarSenha, migrarSenhaSeLegada, emitirRefresh,
   limitar, limparLimite, ipDoRequest, origemBloqueada, logSeguro, auditar,
 } from "../_lib/seguranca.js";
+import { carregarPerms } from "../_lib/permissoes.js";
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
 const PERFIS = ["diretor", "sindico", "tesouraria", "morador", "administradora"];
@@ -127,6 +128,9 @@ export default async function handler(req, res) {
       await emitirRefresh(supabase, res, { usuarioId: conta.id, perfil: "morador", condominioId });
       return res.status(200).json({ token, conta: {
         nome: conta.pessoas.nome, condominioId,
+        /* conjunto efetivo da matriz — a UI esconde pelo que vem daqui; o
+           banco impede de todo jeito (public.jwt_pode) */
+        perms: [...await carregarPerms(supabase, { perfil: "morador", condominioId })],
         unidade: vincUnidade?.unidades ? `${vincUnidade.unidades.numero}-${vincUnidade.unidades.blocos?.nome || "?"}` : null,
         papel: vincUnidade?.papel || null, // proprietário vê o dashboard do condomínio no portal
         idioma: conta.preferencias?.idioma || null, // idioma da interface guardado nesta conta
@@ -162,6 +166,9 @@ export default async function handler(req, res) {
     await emitirRefresh(supabase, res, { usuarioId: data.id, perfil: f.perfil, condominioId });
     return res.status(200).json({ token, conta: {
       nome, email: f.email, condominioId,
+      /* conjunto efetivo da matriz (diretor = tudo) — a UI esconde pelo que
+         vem daqui; o banco impede de todo jeito (public.jwt_pode) */
+      perms: [...await carregarPerms(supabase, { perfil: f.perfil, condominioId })],
       idioma: data.preferencias?.idioma || null, // idioma da interface guardado nesta conta
       cargo: data.preferencias?.cargo || null, // cargo de gestão (rótulo) definido em Gerenciar Acessos
       /* só tesouraria usa código; diretor/síndico redefinem por e-mail */

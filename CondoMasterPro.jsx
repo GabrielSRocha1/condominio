@@ -25,6 +25,7 @@ import {
   salvarLogoCondominio, removerLogoCondominio, salvarLogoMenuCondominio, removerLogoMenuCondominio,
   obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
+  listarPermissoes, salvarPermissoes, restaurarPermissoes,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
   salvarPreferencias, importarPessoas, LOCALE_MOEDA, definirPapelAcesso,
   carregarPlanilhaCobrancas, salvarPlanilhaCobrancas, salvarColunasPlanilha, atualizarCelulaPlanilha,
@@ -38,6 +39,7 @@ import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.
 import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado, valorDaColuna, valorExibido, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
 import { familiaCarteira, uriVerumPay, redesDaFamilia } from "./src/lib/qr-pagamento.js";
+import { pode, permsPadrao, permsEfetivas, PERMISSOES, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, mesmoConjunto } from "./src/lib/permissoes.js";
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
 import { geoCache } from "./src/lib/geo.js";
@@ -156,21 +158,35 @@ const PROFILES = {
 const PAPEIS_UNIDADE = [["proprietario", "Proprietário"], ["inquilino", "Temporário"], ["morador", "Morador"]];
 const rotuloPapel = (p) => PAPEIS_UNIDADE.find(([k]) => k === p)?.[1] || "Morador";
 
+/* Cada tela declara a PERMISSÃO que a libera, não a lista de perfis — quem
+   decide é a matriz (src/lib/permissoes.js + public.jwt_pode). O padrão de
+   cada perfil reproduz exatamente a lista de roles que vivia aqui, então
+   nada muda até o diretor customizar em Gerenciar Acessos → Permissões. */
 const NAV = [
-  { id: "dashboard",  label: "Dashboard",       icon: LayoutDashboard, roles: ["diretor","sindico","tesouraria"] },
-  { id: "condominio", label: "Condomínio",      icon: Building2,       roles: ["diretor","sindico"] },
-  { id: "unidades",   label: "Unidades",        icon: Home,            roles: ["diretor","sindico","tesouraria"] },
-  { id: "pessoas",    label: "Pessoas",         icon: Users,           roles: ["diretor","sindico"] },
-  { id: "financeiro", label: "Financeiro",      icon: Wallet,          roles: ["diretor","sindico","tesouraria"] },
-  { id: "cobrancas",  label: "Cobranças QR",    icon: QrCode,          roles: ["diretor","sindico","tesouraria"] },
-  { id: "multas",     label: "Multas",          icon: Gavel,           roles: ["diretor","sindico"] },
-  { id: "comunicados",label: "Comunicados",     icon: Megaphone,       roles: ["diretor","sindico"] },
-  { id: "documentos", label: "Documentos",      icon: FileText,        roles: ["diretor","sindico","tesouraria"] },
-  { id: "chamados",   label: "Manutenção",      icon: Wrench,          roles: ["diretor","sindico"] },
-  { id: "portaria",   label: "Portaria",        icon: DoorOpen,        roles: ["diretor","sindico"] },
-  { id: "emails",     label: "Gerenciar Acessos",icon: Mail,            roles: ["diretor"] },
-  { id: "planos",     label: "Planos",           icon: Star,            roles: ["diretor"] },
+  { id: "dashboard",  label: "Dashboard",        icon: LayoutDashboard, perm: "tela.dashboard" },
+  { id: "condominio", label: "Condomínio",       icon: Building2,       perm: "tela.condominio" },
+  { id: "unidades",   label: "Unidades",         icon: Home,            perm: "tela.unidades" },
+  { id: "pessoas",    label: "Pessoas",          icon: Users,           perm: "tela.pessoas" },
+  { id: "financeiro", label: "Financeiro",       icon: Wallet,          perm: "tela.financeiro" },
+  { id: "cobrancas",  label: "Cobranças QR",     icon: QrCode,          perm: "tela.cobrancas" },
+  { id: "multas",     label: "Multas",           icon: Gavel,           perm: "tela.multas" },
+  { id: "comunicados",label: "Comunicados",      icon: Megaphone,       perm: "tela.comunicados" },
+  { id: "documentos", label: "Documentos",       icon: FileText,        perm: "tela.documentos" },
+  { id: "chamados",   label: "Manutenção",       icon: Wrench,          perm: "tela.chamados" },
+  { id: "portaria",   label: "Portaria",         icon: DoorOpen,        perm: "tela.portaria" },
+  { id: "emails",     label: "Gerenciar Acessos",icon: Mail,            perm: "tela.acessos" },
+  { id: "planos",     label: "Planos",           icon: Star,            perm: "tela.planos" },
 ];
+/* Permissões da sessão. Contexto (e não prop) para não mudar a assinatura
+   de todos os componentes de tela; a lista vem do login/refresh, que a
+   re-deriva da matriz no servidor. Sem ela (sessão antiga, SQL não rodado)
+   cai no padrão do perfil — degrada aberto, igual ao comportamento antigo. */
+const PermsCtx = React.createContext(null);
+const usePerms = () => React.useContext(PermsCtx) || [];
+const telaLiberada = (perms, id) => {
+  const n = NAV.find((x) => x.id === id);
+  return !!n && pode(perms, n.perm);
+};
 
 /* ══════════════ PRIMEIROS PASSOS (onboarding) ══════════════ */
 /* Guia de implantação: cada passo aponta para uma tela e é dado como concluído
@@ -693,9 +709,14 @@ function Login({ t, onEnter, dark, setDark, lang, onLang, aviso }) {
      a gerar o seu antes de seguir. "Agora não" segue direto (sugere de novo
      no próximo login, já que a conta continua sem código). */
   const entrarNoApp = (conta, args) => {
+    /* 7ª posição do onEnter: as permissões que o /api/auth/login resolveu
+       pela matriz. Ausentes (API antiga) = o App cai no padrão do perfil. */
+    const comPerms = [...args];
+    comPerms[5] = comPerms[5] ?? null; // cargo, quando o call site não passou
+    comPerms[6] = Array.isArray(conta?.perms) ? conta.perms : null;
     if ((args[0] === "tesouraria" || args[0] === "morador")
-      && conta && conta.temCodigoRecuperacao === false) { setPosLogin({ args, codigo: null }); return; }
-    return onEnter(...args);
+      && conta && conta.temCodigoRecuperacao === false) { setPosLogin({ args: comPerms, codigo: null }); return; }
+    return onEnter(...comPerms);
   };
   const gerarMeuCodigo = async () => {
     setErro(""); setVerificando(true);
@@ -1114,6 +1135,7 @@ function SetupCondominio({ t, role, diretor, onCriado, onSair, dark, setDark }) 
    clicáveis para as telas de gestão. */
 function Dashboard({ t, role, go = () => {}, leitura = false }) {
   const { db } = useData();
+  const perms = usePerms(); // atalhos e pendências aparecem pelo que a matriz libera
   const S = db.stats;
   const [mesGrafico, setMesGrafico] = useState(db.mesAtualReal);
   const [mesDespesas, setMesDespesas] = useState(db.mesAtualReal);
@@ -1152,7 +1174,7 @@ function Dashboard({ t, role, go = () => {}, leitura = false }) {
         <div className="flex flex-wrap gap-2">
           {[["Nova cobrança", QrCode, "cobrancas"], ["Novo gasto", Wallet, "financeiro"], ["Nova multa", Gavel, "multas"],
             ["Novo comunicado", Megaphone, "comunicados"], ["Novo chamado", Wrench, "chamados"]]
-            .filter(([, , s]) => NAV.find((n) => n.id === s)?.roles.includes(role))
+            .filter(([, , s]) => telaLiberada(perms, s))
             .map(([l, Ic, s]) => (
               <Btn key={l} t={t} kind="soft" onClick={() => go(s)}><Ic size={14} /> {l}</Btn>))}
         </div>)}
@@ -1246,7 +1268,7 @@ function Dashboard({ t, role, go = () => {}, leitura = false }) {
               vencidas.length > 0 && [QrCode, `${vencidas.length} ${L("cobrança(s) vencida(s) somando")} ` + BRL(vencidas.reduce((s, c) => s + (c.valorTotal ?? c.valor), 0)), "warn", "cobrancas"],
               semResp && [Wrench, `${semResp.num} (${semResp.cat.toLowerCase()}) ${L("sem responsável designado")}`, "warn", "chamados"],
             ].filter(Boolean);
-            const podeVer = (s) => NAV.some((n) => n.id === s && n.roles.includes(role));
+            const podeVer = (s) => telaLiberada(perms, s);
             const atividades = db.atividades.filter(([, , s]) => !s || podeVer(s));
             if (!alertas.length && !atividades.length)
               return <div className="text-xs" style={{ color: t.dim }}>Nenhuma pendência no momento. Tudo em dia! 🎉</div>;
@@ -1276,8 +1298,9 @@ function Dashboard({ t, role, go = () => {}, leitura = false }) {
    condominio_id do token — cada diretor só vê e edita o próprio prédio). */
 function Condominio({ t, role }) {
   const { db, reload } = useData();
-  /* síndico enxerga o cadastro somente leitura; apenas o diretor edita */
-  const somenteLeitura = role !== "diretor";
+  /* quem não tem condominio.editar enxerga o cadastro em somente leitura —
+     por padrão, isso é o síndico (a permissão é do diretor) */
+  const somenteLeitura = !pode(usePerms(), "condominio.editar");
   /* aba inicial: o guia "Primeiros passos" pode pedir uma aba específica (hint de uso único) */
   const [tab, setTab] = useState(() => { try { const h = sessionStorage.getItem("cm_cond_tab"); if (h) { sessionStorage.removeItem("cm_cond_tab"); return h; } } catch { /* sem storage */ } return "dados"; });
   const [saved, setSaved] = useState(false);
@@ -1629,10 +1652,11 @@ function Condominio({ t, role }) {
 /* ══════════════ UNIDADES ══════════════ */
 function Unidades({ t, role }) {
   const { db, reload } = useData();
-  /* só o diretor cria unidades e edita a área privativa; síndico e tesouraria
-     consultam históricos e podem trocar o responsável financeiro */
-  const podeCriar = role === "diretor";
-  const podeEditarArea = role === "diretor";
+  /* criar unidade e editar a área privativa exigem unidade.criar (padrão: só
+     o diretor); síndico e tesouraria consultam históricos e podem trocar o
+     responsável financeiro */
+  const podeCriar = pode(usePerms(), "unidade.criar");
+  const podeEditarArea = podeCriar;
   const [q, setQ] = useState(""); const [st, setSt] = useState("todos"); const [sel, setSel] = useState(null); const [novo, setNovo] = useState(false);
   const [salvar, saving] = useSubmit(async (f) => { await criarUnidade(db.ctx, f); await reload(); setNovo(false); });
   const areaRef = React.useRef(null);
@@ -2366,6 +2390,13 @@ function ReciboModal({ t, cobrancas, ctx, condNome, onClose, enviarTexto }) {
 /* ══════════════ FINANCEIRO ══════════════ */
 function Financeiro({ t }) {
   const { db, reload } = useData();
+  const perms = usePerms();
+  /* criar, aprovar e dar baixa são permissões SEPARADAS (um perfil pode
+      lançar sem aprovar). Os gatilhos de supabase-permissoes.sql barram no
+      banco — aqui é só para não oferecer o que vai falhar. */
+  const podeLancar = pode(perms, "financeiro.lancar");
+  const podeAprovar = pode(perms, "financeiro.aprovar");
+  const podeBaixar = pode(perms, "financeiro.baixar");
   const S = db.stats;
   /* aba inicial pode vir de um atalho de outra tela (ex.: "Ver todas →" do
      dashboard abre direto a Aprovação) — hint de uso único no sessionStorage */
@@ -2460,7 +2491,8 @@ function Financeiro({ t }) {
       </div>
       {tab === "lanc" ? (<>
         <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar lançamento…"
-          action={<><Btn t={t} onClick={exportarLanc}><Download size={14} /> Exportar</Btn><Btn t={t} kind="primary" onClick={() => setNovo(true)} data-tour="fin-novo"><Plus size={15} /> Lançamento</Btn></>} />
+          action={<><Btn t={t} onClick={exportarLanc}><Download size={14} /> Exportar</Btn>
+            {podeLancar && <Btn t={t} kind="primary" onClick={() => setNovo(true)} data-tour="fin-novo"><Plus size={15} /> Lançamento</Btn>}</>} />
         <Tbl t={t} cols={[{k:"data",l:"Data"},{k:"tipo",l:"Tipo"},{k:"cat",l:"Categoria"},{k:"desc",l:"Descrição"},{k:"valor",l:"Valor"},{k:"nf",l:"NF"},{k:"status",l:"Status"}]}
           rows={rows}
           empty={<EmptyState t={t} icon={Wallet} title="Nenhum lançamento neste período"
@@ -2491,13 +2523,14 @@ function Financeiro({ t }) {
                   className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: t.gold }}>
                   <FileText size={13} /> Ver NF</a>)
               : "—";
-            if (k === "acao") return (
+            if (k === "acao") return podeAprovar ? (
               <div className="flex justify-end gap-1.5">
                 <Btn t={t} kind="danger" disabled={decidindo === r.id} onClick={(e) => { e.stopPropagation(); decidirLanc(r.id, false, r.tipo); }}>
                   <Ban size={13} /> Rejeitar</Btn>
                 <Btn t={t} kind="primary" disabled={decidindo === r.id} onClick={(e) => { e.stopPropagation(); decidirLanc(r.id, true, r.tipo); }}>
                   <Check size={13} /> {decidindo === r.id ? "Salvando…" : "Aprovar"}</Btn>
-              </div>);
+              </div>
+            ) : <span className="text-xs" style={{ color: t.dim }}>{L("Aguardando quem aprova")}</span>;
             return r[k];
           }} />
       </>) : tab === "receitas" ? (<>
@@ -2527,9 +2560,9 @@ function Financeiro({ t }) {
           renderCell={(r, k) => {
             if (k === "valor") return <b>{BRL(r.valor)}</b>;
             if (k === "status") return <Badge t={t} s={r.status} />;
-            if (k === "acao") return (
+            if (k === "acao") return podeBaixar ? (
               <Btn t={t} kind="soft" disabled={baixando === r.id} onClick={(e) => { e.stopPropagation(); darBaixa(r.id); }}>
-                <Check size={13} /> {baixando === r.id ? "Baixando…" : "Marcar pago"}</Btn>);
+                <Check size={13} /> {baixando === r.id ? "Baixando…" : "Marcar pago"}</Btn>) : null;
             return r[k];
           }} />
       </>) : tab === "pagas" ? (<>
@@ -3642,6 +3675,9 @@ function ImportarPlanilha({ t, planilha, onClose, onPronto }) {
 /* ══════════════ MULTAS E ADVERTÊNCIAS ══════════════ */
 function Multas({ t, role }) {
   const { db, reload } = useData();
+  const perms = usePerms();
+  /* o morador vê a multa em leitura no portal; decidir pede multa.aprovar */
+  const podeDecidir = role !== "morador" && pode(perms, "multa.aprovar");
   const S = db.stats;
   const [sel, setSel] = useState(null); const [nova, setNova] = useState(false); const [decidindo, setDecidindo] = useState(false);
   const [salvar, saving] = useSubmit(async (f) => { await criarPenalidade(db.ctx, f); await reload(); setNova(false); });
@@ -3743,11 +3779,15 @@ function Multas({ t, role }) {
             corpo={`Fica a unidade ${sel.unidade} notificada pela infração "${sel.categoria}", registrada em ${sel.data}, conforme base normativa do regimento interno. ${sel.valor > 0 ? "O valor abaixo será lançado na próxima competência caso não haja defesa acolhida." : "Em caso de reincidência, será aplicada multa conforme tabela vigente."}`} />
           <div className="mt-4 flex flex-wrap justify-end gap-2">
             <Btn t={t} onClick={() => imprimirPdf(sel)}><Printer size={14} /> Imprimir PDF</Btn>
-            {role !== "morador" && sel.status === "aprovada_envio" && (
+            {/* enviar emite a cobrança da multa — a policy de `cobrancas`
+                exige cobranca.emitir, então o botão segue a mesma regra */}
+            {role !== "morador" && pode(perms, "cobranca.emitir") && sel.status === "aprovada_envio" && (
               <Btn t={t} kind="primary" disabled={enviando} onClick={enviarResp}>
                 <Send size={14} /> {enviando ? "Enviando…" : sel.valor > 0 ? L("Enviar ao responsável (emite a cobrança)") : "Enviar ao responsável"}</Btn>)}
             {sel.entregueEm && <span className="self-center text-xs" style={{ color: t.dim }}>{L("Entregue ao responsável em")} {sel.entregueEm}</span>}
-            {role !== "morador" && sel.status === "pendente" && (<>
+            {/* decidir exige multa.aprovar — e o gatilho do banco
+                (supabase-permissoes.sql) barra mesmo se o botão aparecer */}
+            {podeDecidir && sel.status === "pendente" && (<>
               <Btn t={t} kind="danger" disabled={decidindo} onClick={() => decidir(false)}><Ban size={14} /> {sel.valor > 0 ? "Cancelar multa" : L("Cancelar advertência")}</Btn>
               <Btn t={t} kind="primary" disabled={decidindo} onClick={() => decidir(true)}><Check size={14} /> {decidindo ? "Salvando…" : "Aprovar (síndico)"}</Btn></>)}
           </div>
@@ -4316,7 +4356,23 @@ function Portaria({ t }) {
 }
 
 /* ══════════════ Gerenciar Acessos (exclusivo do diretor) ══════════════ */
+/* Duas abas: as CONTAS (quem entra) e a MATRIZ (o que cada perfil pode). */
 function GerenciarEmails({ t }) {
+  const [aba, setAba] = useState("acessos");
+  return (
+    <div className="vfade space-y-4">
+      <div className="flex gap-1 overflow-x-auto">
+        {[["acessos", "Acessos"], ["permissoes", "Permissões"]].map(([k, l]) => (
+          <button key={k} onClick={() => setAba(k)} className="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium"
+            style={{ background: aba === k ? t.goldSoft : "transparent", color: aba === k ? t.gold : t.dim,
+              border: `1px solid ${aba === k ? t.border : "transparent"}` }}>{L(l)}</button>))}
+      </div>
+      {aba === "acessos" ? <AcessosDoCondominio t={t} /> : <EditorPermissoes t={t} />}
+    </div>
+  );
+}
+
+function AcessosDoCondominio({ t }) {
   const { db } = useData();
   const unidades = db.ctx.unidades; // unidades cadastradas na tela Unidades
   const [usuarios, setUsuarios] = useState(null); // null = carregando do banco
@@ -4512,6 +4568,130 @@ function GerenciarEmails({ t }) {
           </div>
           <div className="mt-5 flex justify-end"><Btn t={t} onClick={() => setCodigoGerado(null)}>Fechar</Btn></div>
         </Modal>)}
+    </div>
+  );
+}
+
+/* ══════════════ Editor da matriz de permissões ══════════════
+   O que o diretor marca aqui vale só para ESTE condomínio e SUBSTITUI o
+   padrão do SaaS — desmarcar tira de verdade. O padrão reproduz o
+   comportamento anterior à matriz, então um condomínio sem override se
+   comporta exatamente como antes.
+
+   Duas coisas que a tela deixa explícitas de propósito:
+   · o CARGO criado na aba Gestão não é um perfil próprio — ele herda o
+     conjunto do NÍVEL escolhido na criação do acesso;
+   · marcar/desmarcar vale na próxima renovação de token (≤1h) para quem
+     já está logado, porque é de lá que o conjunto da sessão vem. */
+function EditorPermissoes({ t }) {
+  const [dados, setDados] = useState(null);     // null = carregando
+  const [perfil, setPerfil] = useState(PERFIS_EDITAVEIS[0]);
+  const [marcadas, setMarcadas] = useState(null); // Set em edição
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [salvo, setSalvo] = useState(false);
+
+  const recarregar = useCallback(async () => {
+    try { setDados(await listarPermissoes()); setErro(""); }
+    catch (e) { setErro(e.message); setDados({ perfis: [], catalogo: PERMISSOES, erro: true }); }
+  }, []);
+  useEffect(() => { recarregar(); }, [recarregar]);
+
+  const atual = (dados?.perfis || []).find((p) => p.perfil === perfil) || null;
+  /* troca de perfil (ou recarga) reinicia a edição a partir do efetivo */
+  useEffect(() => { setMarcadas(atual ? new Set(atual.efetivas) : null); setSalvo(false); },
+    [perfil, atual?.efetivas?.join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const editavel = perfil === "morador" ? PERMS_DO_MORADOR : null; // morador tem conjunto fechado
+  const visiveis = (dados?.catalogo || PERMISSOES).filter((p) =>
+    !p.fixo && (!editavel || editavel.includes(p.codigo)));
+  const grupos = [
+    ["Telas", visiveis.filter((p) => p.grupo === "tela")],
+    ["Ações sensíveis", visiveis.filter((p) => p.grupo === "acao")],
+    ["Base", visiveis.filter((p) => p.grupo === "base")],
+  ].filter(([, itens]) => itens.length);
+
+  const alternar = (codigo) => {
+    setSalvo(false);
+    setMarcadas((s) => { const n = new Set(s); n.has(codigo) ? n.delete(codigo) : n.add(codigo); return n; });
+  };
+  const sujo = !!(atual && marcadas && !mesmoConjunto([...marcadas], atual.efetivas));
+  const igualAoPadrao = !!(atual && marcadas && mesmoConjunto([...marcadas], atual.padrao));
+
+  const salvar = async () => {
+    setSalvando(true); setErro("");
+    try { await salvarPermissoes(perfil, [...marcadas]); await recarregar(); setSalvo(true); }
+    catch (e) { setErro(e.message); }
+    finally { setSalvando(false); }
+  };
+  const restaurar = async () => {
+    setSalvando(true); setErro("");
+    try { await restaurarPermissoes(perfil); await recarregar(); setSalvo(true); }
+    catch (e) { setErro(e.message); }
+    finally { setSalvando(false); }
+  };
+
+  if (!dados) return <Skeleton t={t} />;
+
+  return (
+    <div className="space-y-4">
+      <div className="text-xs" style={{ color: t.dim }}>
+        {L("O que você marcar aqui vale só para este condomínio e substitui o padrão do sistema. O diretor tem todas as permissões e não aparece na lista — é o que garante que ninguém se feche fora desta tela.")}</div>
+
+      {dados.semBanco && (
+        <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "0D", color: t.warn }}>
+          {dados.recado}{" "}{L("Até lá a tela mostra o padrão em leitura e o app segue funcionando com ele.")}</div>)}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1 overflow-x-auto">
+          {PERFIS_EDITAVEIS.map((p) => (
+            <button key={p} onClick={() => setPerfil(p)} className="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium"
+              style={{ background: perfil === p ? t.goldSoft : "transparent", color: perfil === p ? t.gold : t.dim,
+                border: `1px solid ${perfil === p ? t.border : "transparent"}` }}>
+              {PROFILES[p]?.label || p}</button>))}
+        </div>
+        <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.surface2, color: t.dim }}>
+          {atual?.temOverride ? L("personalizado neste condomínio") : L("padrão do sistema")}</span>
+      </div>
+
+      {perfil === "morador" && (
+        <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.dim }}>
+          {L("O morador tem um conjunto fechado: as telas de gestão continuam negadas pelas regras do banco, então oferecê-las aqui prometeria um poder que não se cumpre.")}</div>)}
+
+      {grupos.map(([titulo, itens]) => (
+        <Card t={t} key={titulo}>
+          <SectionTitle t={t}>{titulo}</SectionTitle>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {itens.map((p) => {
+              const on = !!marcadas?.has(p.codigo);
+              const noPadrao = atual?.padrao?.includes(p.codigo);
+              return (
+                <label key={p.codigo} className="flex cursor-pointer items-start gap-2 rounded-xl border px-3 py-2"
+                  style={{ borderColor: on ? t.border : t.borderSoft, background: on ? t.goldSoft : "transparent" }}>
+                  <input type="checkbox" checked={on} disabled={dados.semBanco || salvando}
+                    onChange={() => alternar(p.codigo)} className="mt-0.5" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-medium">{L(p.rotulo)}</span>
+                    {p.ajuda && <span className="block text-[11px]" style={{ color: t.dim }}>{L(p.ajuda)}</span>}
+                    <span className="block font-mono text-[10px]" style={{ color: t.dim }}>
+                      {p.codigo}{!noPadrao && on ? ` · ${L("acima do padrão")}` : ""}{noPadrao && !on ? ` · ${L("retirado do padrão")}` : ""}</span>
+                  </span>
+                </label>);
+            })}
+          </div>
+        </Card>))}
+
+      {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
+      {salvo && !erro && <div className="text-xs" style={{ color: t.ok }}>{L("Permissões salvas. Quem já está logado recebe o novo conjunto na próxima renovação da sessão (até 1 hora) ou ao entrar de novo.")}</div>}
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {igualAoPadrao && sujo && (
+          <span className="text-xs" style={{ color: t.dim }}>{L("Igual ao padrão — salvar aqui grava um override idêntico; prefira \"Restaurar padrão\".")}</span>)}
+        <Btn t={t} kind="soft" disabled={dados.semBanco || salvando || !atual?.temOverride} onClick={restaurar}>
+          <ChevronLeft size={14} /> {L("Restaurar padrão")}</Btn>
+        <Btn t={t} kind="primary" disabled={dados.semBanco || salvando || !sujo} onClick={salvar}>
+          <Check size={14} /> {salvando ? L("Salvando…") : L("Salvar")}</Btn>
+      </div>
     </div>
   );
 }
@@ -5367,9 +5547,11 @@ function Planos({ t }) {
    estiver ativa. O pagamento abre o Stripe Checkout; a ativação chega
    pelo webhook (customer.subscription.*) e o botão "Verificar" recarrega. */
 function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload }) {
-  /* a página de planos/pagamento é exclusiva do diretor; os demais perfis só
-     veem o aviso de assinatura pendente, sem valores nem botão de pagar */
-  const ehDiretor = role === "diretor";
+  /* a página de planos/pagamento pede licenca.gerir (padrão: só o diretor);
+     os demais perfis só veem o aviso de assinatura pendente, sem valores
+     nem botão de pagar. O nome da variável segue por ser usada em todo o
+     componente — o que mudou é a fonte da verdade. */
+  const ehDiretor = pode(usePerms(), "licenca.gerir");
   const [gerando, setGerando] = useState(false);
   const [verificando, setVerificando] = useState(false);
   const [erro, setErro] = useState("");
@@ -5654,13 +5836,27 @@ export default function App() {
   const [morador, setMorador] = useState(() => lerSessao()?.morador || null); // { nome, unidade } do morador logado
   const [diretorConta, setDiretorConta] = useState(() => lerSessao()?.diretor || null); // conta do diretor logado (para o 1º acesso)
   const [condId, setCondId] = useState(() => lerSessao()?.condominioId || null); // condomínio da conta logada (multi-tenant)
-  /* recarregar a página mantém a tela onde a pessoa estava (se o perfil pode vê-la) */
+  /* permissões da sessão: vêm do login/refresh já resolvidas pela matriz.
+     Sessão antiga (sem o campo) ou SQL não rodado → padrão do perfil, que é
+     o comportamento anterior. A renovação do token (≤1h) dispara "cm:perms"
+     quando o conjunto muda, então mexer na matriz reflete sem novo login. */
+  const [perms, setPerms] = useState(() => {
+    const s = lerSessao();
+    return s?.role ? permsEfetivas({ perfil: s.role, override: s.perms || null }) : [];
+  });
+  useEffect(() => {
+    const aoMudar = (e) => setPerms(Array.isArray(e.detail) ? e.detail : (lerSessao()?.perms || []));
+    window.addEventListener("cm:perms", aoMudar);
+    return () => window.removeEventListener("cm:perms", aoMudar);
+  }, []);
+  /* recarregar a página mantém a tela onde a pessoa estava (se a matriz a libera) */
   const [screen, setScreen] = useState(() => {
-    const r = lerSessao()?.role;
+    const s = lerSessao();
     const padrao = "dashboard";
     try {
       const salva = sessionStorage.getItem(K_TELA);
-      return salva && r && NAV.some((n) => n.id === salva && n.roles.includes(r)) ? salva : padrao;
+      const p = s?.role ? permsEfetivas({ perfil: s.role, override: s.perms || null }) : [];
+      return salva && telaLiberada(p, salva) ? salva : padrao;
     } catch { return padrao; }
   });
   useEffect(() => { try { sessionStorage.setItem(K_TELA, screen); } catch { /* sem storage */ } }, [screen]);
@@ -5717,7 +5913,7 @@ export default function App() {
   }, [dark, db]);
 
   const go = useCallback((s) => { setScreen(s); setSideOpen(false); }, []);
-  const nav = NAV.filter((n) => role && n.roles.includes(role));
+  const nav = NAV.filter((n) => role && pode(perms, n.perm));
   /* cargo de gestão do acesso logado (rótulo do menu lateral) — entra na
      sessão no login; quem já estava logado o recebe no próximo acesso */
   const cargoAcesso = lerSessao()?.cargo || null;
@@ -5741,8 +5937,8 @@ export default function App() {
     if (aprovar.length) n.push({ txt: `${aprovar.length} ${L("lançamento(s) aguardando aprovação")}`, c: "info", s: "financeiro" });
     const semResp = (db.chamados || []).filter((c) => c.status === "aberto" && c.resp === "—");
     if (semResp.length) n.push({ txt: `${semResp.length} ${L("chamado(s) abertos sem responsável designado")}`, c: "warn", s: "chamados" });
-    return n.filter((x) => NAV.some((nv) => nv.id === x.s && nv.roles.includes(role)));
-  }, [db, role, lang]); // lang: os textos passam por L(), então trocar o idioma precisa recalcular
+    return n.filter((x) => telaLiberada(perms, x.s));
+  }, [db, role, perms, lang]); // lang: os textos passam por L(), então trocar o idioma precisa recalcular
 
   /* feed de movimentações (entrada recebida / conta paga) — as linhas nascem
      de triggers no banco (supabase-notificacoes.sql) e chegam por polling de
@@ -5858,11 +6054,16 @@ export default function App() {
      exceto nas páginas legais, onde o banner cobriria o próprio texto que o explica */
   const chrome = <>{globalStyle}<CookieBanner t={t} /></>;
 
-  const entrar = useCallback((r, m, d, cId, token, cargo) => {
+  const entrar = useCallback((r, m, d, cId, token, cargo, permsConta) => {
+    /* `permsConta` vem do /api/auth/login já resolvido pela matriz; null
+       (API antiga, SQL não rodado) cai no padrão do perfil */
+    const efetivas = permsEfetivas({ perfil: r, override: Array.isArray(permsConta) ? permsConta : null });
     salvarSessao({ role: r, morador: m || null, diretor: d ? { nome: d.nome, email: d.email } : null,
-      condominioId: cId || null, token: token || null, cargo: cargo || null });
+      condominioId: cId || null, token: token || null, cargo: cargo || null,
+      perms: Array.isArray(permsConta) ? permsConta : null });
     setAvisoLogin(null); // o aviso de sessão expirada cumpriu o papel
     setMorador(m || null); setDiretorConta(d || null); setCondId(cId || null); setRole(r);
+    setPerms(efetivas);
     setScreen("dashboard");
   }, []);
   /* condomínio recém-criado no 1º acesso: amarra à sessão desta conta,
@@ -5902,17 +6103,17 @@ export default function App() {
   const tenantPrincipal = db && !db.vazio ? db.tenants.find((x) => x.id === db.ctx.condominioId) : null;
   const testeValido = tenantPrincipal?.status === "teste" && tenantPrincipal.testeFim && tenantPrincipal.diasTeste >= 0;
   if (db && tenantPrincipal && tenantPrincipal.status !== "ativo" && !testeValido) return (
-    <DataCtx.Provider value={dataValue}>{chrome}
+    <DataCtx.Provider value={dataValue}><PermsCtx.Provider value={perms}>{chrome}
       <Paywall t={t} role={role} licenca={tenantPrincipal.status} tenant={tenantPrincipal} condominioId={db.ctx.condominioId}
         onLogout={sair} onReload={reload} />
-    </DataCtx.Provider>);
+    </PermsCtx.Provider></DataCtx.Provider>);
 
   if (role === "morador") return (
-    <DataCtx.Provider value={dataValue}>{chrome}
+    <DataCtx.Provider value={dataValue}><PermsCtx.Provider value={perms}>{chrome}
       {db ? <PortalMorador t={t} dark={dark} setDark={setDark} lang={lang} onLang={onLang} morador={morador} onLogout={sair} />
         : <div className="mx-auto max-w-lg p-4" style={{ background: t.bg, minHeight: "100vh" }}>
             {dbErr ? <ErrorState t={t} onRetry={reload} /> : <Skeleton t={t} />}</div>}
-    </DataCtx.Provider>);
+    </PermsCtx.Provider></DataCtx.Provider>);
 
   const SCREENS = {
     dashboard: <Dashboard t={t} role={role} go={go} />, condominio: <Condominio t={t} role={role} />,
@@ -5925,6 +6126,7 @@ export default function App() {
 
   return (
     <DataCtx.Provider value={dataValue}>
+    <PermsCtx.Provider value={perms}>
     <div style={{ background: t.bg, color: t.text, minHeight: "100vh", fontFamily: "'Inter',system-ui,sans-serif", transition: "background .3s,color .3s" }}>
       {chrome}
       <div className="flex">
@@ -6069,6 +6271,7 @@ export default function App() {
           onHide={() => { salvarOnb(condId, { hidden: true }); setObOpen(false); }}
           onGoStep={irParaPasso} />)}
     </div>
+    </PermsCtx.Provider>
     </DataCtx.Provider>
   );
 }

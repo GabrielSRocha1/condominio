@@ -57,15 +57,28 @@ idiomas, instalável como PWA.
       planilha padrão se o condomínio não tem. Exige o
       `supabase-planilhas.sql` antes. Sem ele o app funciona com o
       comportamento antigo e o botão "Baixa indevida" avisa para rodá-lo
+   10. `supabase-permissoes.sql` — **liga a matriz de permissões**: o que
+      cada perfil pode passa a vir de `perfil_permissoes` (telas + ações
+      sensíveis), com override por condomínio editável em Gerenciar Acessos
+      → Permissões. Recria as policies de escrita por PERMISSÃO (não mais
+      por nome de perfil), põe gatilho de aprovação em `lancamentos` e
+      `penalidades` e embrulha as RPCs com guarda de perfil. **Deve rodar
+      por último**: ele recria policies que os arquivos anteriores criam.
+      O padrão semeado reproduz o comportamento anterior — rodar não muda
+      poder de ninguém, com UMA exceção deliberada: a tesouraria perde a
+      escrita em `penalidades` e `comunicados`, telas que ela nunca teve
+      (o banco era mais frouxo que a interface). Sem ele o app funciona com
+      o comportamento antigo e a aba Permissões abre em leitura, avisando.
 
    Banco **já instalado**? Não re-rode o schema inteiro — rode apenas o que
    faltar, na ordem: o `alter table usuarios add column if not exists
    preferencias …` que vem logo abaixo do `create table usuarios` (idioma por
    conta), `supabase-seguranca4.sql` e `supabase-seguranca5.sql` ("Esqueci
    minha senha"), `supabase-encargos.sql`, `supabase-planilhas.sql`,
-   `supabase-fundo-reserva.sql`, `supabase-notificacoes.sql` e
-   `supabase-planilha-sync.sql` (passos 5–9 acima — todos idempotentes e com
-   degrade aberto: sem eles o app funciona com o comportamento antigo).
+   `supabase-fundo-reserva.sql`, `supabase-notificacoes.sql`,
+   `supabase-planilha-sync.sql` e `supabase-permissoes.sql` (passos 5–10
+   acima — todos idempotentes e com degrade aberto: sem eles o app funciona
+   com o comportamento antigo).
    Licença ancorada em USD (antes BRL)? Rode também o UPDATE dos planos:
 
    ```sql
@@ -75,8 +88,9 @@ idiomas, instalável como PWA.
    update saas_planos set preco_mensal = 420.00, preco_anual = 4200.00, atualizado_em = now() where nome = 'Premium';
    ```
 
-   Atenção: re-rodar o `supabase-rls.sql` exige re-rodar seguranca 1→5 em
-   seguida (ele derruba e recria todas as policies).
+   Atenção: re-rodar o `supabase-rls.sql` exige re-rodar seguranca 1→5 **e o
+   `supabase-permissoes.sql`** em seguida (ele derruba e recria todas as
+   policies — inclusive as que decidem por permissão).
 4. **Stripe** — `node scripts/preparar-stripe-producao.mjs --cotacao <USD→BRL> --executar`
    cria products/prices (base BRL = USD × cotação + `currency_options.usd`
    exato — a licença é ancorada em USD), o promotion code de ativação manual
@@ -103,6 +117,7 @@ idiomas, instalável como PWA.
 | `testar-receber-lote.mjs` | sondas do recebimento em lote (motor puro): desconto arredondado por item, âncora do mesmo responsável, ordenação e lotes inválidos |
 | `testar-fundo-reserva.mjs` | sondas do fundo de reserva na baixa: divisão taxa + fundo pelo FR% embutido, mora fora do fundo e desconto proporcional (pula se o supabase-fundo-reserva.sql não rodou) |
 | `testar-notificacoes.mjs` | sondas do feed de movimentações do sino (motor puro): os 3 eventos, fallback de evento desconhecido, payload corrompido, contagem/destaque de não-vistas por instante absoluto, hora no fuso local e o topo do feed que dispara o reload entre janelas |
+| `testar-permissoes.mjs` | sondas da matriz de permissões: catálogo, padrão que reproduz o comportamento pré-matriz, override que SUBSTITUI (e zera) o padrão, paridade JS ≡ SQL ≡ NAV e, com banco, policies por permissão + gatilho de aprovação + blindagem da própria matriz (bloco B pula se o supabase-permissoes.sql não rodou) |
 | `relatorio-seguranca.mjs` | auditoria semanal (sessões, eventos, anomalias) |
 | `emergencia-sessoes.mjs` | resposta a incidente: revoga sessões em massa |
 | `verificar-segredos-bundle.mjs` | confere que nenhum segredo vazou no build |

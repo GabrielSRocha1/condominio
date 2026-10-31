@@ -633,6 +633,26 @@ export async function removerAcesso(usuarioId) {
   await chamarAuth("acessos", { acao: "remover", usuarioId });
 }
 
+/* ─────────── matriz de permissões (Gerenciar Acessos → Permissões) ───────────
+   Só o diretor: editar a matriz é o atalho para um perfil se promover a
+   tudo, então `permissao.gerir` não é delegável (nem na API, nem no
+   public.jwt_pode). O override SUBSTITUI o padrão do SaaS — desmarcar tira
+   de verdade — e vale para ESTE condomínio só. */
+export async function listarPermissoes() {
+  return chamarAuth("permissoes", { acao: "listar" });
+}
+
+/* Grava o conjunto do perfil neste condomínio. Lista vazia é legítima
+   (perfil zerado) — por isso o override é um fato próprio no banco. */
+export async function salvarPermissoes(perfil, perms) {
+  return chamarAuth("permissoes", { acao: "salvar", perfil, perms });
+}
+
+/* Apaga o override: o perfil volta ao padrão do SaaS. */
+export async function restaurarPermissoes(perfil) {
+  return chamarAuth("permissoes", { acao: "restaurar", perfil });
+}
+
 /* Código de recuperação de 24h (só o diretor gera, e só para TESOURARIA
    ou MORADOR do condomínio). Diretor e síndico redefinem a senha por link
    no e-mail. O código aparece UMA vez — o banco só guarda o hash. */

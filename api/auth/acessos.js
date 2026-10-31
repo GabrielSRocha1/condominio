@@ -20,6 +20,7 @@ import {
   lerClaimsReq, gerarHashSenha, gerarCodigoRecuperacao, guardarCodigoRecuperacao, erroSemTabela,
   origemBloqueada, prepararIdempotencia, logSeguro, auditar, ipDoRequest,
 } from "../_lib/seguranca.js";
+import { carregarPerms, doClaims } from "../_lib/permissoes.js";
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
 const PERFIS_CRIAVEIS = ["sindico", "tesouraria", "morador"];
@@ -49,11 +50,20 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: "Configure SUPABASE_SERVICE_ROLE_KEY no servidor." });
 
   const claims = lerClaimsReq(req);
-  if (!claims?.condominio_id || claims.perfil !== "diretor")
+  if (!claims?.condominio_id)
     return res.status(403).json({ error: "Apenas o diretor gerencia os acessos." });
   if (origemBloqueada(req, res)) return;
   const condominioId = claims.condominio_id;
   const supabase = createClient(envVal("SUPABASE_URL") || process.env.VITE_SUPABASE_URL, serviceKey);
+
+  /* autorização pela MATRIZ (antes era `perfil === "diretor"` cravado): o
+     diretor pode delegar acesso.gerir a um síndico. Sem o
+     supabase-permissoes.sql, carregarPerms degrada no padrão — onde só o
+     diretor tem a permissão, exatamente como antes. O perfil criável segue
+     na whitelist PERFIS_CRIAVEIS: ninguém cria um diretor por aqui. */
+  const perms = await carregarPerms(supabase, doClaims(claims));
+  if (!perms.has("acesso.gerir"))
+    return res.status(403).json({ error: "Seu perfil não pode gerenciar os acessos." });
 
   try {
     const f = corpoValidado(res, typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {}), {

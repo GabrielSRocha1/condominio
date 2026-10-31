@@ -19,13 +19,15 @@ ficam inertes (com aviso no log do servidor).
 | OpSec | `logSeguro()` | 500 genérico; JWT/chaves/cookies/senhas redigidos de qualquer log. Chave sem formato reconhecível (dLocal, SMTP, JWT secret) é redigida **pelo próprio valor** do ambiente (`SEGREDOS_ENV`); a regra do `Bearer` inclui `:` por causa do par `<API_KEY>:<SECRET_KEY>` da dLocal |
 | Auditoria | `auditoria_eventos` (append-only) | trilha imutável: logins, bloqueios, reuso de sessão, acessos, pagamentos e informes (triggers pegam até RPC do navegador) |
 | Recuperação de senha | `auth_recuperacao` + `/api/auth/codigo` + `/api/auth/recuperar` | sem e-mail: cada conta gera o próprio código permanente após o login (autonomia); diretor gera código de 24h como plano B; só o sha256 no banco, lockout próprio, uso revoga todas as sessões da conta |
+| Autorização por permissão | `supabase-permissoes.sql` (`public.jwt_pode`) + `src/lib/permissoes.js` + `api/_lib/permissoes.js` | a permissão efetiva vem da MATRIZ, não do nome do perfil: policies de escrita por tabela→permissão, gatilho que barra aprovação de lançamento/multa, RPCs de baixa embrulhadas com guarda, override por condomínio. Diretor tem tudo (anti-trava) e `permissao.gerir` não é delegável — nem na API, nem no banco. As três camadas (UI/API/banco) têm sonda de PARIDADE |
 
 SQLs (rodar no SQL Editor, nesta ordem, todos idempotentes):
-`supabase-rls.sql` → `supabase-seguranca.sql` → `supabase-seguranca2.sql` → `supabase-seguranca3.sql` → `supabase-seguranca4.sql` → `supabase-seguranca5.sql`.
+`supabase-rls.sql` → `supabase-seguranca.sql` → `supabase-seguranca2.sql` → `supabase-seguranca3.sql` → `supabase-seguranca4.sql` → `supabase-seguranca5.sql` → `supabase-permissoes.sql`.
 (Instalação do zero: antes deles vêm `supabase-schema.sql` e
 `supabase-storage.sql` — ordem completa no `README.md`. Se re-rodar o
-`supabase-rls.sql` depois das etapas, re-rode as cinco em seguida — ele derruba
-todas as policies antes de recriar as suas.)
+`supabase-rls.sql` depois das etapas, re-rode as cinco **e o
+`supabase-permissoes.sql`** em seguida — ele derruba todas as policies antes
+de recriar as suas, e o de permissões é o que recria as de escrita.)
 
 ## Ferramentas
 
@@ -35,6 +37,7 @@ todas as policies antes de recriar as suas.)
 | `scripts/testar-seguranca2.mjs` | sondas da Etapa 2 (17): origem, idempotência, redação, encoding da impressão, rate limit do condomínio |
 | `scripts/testar-seguranca3.mjs` | pentest: isolamento entre condomínios, fuzzing, auditoria |
 | `scripts/testar-recuperacao.mjs` | sondas da Etapa 4: recuperação de senha por código |
+| `scripts/testar-permissoes.mjs` | sondas da matriz (35 puras + 11 com banco): padrão que reproduz o comportamento pré-matriz, override que substitui e zera, paridade JS ≡ SQL ≡ NAV, policies por permissão (exigindo erro 42501 — constraint quebrada não conta como bloqueio), gatilho de aprovação, corpo `__base` das RPCs inalcançável e a prova de que um perfil de gestão não alcança a própria matriz |
 | `scripts/relatorio-seguranca.mjs [horas]` | resumo da trilha: falhas de login por IP, eventos ALTA, financeiro |
 | `scripts/emergencia-sessoes.mjs` | revogação em massa (`--todas` / `--usuario` / `--condominio`) |
 | `scripts/verificar-segredos-bundle.mjs` | após `vite build`: nenhum segredo do `.env` no `dist/` |

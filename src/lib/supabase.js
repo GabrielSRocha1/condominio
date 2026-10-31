@@ -70,10 +70,19 @@ async function renovarSessao() {
       const corpo = await r.json().catch(() => null);
       if (!corpo?.token) return null;
       setAuthToken(corpo.token);
-      /* mantém a sessão persistida em dia (mesma chave do CondoMasterPro) */
+      /* mantém a sessão persistida em dia (mesma chave do CondoMasterPro).
+         `perms` vem re-derivada da matriz a cada renovação: permissão
+         mexida em Gerenciar Acessos vale em ≤1h sem novo login. O evento
+         avisa o App (que guarda as perms em estado) para o menu reagir sem
+         esperar um reload da página. */
       try {
         const s = JSON.parse(localStorage.getItem("cm_sessao"));
-        if (s) localStorage.setItem("cm_sessao", JSON.stringify({ ...s, token: corpo.token }));
+        if (s) {
+          const perms = Array.isArray(corpo.conta?.perms) ? corpo.conta.perms : s.perms;
+          const mudou = JSON.stringify(perms || null) !== JSON.stringify(s.perms || null);
+          localStorage.setItem("cm_sessao", JSON.stringify({ ...s, token: corpo.token, perms: perms || null }));
+          if (mudou) window.dispatchEvent(new CustomEvent("cm:perms", { detail: perms || null }));
+        }
       } catch { /* sem storage */ }
       return corpo.token;
     } catch { return null; }

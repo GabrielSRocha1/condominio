@@ -7,6 +7,7 @@
    inteira de tokens. Respostas de falha são sempre 401 genéricas. */
 import { createClient } from "@supabase/supabase-js";
 import { assinarToken, rotacionarRefresh, revogarRefresh, origemBloqueada, logSeguro } from "../_lib/seguranca.js";
+import { carregarPerms } from "../_lib/permissoes.js";
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
 
@@ -51,6 +52,9 @@ export default async function handler(req, res) {
     const vincUnidade = vincs.find((v) => v.unidade_id) || vincs[0] || null;
     return res.status(200).json({ token, conta: {
       nome, condominioId: sessao.condominio_id,
+      /* re-deriva a matriz junto com as claims: permissão mexida em
+         Gerenciar Acessos vale na próxima renovação (≤1h), sem novo login */
+      perms: [...await carregarPerms(supabase, { perfil: sessao.perfil, condominioId: sessao.condominio_id })],
       ...(sessao.perfil === "morador"
         ? { unidade: vincUnidade?.unidades ? `${vincUnidade.unidades.numero}-${vincUnidade.unidades.blocos?.nome || "?"}` : null,
             papel: vincUnidade?.papel || null }
