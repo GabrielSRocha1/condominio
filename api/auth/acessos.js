@@ -261,13 +261,21 @@ export default async function handler(req, res) {
     });
     if (eUp) throw new Error(eUp.message);
 
-    /* morador: o papel na unidade vem da tela (padrão "morador"); síndico e
-       tesouraria seguem com o papel igual ao perfil de acesso */
-    await supabase.from("pessoa_vinculos").insert({
+    /* morador: o papel na unidade vem da tela (padrão "morador"); os demais
+       perfis seguem com o papel igual ao perfil de acesso.
+       O erro é CONFERIDO: este insert ficou falhando em silêncio quando
+       `administrador_predial` entrou como perfil sem existir no enum
+       vinculo_papel, e o acesso nascia sem vínculo nenhum — a pessoa
+       aparecia na tela Pessoas sem papel e sem unidade, sem nada indicar
+       que algo tinha dado errado. */
+    const { error: eVinc } = await supabase.from("pessoa_vinculos").insert({
       condominio_id: condominioId, pessoa_id: pessoa.id, unidade_id: f.unidadeId || null,
       papel: ehMorador ? (f.papel || "morador") : f.perfil,
       inicio: new Date().toISOString().slice(0, 10),
     });
+    if (eVinc) return res.status(500).json({ error: /invalid input value for enum/i.test(eVinc.message)
+      ? `O papel "${f.perfil}" não existe no banco — rode o supabase-aprovacoes.sql atual para habilitá-lo.`
+      : `vínculo da pessoa: ${eVinc.message}` });
     /* morador vinculado à unidade vira o responsável financeiro dela */
     if (ehMorador && f.unidadeId)
       await supabase.from("unidades").update({ responsavel_financeiro_id: pessoa.id }).eq("id", f.unidadeId);

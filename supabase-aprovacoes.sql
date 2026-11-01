@@ -66,6 +66,22 @@ insert into public.permissoes (codigo, descricao) values
   ('alteracao.aprovar', 'Aprovar, corrigir ou rejeitar alterações pendentes')
 on conflict (codigo) do update set descricao = excluded.descricao, atualizado_em = now();
 
+/* O PAPEL da pessoa no condomínio (`pessoa_vinculos.papel`) e o PERFIL de
+   acesso são eixos separados: o papel diz o que a pessoa É no prédio, o
+   perfil diz o que a conta dela PODE. Diretor, síndico e tesouraria já
+   existiam como papel; o administrador predial faltava, e sem ele a tela
+   Pessoas não tinha como registrar quem de fato administra o prédio.
+   `add value` é idempotente aqui pela checagem — repetir sem ela seria erro. */
+do $$
+begin
+  if not exists (
+    select 1 from pg_enum e join pg_type t on t.oid = e.enumtypid
+    where t.typname = 'vinculo_papel' and e.enumlabel = 'administrador_predial'
+  ) then
+    alter type public.vinculo_papel add value 'administrador_predial';
+  end if;
+end $$;
+
 /* conjunto do administrador = todas as telas + as escritas que a fila
    consegue cobrir. Fora: financeiro.baixar, cobranca.cancelar e
    licenca.gerir (não passam por escrita direta, logo a fila não as

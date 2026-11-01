@@ -8,8 +8,10 @@ import { separarTel, validarTel, normalizarTel } from "./telefone.js";
    o histórico de cobranças usa exatamente o mesmo código */
 import { carregarExcelJS, lerCsv, lerMatrizXlsx, paraISO, texto, norm, resolverUnidade } from "./planilha.js";
 
-/* mesmos 10 papéis oferecidos no formulário manual (tela Pessoas) */
-const PAPEIS_UI = ["Proprietário", "Inquilino", "Morador", "Dependente", "Diretor", "Síndico", "Tesouraria", "Funcionário", "Prestador", "Visitante recorrente"];
+/* mesmos 11 papéis oferecidos no formulário manual (tela Pessoas) — a lista
+   da planilha e a do formulário têm de aceitar as mesmas palavras, senão o
+   que o usuário escolhe na tela não passa pela importação */
+const PAPEIS_UI = ["Proprietário", "Inquilino", "Morador", "Dependente", "Diretor", "Administrador", "Síndico", "Tesouraria", "Funcionário", "Prestador", "Visitante recorrente"];
 
 /* ordem FIXA das colunas do modelo — o fallback posicional do parser depende dela */
 const COLS = [

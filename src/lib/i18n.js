@@ -148,7 +148,7 @@ const EN = {
   "Notificações": "Notifications", "Alternar tema": "Toggle theme", "Idioma": "Language", "Perfil de acesso": "Access profile",
 
   /* perfis */
-  "Diretor": "Director", "Síndico": "Manager", "Tesouraria": "Treasury", "Administradora": "Administrator", "Morador": "Resident",
+  "Diretor": "Director", "Síndico": "Manager", "Administrador": "Property Manager", "Tesouraria": "Treasury", "Administradora": "Administrator", "Morador": "Resident",
   "Visão estratégica, aprovações e auditoria": "Strategic view, approvals and audit",
   "Operação, multas, comunicados e manutenção": "Operations, fines, announcements and maintenance",
   "Financeiro, cobranças e conciliação": "Finance, billing and reconciliation",
@@ -948,7 +948,7 @@ const ES = {
   "Notificações": "Notificaciones", "Alternar tema": "Cambiar tema", "Idioma": "Idioma", "Perfil de acesso": "Perfil de acceso",
 
   /* perfis */
-  "Diretor": "Director", "Síndico": "Síndico", "Tesouraria": "Tesorería", "Administradora": "Gestora", "Morador": "Residente",
+  "Diretor": "Director", "Síndico": "Síndico", "Administrador": "Administrador", "Tesouraria": "Tesorería", "Administradora": "Gestora", "Morador": "Residente",
   "Visão estratégica, aprovações e auditoria": "Visión estratégica, aprobaciones y auditoría",
   "Operação, multas, comunicados e manutenção": "Operación, multas, comunicados y mantenimiento",
   "Financeiro, cobranças e conciliação": "Finanzas, cobros y conciliación",

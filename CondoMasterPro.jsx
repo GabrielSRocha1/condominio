@@ -1884,7 +1884,10 @@ function Pessoas({ t }) {
     catch (err) { alert(err?.message || err); }
     finally { setExcluindo(false); }
   };
-  const papeis = ["Proprietário","Temporário","Morador","Dependente","Diretor","Síndico","Tesouraria","Funcionário","Prestador","Visitante recorrente"];
+  /* mesma ordem do seletor de perfis da tela de entrada (Diretor →
+     Administrador → Síndico → Tesouraria); espelhado em PAPEIS_UI
+     (importPessoas.js), que precisa aceitar as mesmas palavras na planilha */
+  const papeis = ["Proprietário","Temporário","Morador","Dependente","Diretor","Administrador","Síndico","Tesouraria","Funcionário","Prestador","Visitante recorrente"];
   const rows = db.pessoas.filter((p) => (papel === "todos" || p.papel === papel) && p.nome.toLowerCase().includes(q.toLowerCase()));
   return (
     <div className="vfade">

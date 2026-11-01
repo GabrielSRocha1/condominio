@@ -220,6 +220,7 @@ console.log("\n━━ A · as funções de api.js sabem que a escrita pode ir pa
 {
   const api = readFileSync(new URL("../src/lib/api.js", import.meta.url), "utf8");
   const tela = readFileSync(new URL("../CondoMasterPro.jsx", import.meta.url), "utf8");
+  const imp = readFileSync(new URL("../src/lib/importPessoas.js", import.meta.url), "utf8");
   const s = readFileSync(new URL("../supabase-aprovacoes.sql", import.meta.url), "utf8");
   const bl = s.slice(s.indexOf("foreach t in array array["), s.indexOf("loop", s.indexOf("foreach t in array")));
   const COBERTAS = [...bl.matchAll(/'([a-z_]+)'/g)].map(([, t]) => t);
@@ -369,6 +370,37 @@ console.log("\n━━ A · as funções de api.js sabem que a escrita pode ir pa
   ok("resumo da ação não vira 'Ação de ...'",
     resumir({ tabela: "financeiro.baixar", operacao: "ACAO", resumo: "baixa de 150" })
       === "Baixa de pagamento: baixa de 150");
+
+  /* ── PAPEL no condomínio (pessoa_vinculos.papel) ──
+     Eixo separado do perfil de acesso, mas api/auth/acessos.js grava
+     `papel = perfil` ao criar o acesso. Quando administrador_predial virou
+     perfil sem existir no enum vinculo_papel, esse insert passou a falhar
+     EM SILÊNCIO e o acesso nascia sem vínculo nenhum. Quatro listas
+     precisam concordar: a tela, a planilha de importação, PAPEL_LABEL e o
+     enum do banco. */
+  const papeisTela = (tela.match(/const papeis = \[([^\]]*)\]/) || [, ""])[1];
+  const daTela = [...papeisTela.matchAll(/"([^"]+)"/g)].map(([, x]) => x);
+  const papeisPlan = (imp.match(/const PAPEIS_UI = \[([^\]]*)\]/) || [, ""])[1];
+  const daPlanilha = [...papeisPlan.matchAll(/"([^"]+)"/g)].map(([, x]) => x);
+  const blocoLabel = api.slice(api.indexOf("const PAPEL_LABEL = {"), api.indexOf("};", api.indexOf("const PAPEL_LABEL = {")));
+  const porChave = Object.fromEntries([...blocoLabel.matchAll(/([a-z_]+): "([^"]+)"/g)].map(([, k, v]) => [k, v]));
+
+  ok("todo papel da tela tem chave em PAPEL_LABEL",
+    daTela.every((p) => Object.values(porChave).includes(p)),
+    daTela.filter((p) => !Object.values(porChave).includes(p)).join(", "));
+  ok("administrador_predial é papel, não só perfil",
+    porChave.administrador_predial === "Administrador", porChave.administrador_predial || "ausente");
+  ok("a tela oferece o Administrador", daTela.includes("Administrador"));
+  ok("a planilha de importação oferece os mesmos papéis de gestão",
+    ["Diretor", "Administrador", "Síndico", "Tesouraria"].every((p) => daPlanilha.includes(p)),
+    daPlanilha.join(", "));
+  ok("o SQL acrescenta o valor ao enum vinculo_papel",
+    /alter type public\.vinculo_papel add value 'administrador_predial'/.test(s));
+  /* o insert do vínculo não pode mais falhar calado */
+  ok("criar acesso confere o erro do vínculo",
+    /const \{ error: eVinc \}[\s\S]{0,400}if \(eVinc\)/.test(acessos));
+  ok("o papel de gestão vence o de morador na exibição",
+    /PAPEL_PRIORIDADE = \[[^\]]*"administrador_predial"[^\]]*"morador"\]/.test(api));
 }
 
 /* ══════════════════ BLOCO B — banco + API ══════════════════ */

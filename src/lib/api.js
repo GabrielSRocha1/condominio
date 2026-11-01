@@ -168,12 +168,17 @@ const linhaOuFila = (data, idPrevio, label) => {
 const PAPEL_LABEL = {
   /* "inquilino" no banco é exibido como "Temporário" (aluguel por dia) */
   proprietario: "Proprietário", coproprietario: "Coproprietário", inquilino: "Temporário", morador: "Morador",
-  dependente: "Dependente", sindico: "Síndico", diretor: "Diretor", tesouraria: "Tesouraria",
+  dependente: "Dependente", sindico: "Síndico", diretor: "Diretor",
+  /* papel (o que a pessoa É no prédio), eixo separado do perfil de acesso */
+  administrador_predial: "Administrador", tesouraria: "Tesouraria",
   conselho_fiscal: "Conselho fiscal", funcionario: "Funcionário", prestador: "Prestador",
   visitante_recorrente: "Visitante recorrente", imobiliaria: "Imobiliária",
 };
 const PAPEL_ENUM = Object.fromEntries(Object.entries(PAPEL_LABEL).map(([k, v]) => [v, k]));
-const PAPEL_PRIORIDADE = ["sindico", "diretor", "tesouraria", "proprietario", "inquilino", "funcionario", "prestador", "morador"];
+/* qual papel MOSTRAR quando a pessoa tem mais de um vínculo. O
+   administrador predial fica no bloco de gestão: quem administra o prédio e
+   também mora nele aparece como Administrador, não como Morador. */
+const PAPEL_PRIORIDADE = ["sindico", "diretor", "administrador_predial", "tesouraria", "proprietario", "inquilino", "funcionario", "prestador", "morador"];
 
 const UNIDADE_TIPO_LABEL = { apartamento: "Apartamento", sala: "Sala", loja: "Loja", cobertura: "Cobertura", box: "Box", deposito: "Depósito" };
 const UNIDADE_TIPO_ENUM = { Apartamento: "apartamento", "Sala comercial": "sala", Loja: "loja", Cobertura: "cobertura", Box: "box", "Depósito": "deposito", Vaga: "box" };
