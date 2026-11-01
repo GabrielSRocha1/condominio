@@ -69,7 +69,12 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: "Cobrança não encontrada." });
     if (["paga", "paga_em_atraso"].includes(cobranca.status))
       return res.status(409).json({ error: "Esta cobrança já está paga." });
-    if (!["emitida", "vencida", "rascunho", "pagamento_informado", "pagamento_divergente"].includes(cobranca.status))
+    /* rascunho = criada pelo administrador predial, ainda não emitida pelo
+       diretor. Fora do portal e fora daqui: informar pagamento de uma
+       cobrança que ninguém aprovou criaria o comprovante antes da dívida. */
+    if (cobranca.status === "rascunho")
+      return res.status(409).json({ error: "Esta cobrança ainda não foi emitida pelo diretor." });
+    if (!["emitida", "vencida", "pagamento_informado", "pagamento_divergente"].includes(cobranca.status))
       return res.status(409).json({ error: "Esta cobrança não está aberta para pagamento." });
 
     const { data: pendente } = await supabase.from("pagamentos_informados")

@@ -135,13 +135,32 @@ ok("diretor ignora override", mesmoConjunto(permsEfetivas({ perfil: "diretor", o
   ok("fixas não são delegáveis", PERMISSOES_FIXAS.includes("permissao.gerir"));
 
   /* o que a fila de aprovação não alcança não pode ser dado ao
-     administrador NEM pelo diretor — `acesso.gerir` é a pior: com ela ele
-     criaria um síndico e escreveria por fora da fila */
+     administrador NEM pelo diretor: são ações por RPC security definer ou
+     endpoint com service role, onde o gatilho não chega */
   const adm = sanearPerms("administrador_predial",
     ["tela.financeiro", ...PERMS_VEDADAS_AO_ADMIN]);
   ok("sanear veta ao administrador o que a fila não alcança",
     mesmoConjunto(adm, ["tela.financeiro"]), adm.join(","));
-  ok("acesso.gerir está entre as vedadas", PERMS_VEDADAS_AO_ADMIN.includes("acesso.gerir"));
+  /* `acesso.gerir` SAIU das vedadas por decisão de produto: ele cria login
+     de MORADOR. A coleira passou a ser o endpoint (api/auth/acessos.js),
+     que é quem recusa síndico/tesouraria e recusa remover. Se um dia a
+     coleira cair, criar um síndico vira caminho fora da fila. */
+  ok("acesso.gerir não é mais vedada (coleira está no endpoint)",
+    !PERMS_VEDADAS_AO_ADMIN.includes("acesso.gerir"));
+  /* `financeiro.baixar` e `cobranca.cancelar` saíram de "a fila não alcança"
+     (as RPCs passaram a enfileirar a ação inteira) e viraram ESCOPO: mexer
+     no dinheiro que já entrou é do síndico. `licenca.gerir` segue fora por
+     mecânica — /api/stripe roda com service role e o gatilho nem dispara.
+     `alteracao.aprovar` saiu daqui: é vetada a TODO perfil sob aprovação,
+     não só ao administrador (ver sanearPerms e as RPCs de decisão). */
+  ok("vedadas ao administrador: escopo + a de mecânica",
+    mesmoConjunto(PERMS_VEDADAS_AO_ADMIN,
+      ["financeiro.baixar", "cobranca.cancelar", "licenca.gerir"]),
+    PERMS_VEDADAS_AO_ADMIN.join(","));
+  ok("alteracao.aprovar é vetada ao síndico também",
+    !sanearPerms("sindico", ["alteracao.aprovar", "financeiro.baixar"]).includes("alteracao.aprovar"));
+  ok("mas o síndico mantém a baixa (agora pela fila)",
+    sanearPerms("sindico", ["financeiro.baixar"]).includes("financeiro.baixar"));
 }
 
 /* ── PARIDADE com o SQL (o arquivo é a fonte do banco) ── */

@@ -54,7 +54,13 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: "Cobrança não encontrada." });
     if (["paga", "paga_em_atraso"].includes(cobranca.status))
       return res.status(409).json({ error: "Esta cobrança já está paga." });
-    if (!["emitida", "vencida", "rascunho"].includes(cobranca.status))
+    /* "rascunho" saiu da lista: é a cobrança que o administrador predial
+       criou e o diretor ainda não emitiu. Esconder no portal não basta —
+       o id da cobrança viaja no corpo do pedido, então o portão tem de
+       estar aqui. */
+    if (cobranca.status === "rascunho")
+      return res.status(409).json({ error: "Esta cobrança ainda não foi emitida pelo diretor." });
+    if (!["emitida", "vencida"].includes(cobranca.status))
       return res.status(409).json({ error: "Esta cobrança não está aberta para pagamento." });
 
     const { data: cond } = await supabase.from("condominios")

@@ -4,6 +4,7 @@ import { calcularEncargos, normalizarEncargosCfg } from "./encargos.js";
 import { saldoComAncora } from "./caixa.js";
 import { expandirUnidades } from "./unidades.js";
 import { telExibicao } from "./telefone.js";
+import { agrupar, exigeAprovacao, ehPerfilSobAprovacao } from "./aprovacoes.js";
 import { jsPDF } from "jspdf";
 
 /* POST com Idempotency-Key + retry único de rede: cada chamada ganha uma
@@ -118,15 +119,31 @@ const perfilDaSessao = () => {
     return JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).perfil || null;
   } catch { return null; }
 };
-export const escritaVaiParaFila = () => perfilDaSessao() === "administrador_predial";
+/* Sem argumento: "esta sessão é a que passa pela fila?" — resposta do
+   PERFIL, usada onde a função escreve em várias tabelas de uma vez.
+   Com tabela/operação: consulta a política (IMEDIATAS), porque criar
+   unidade vale na hora e alterar a mesma unidade não. Quem decide de
+   verdade é o gatilho; aqui o app só antecipa para falar a verdade na
+   tela e refazer o que é derivado. */
+export const escritaVaiParaFila = (tabela = null, operacao = "INSERT") =>
+  ehPerfilSobAprovacao(perfilDaSessao())
+  && (tabela === null || exigeAprovacao(tabela, operacao));
 
 /* Aviso (não falha) de que a ação virou pendência. `fila: true` deixa a UI
    mostrar isto como informação, não como erro de salvamento. */
-export function erroFila() {
-  const e = new Error("Enviado para aprovação do diretor — a alteração aparece aqui depois que ele aprovar.");
+export function erroFila(msg) {
+  const e = new Error(msg
+    || "Enviado para aprovação do diretor — a alteração aparece aqui depois que ele aprovar.");
   e.fila = true;
   return e;
 }
+
+/* Cobrança do administrador predial NASCE rascunho (o gatilho força): está
+   na lista do gestor e invisível para o morador até o diretor emitir. Não é
+   falha — é o portão mudando de lugar, então a tela avisa onde ele está. */
+const avisoRascunho = (n = 1) => erroFila(n > 1
+  ? `${n} cobranças criadas como RASCUNHO. O morador só passa a vê-las — e a poder pagar — depois que o diretor emitir, na tela Cobranças.`
+  : "Cobrança criada como RASCUNHO. O morador só passa a vê-la — e a poder pagar — depois que o diretor emitir, na tela Cobranças.");
 
 /* Cadastro composto (pessoa + vínculo, comunicado + destinatários…) precisa
    do id da mãe ANTES de ela existir: com a escrita indo para a fila, o
@@ -225,6 +242,17 @@ export async function loadAll(condominioId) {
     q(supabase.from("pagamentos").select("valor_pago, pago_em, cobrancas(unidades(numero, blocos(nome)))").eq("condominio_id", cid).order("pago_em", { ascending: false }).limit(3), "pagamentos"),
     q(supabase.from("condominios").select("nome_fantasia, cnpj, endereco, identidade_visual, regras_internas, encargos_atraso").eq("id", cid), "condominios"),
   ]);
+
+  /* fila do administrador predial: o diretor precisa SABER que há coisa
+     esperando sem abrir a tela. Vem com o payload porque o número que vale
+     é o de AÇÕES (uma pessoa cadastrada = 3 linhas), e agrupar exige o
+     payload. Sem o supabase-aprovacoes.sql a tabela não existe e isto
+     degrada para zero — o app segue igual. */
+  const aprovGrupos = await supabase.from("alteracoes_pendentes")
+    .select("id, tabela, operacao, alvo_id, payload, status, solicitado_em")
+    .eq("condominio_id", cid).eq("status", "pendente")
+    .order("solicitado_em", { ascending: true }).limit(300)
+    .then(({ data }) => agrupar(data || []).length).catch(() => 0);
 
   /* pagamentos informados pelo morador aguardando confirmação (tabela
      pagamentos_informados do supabase-schema.sql — sem ela, segue vazio) */
@@ -331,6 +359,12 @@ export async function loadAll(condominioId) {
       encargos: enc.encargos, mesesAtraso: enc.meses, valorTotal: enc.total,
       venc: ddmm(c.vencimento), vencFull: ddmmyyyy(c.vencimento),
       status: COBR_STATUS_UI[efetivo] || efetivo, tx: c.provider_charge_id || "—",
+      /* Criada pelo administrador predial e ainda NÃO emitida pelo diretor.
+         Sinalizador próprio em vez de um status novo: `status` continua
+         caindo em "emitida" para todo o resto da tela (filtros, somas,
+         gráficos) seguir valendo, e quem precisa barrar — o portal do
+         morador — olha esta flag. */
+      rascunho: c.status === "rascunho",
       unidadeId: c.unidade_id, competencia: c.competencia,
       /* informe pendente do morador (transferência/cripto) — o gestor confirma */
       informe: inf ? {
@@ -602,7 +636,7 @@ export async function loadAll(condominioId) {
     maxPenalidade: Math.max(0, ...multasRaw.map((m) => Number((m.numero || "").split("-")[1]) || 0)),
   };
 
-  return { ctx, cond, unidades, pessoas, lanc, cobr, multas, comunic, chamados, acessos, docs, tenants, boletos, fluxo, fluxoDiarioPorMes, mesAtualReal, despesasPorMes, inadim, pieReceitasPorMes, stats, atividades };
+  return { ctx, cond, unidades, pessoas, lanc, cobr, multas, comunic, chamados, acessos, docs, tenants, boletos, fluxo, fluxoDiarioPorMes, mesAtualReal, despesasPorMes, inadim, pieReceitasPorMes, stats, atividades, aprovGrupos };
 }
 
 /* ─────────── escritas ─────────── */
@@ -706,6 +740,14 @@ export async function aprovarAlteracao(id, correcao = null, parecer = null) {
     throw new Error(motivo);
   }
   return r;
+}
+
+/* Emite a cobrança que o administrador criou como rascunho — é o momento em
+   que ela passa a existir PARA O MORADOR (portal e checkout). Para o próprio
+   administrador este UPDATE cai na fila, então ele não se auto-emite. */
+export async function emitirCobranca(ctx, id) {
+  await q(supabase.from("cobrancas").update({ status: "emitida" }).eq("id", id).select(), "cobrancas");
+  if (escritaVaiParaFila("cobrancas", "UPDATE")) throw erroFila();
 }
 
 export async function rejeitarAlteracao(id, parecer = null) {
@@ -934,6 +976,10 @@ export async function confirmarPagamentoManual(cobrancaId, { forma, valor, pagoE
     ? "O banco está desatualizado: rode o supabase-schema.sql atual (RPC registrar_pagamento_manual) para habilitar a baixa manual."
     : error.message);
   if (data?.ok === false) throw new Error(ERROS_RPC[data.erro] || `Baixa recusada: ${data.erro}`);
+  /* perfil sob aprovação: a RPC não deu baixa nenhuma — enfileirou a AÇÃO
+     inteira. Deixar passar como sucesso faria a tela mostrar a cobrança
+     como paga e o dinheiro não ter entrado. */
+  if (data?.na_fila) throw erroFila("Baixa enviada ao diretor. O pagamento só entra no caixa — e a cobrança só fica paga — depois que ele aprovar, em Aprovações.");
   return data;
 }
 
@@ -943,6 +989,7 @@ export async function rejeitarPagamentoInformado(informeId, motivo) {
   });
   if (error) throw new Error(error.message);
   if (data?.ok === false) throw new Error(ERROS_RPC[data.erro] || `Rejeição recusada: ${data.erro}`);
+  if (data?.na_fila) throw erroFila("Rejeição enviada ao diretor. O informe do morador continua pendente até ele aprovar.");
   return data;
 }
 
@@ -963,6 +1010,7 @@ export async function cancelarCobrancaIndevida(cobrancaId, justificativa) {
     ? "O banco está desatualizado: rode o supabase-planilha-sync.sql no SQL Editor para habilitar a baixa indevida."
     : error.message);
   if (data?.ok === false) throw new Error(ERROS_CANCELAR[data.erro] || ERROS_RPC[data.erro] || `Cancelamento recusado: ${data.erro}`);
+  if (data?.na_fila) throw erroFila("Cancelamento enviado ao diretor. A cobrança continua valendo até ele aprovar.");
   return data;
 }
 
@@ -996,7 +1044,15 @@ const precisaUsuario = (ctx) => {
 export async function criarUnidade(ctx, f) {
   const nomeBloco = String(f.bloco || "").trim() || "A"; // bloco é opcional — vazio cai no bloco "A"
   let bloco = ctx.blocos.find((b) => b.nome.toLowerCase() === nomeBloco.toLowerCase());
-  if (!bloco) bloco = (await q(supabase.from("blocos").insert({ condominio_id: ctx.condominioId, nome: nomeBloco }).select(), "blocos"))[0];
+  if (!bloco) {
+    /* bloco novo é o CADASTRO MÃE das unidades: na fila o insert não devolve
+       linha, então o id vem do cliente — sem ele, `bloco.id` logo abaixo
+       estourava "Cannot read properties of undefined" na cara do administrador */
+    const idBloco = idDaFila();
+    bloco = linhaOuFila(await q(supabase.from("blocos")
+      .insert({ ...comId(idBloco), condominio_id: ctx.condominioId, nome: nomeBloco }).select(), "blocos"),
+      idBloco, "blocos");
+  }
 
   const itens = expandirUnidades(f); // [{ numero, andar }] — valida e lança com mensagem de tela
 
@@ -1018,6 +1074,8 @@ export async function criarUnidade(ctx, f) {
     fracao_ideal: 0, // recalculada logo abaixo a partir da área privativa
   };
   await q(supabase.from("unidades").insert(novos.map(({ numero, andar }) => ({ ...base, numero, andar }))).select(), "unidades");
+  /* criar unidade NÃO espera o diretor (IMEDIATAS): a linha já existe, então
+     o rateio é refeito aqui mesmo, como para qualquer outro perfil */
   await recalcularFracoes(ctx);
   return novos.length;
 }
@@ -1028,6 +1086,12 @@ export async function criarUnidade(ctx, f) {
    área alterada (o total do prédio muda). Unidade sem área informada entra com
    a média das áreas conhecidas; se nenhuma tiver área, o rateio fica igualitário. */
 export async function recalcularFracoes(ctx) {
+  /* Sem guarda de perfil de propósito: o gatilho deixa passar o UPDATE que
+     mexe SÓ em fracao_ideal, justamente porque é aritmética de uma unidade
+     já aceita — não decisão. Quem não pode recalcular são os caminhos cuja
+     escrita ficou pendente (editar área, excluir): eles lançam erroFila
+     ANTES de chegar aqui, senão o rateio sairia dos dados velhos. A tela
+     Aprovações chama esta função ao aprovar, com o token do diretor. */
   const unidades = await q(supabase.from("unidades").select("id, area_privativa_m2")
     .eq("condominio_id", ctx.condominioId).is("deletado_em", null), "unidades");
   if (!unidades.length) return;
@@ -1046,8 +1110,15 @@ export async function atualizarUnidade(ctx, id, f) {
   const numero = String(f.numero || "").trim();
   if (!numero) throw new Error("Informe o número da unidade.");
   let bloco = ctx.blocos.find((b) => b.nome.toLowerCase() === String(f.bloco || "").trim().toLowerCase());
-  if (!bloco && String(f.bloco || "").trim())
-    bloco = (await q(supabase.from("blocos").insert({ condominio_id: ctx.condominioId, nome: String(f.bloco).trim() }).select(), "blocos"))[0];
+  if (!bloco && String(f.bloco || "").trim()) {
+    /* id do cliente: sem ele o insert desviado devolvia vazio, o `if (bloco)`
+       abaixo era falso e a pendência saía SEM a troca de bloco — pior que
+       um erro, porque o diretor aprovaria uma alteração incompleta */
+    const idBloco = idDaFila();
+    bloco = linhaOuFila(await q(supabase.from("blocos")
+      .insert({ ...comId(idBloco), condominio_id: ctx.condominioId, nome: String(f.bloco).trim() }).select(), "blocos"),
+      idBloco, "blocos");
+  }
   const patch = {
     numero, tipo: f.tipo, status: f.status,
     andar: f.andar === "" || f.andar == null ? null : Number(f.andar),
@@ -1056,13 +1127,18 @@ export async function atualizarUnidade(ctx, id, f) {
   };
   if (bloco) patch.bloco_id = bloco.id;
   await q(supabase.from("unidades").update(patch).eq("id", id).select(), "unidades");
+  if (escritaVaiParaFila()) throw erroFila();
   await recalcularFracoes(ctx); // a área pode ter mudado — refaz as frações do prédio
 }
 
-/* Altera o responsável financeiro da unidade (modal da tela Unidades) */
-export async function salvarResponsavelUnidade(ctx, unidadeId, pessoaId) {
+/* Altera o responsável financeiro da unidade (modal da tela Unidades).
+   `avisarFila` desligado quando a troca é só um PASSO de um cadastro maior
+   (criarPessoa já avisa no fim) — ligado quando é a ação terminal, senão o
+   administrador clicaria em salvar e a tela não diria nada. */
+export async function salvarResponsavelUnidade(ctx, unidadeId, pessoaId, avisarFila = true) {
   await q(supabase.from("unidades").update({ responsavel_financeiro_id: pessoaId || null })
     .eq("id", unidadeId).select(), "unidades");
+  if (avisarFila && escritaVaiParaFila()) throw erroFila();
 }
 
 /* Exclusão da unidade (modal da tela Unidades — exclusiva do diretor).
@@ -1075,6 +1151,7 @@ export async function excluirUnidade(ctx, id) {
   if (abertas.length) throw new Error("Não é possível excluir: esta unidade tem cobranças em aberto. Quite ou cancele as cobranças antes.");
   await q(supabase.from("unidades").update({ deletado_em: new Date().toISOString(), responsavel_financeiro_id: null })
     .eq("id", id).select(), "unidades");
+  if (escritaVaiParaFila()) throw erroFila();
   await recalcularFracoes(ctx);
 }
 
@@ -1125,8 +1202,12 @@ export async function criarPessoa(ctx, f) {
   }).select(), "pessoa_vinculos");
   /* vincular a uma unidade torna a pessoa o responsável financeiro dela
      automaticamente (pode ser trocado depois, na tela Unidades) */
-  if (f.unidade) await salvarResponsavelUnidade(ctx, f.unidade, p.id);
-  if (escritaVaiParaFila()) throw erroFila(); // as 3 escritas estão na fila
+  /* pessoa e vínculo valem na hora (IMEDIATAS); quem PAGA a unidade é
+     decisão do diretor e continua na fila — então o cadastro aparece na
+     lista, mas a unidade só troca de responsável depois da aprovação */
+  if (f.unidade) await salvarResponsavelUnidade(ctx, f.unidade, p.id, false);
+  if (f.unidade && escritaVaiParaFila("unidades", "UPDATE"))
+    throw erroFila("Pessoa cadastrada. Torná-la responsável financeiro da unidade depende do diretor — está em Aprovações.");
 }
 
 /* Importação em massa (planilha da tela Pessoas). Segue o molde criarUnidade:
@@ -1146,12 +1227,19 @@ export async function importarPessoas(ctx, linhas) {
   if (!novas.length) return { criadas: 0, puladas, responsaveisDefinidos: 0 };
 
   const hoje = new Date().toISOString().slice(0, 10);
+  /* um id por documento gerado aqui: na fila o insert não devolve linha
+     nenhuma e os vínculos sairiam com pessoa_id vazio — a importação inteira
+     viraria pendência impossível de aprovar */
+  const idsPrevios = Object.fromEntries(novas.map((l) => [l.doc, idDaFila()]));
   const criadas = await q(supabase.from("pessoas").insert(novas.map((l) => ({
+    ...comId(idsPrevios[l.doc]),
     condominio_id: ctx.condominioId, nome: l.nome,
     tipo_pessoa: String(l.doc).replace(/\D/g, "").length > 11 ? "juridica" : "fisica",
     cpf_cnpj: l.doc, telefone: String(l.tel || "").slice(0, 20) || null, email: l.email || null,
   }))).select("id, cpf_cnpj"), "pessoas");
-  const idPorDoc = Object.fromEntries(criadas.map((p) => [p.cpf_cnpj, p.id]));
+  const idPorDoc = criadas.length
+    ? Object.fromEntries(criadas.map((p) => [p.cpf_cnpj, p.id]))
+    : idsPrevios;
 
   try {
     await q(supabase.from("pessoa_vinculos").insert(novas.map((l) => ({
@@ -1178,7 +1266,11 @@ export async function importarPessoas(ctx, linhas) {
     q(supabase.from("unidades").update({ responsavel_financeiro_id: idPorDoc[l.doc] })
       .eq("id", unidadeId).select(), "unidades")));
 
-  return { criadas: novas.length, puladas, responsaveisDefinidos: vencedores.size };
+  /* a tela de importação mostra um RESULTADO, não um erro — então aqui a
+     fila é informada no retorno, e não por erroFila(). As pessoas entram na
+     hora; o que espera é só a troca de responsável financeiro das unidades. */
+  return { criadas: novas.length, puladas, responsaveisDefinidos: vencedores.size,
+           respNaFila: vencedores.size > 0 && escritaVaiParaFila("unidades", "UPDATE") };
 }
 
 /* Edição: atualiza o cadastro e o vínculo principal (papel/unidade/início).
@@ -1202,7 +1294,8 @@ export async function atualizarPessoa(ctx, pessoa, f) {
     }).select(), "pessoa_vinculos");
   /* nova unidade vinculada → a pessoa passa a ser o responsável financeiro dela */
   if (f.unidade && f.unidade !== pessoa.unidadeId)
-    await salvarResponsavelUnidade(ctx, f.unidade, pessoa.id);
+    await salvarResponsavelUnidade(ctx, f.unidade, pessoa.id, false);
+  if (escritaVaiParaFila()) throw erroFila();
 }
 
 /* Exclusão: antes de apagar, confere onde a pessoa é referenciada e explica
@@ -1226,13 +1319,22 @@ export async function removerPessoa(ctx, id) {
   if (eP) throw new Error(/foreign key|violates/i.test(eP.message)
     ? "Não é possível excluir: esta pessoa tem histórico vinculado no condomínio."
     : `pessoas: ${eP.message}`);
+  if (escritaVaiParaFila()) throw erroFila(); // a pessoa continua na tela até o diretor aprovar
 }
 
 export async function criarLancamento(ctx, f) {
   const uid = precisaUsuario(ctx);
   const tipo = f.tipo === "Receita" ? "receita" : "despesa";
   let cat = ctx.categorias.find((c) => c.tipo === tipo && c.nome.toLowerCase() === String(f.categoria).toLowerCase());
-  if (!cat) cat = (await q(supabase.from("categorias_financeiras").insert({ condominio_id: ctx.condominioId, nome: f.categoria, tipo }).select(), "categorias"))[0];
+  if (!cat) {
+    /* categoria nova é mãe do lançamento: id do cliente para os dois irem
+       à fila já apontando um para o outro (a categoria é a mais antiga, logo
+       aprovada primeiro) */
+    const idCat = idDaFila();
+    cat = linhaOuFila(await q(supabase.from("categorias_financeiras")
+      .insert({ ...comId(idCat), condominio_id: ctx.condominioId, nome: f.categoria, tipo }).select(), "categorias"),
+      idCat, "categorias");
+  }
   const [nf] = await uploadArquivos(ctx, f.nota, "notas-fiscais");
   await q(supabase.from("lancamentos").insert({
     condominio_id: ctx.condominioId, tipo, categoria_id: cat.id,
@@ -1242,6 +1344,7 @@ export async function criarLancamento(ctx, f) {
     centro_custo: f.centro || null, forma_pagamento: FORMA_ENUM[f.forma] || null,
     status: "aguardando_aprovacao", lancado_por: uid, nota_fiscal_url: nf?.url || null,
   }).select(), "lancamentos");
+  if (escritaVaiParaFila()) throw erroFila();
 }
 
 /* Aprovação do lançamento (aba Aprovação do Financeiro) — igual às multas:
@@ -1253,11 +1356,16 @@ export async function decidirLancamento(ctx, id, aprovar, tipo) {
   await q(supabase.from("lancamentos").update({
     status: aprovar ? (tipo === "receita" ? "pago" : "aprovado") : "rejeitado", aprovado_por: uid,
   }).eq("id", id).select(), "lancamentos");
+  /* o administrador TEM financeiro.aprovar, mas a decisão dele também é uma
+     escrita: sem este aviso ele clicaria em aprovar e o lançamento ficaria
+     teimosamente "aguardando" na tela, sem explicação */
+  if (escritaVaiParaFila()) throw erroFila();
 }
 
 /* Dar baixa numa conta a pagar (aba Contas a pagar do Financeiro) */
 export async function marcarLancamentoPago(ctx, id) {
   await q(supabase.from("lancamentos").update({ status: "pago" }).eq("id", id).select(), "lancamentos");
+  if (escritaVaiParaFila()) throw erroFila();
 }
 
 export async function criarPenalidade(ctx, f) {
@@ -1311,6 +1419,11 @@ export async function enviarPenalidade(ctx, m) {
   if (error) throw new Error(/entregue_em|cobranca_id|column|schema cache/i.test(error.message)
     ? "O banco está desatualizado: rode o supabase-schema.sql atual (colunas entregue_em/cobranca_id) para habilitar o envio ao responsável."
     : `penalidades: ${error.message}`);
+  /* a cobrança da multa nasce rascunho e a baixa na penalidade fica na fila:
+     dos dois, o que o responsável sente é a cobrança */
+  if (escritaVaiParaFila()) throw erroFila(m.valor > 0
+    ? "Registro enviado ao diretor. A cobrança da multa foi criada como RASCUNHO e só chega ao responsável quando ele emitir."
+    : undefined);
 }
 
 export async function decidirPenalidade(ctx, id, aprovar) {
@@ -1319,6 +1432,7 @@ export async function decidirPenalidade(ctx, id, aprovar) {
     status: aprovar ? "aprovada" : "cancelada", decidida_por: uid,
     parecer: aprovar ? "Aprovada pelo síndico via painel." : "Cancelada pelo síndico via painel.",
   }).eq("id", id).select(), "penalidades");
+  if (escritaVaiParaFila()) throw erroFila();
 }
 
 /* Destinatários do comunicado a partir do segmento escolhido — sempre sobre
@@ -1695,6 +1809,7 @@ export async function criarChamado(ctx, f) {
     custo_estimado: f.custo ? parseBRL(f.custo) : null,
     midias: midias.length ? midias.map((m) => ({ url: m.url, tipo: m.mime, nome: m.nome })) : null,
   }).select(), "chamados");
+  if (escritaVaiParaFila()) throw erroFila();
 }
 
 /* ─────────── cadastro do condomínio (tela Cadastro do Condomínio) ───────────
@@ -1800,6 +1915,7 @@ export async function salvarCondominio(ctx, f) {
     },
     identidade_visual: { ...identidade, cor_primaria: f.cor || identidade.cor_primaria || "#D4AF37" },
   }).eq("id", ctx.condominioId).select(), "condominios");
+  if (escritaVaiParaFila()) throw erroFila();
 }
 
 /* Identidade visual do condomínio (jsonb em condominios.identidade_visual) */
@@ -1826,6 +1942,11 @@ async function salvarLogoIdentidade(ctx, arquivo, chave) {
   const atual = await obterIdentidade(ctx);
   await q(supabase.from("condominios").update({ identidade_visual: { ...atual, [chave]: logo.url } })
     .eq("id", ctx.condominioId).select(), "condominios");
+  /* o storage NÃO passa pela fila: apagar o logo antigo aqui deixaria o
+     condomínio sem imagem enquanto a troca espera o diretor — a linha ainda
+     aponta para o arquivo velho. Quem limpa é a aprovação (ou ninguém: um
+     arquivo órfão custa menos que um logo quebrado na tela de todo mundo). */
+  if (escritaVaiParaFila()) throw erroFila();
   if (atual[chave] && atual[chave] !== logo.url) await apagarDoStorage(atual[chave]);
   return logo.url;
 }
@@ -1835,6 +1956,7 @@ async function removerLogoIdentidade(ctx, chave) {
   const { [chave]: url, ...resto } = atual;
   await q(supabase.from("condominios").update({ identidade_visual: resto })
     .eq("id", ctx.condominioId).select(), "condominios");
+  if (escritaVaiParaFila()) throw erroFila(); // idem: o arquivo some só quando a remoção valer
   if (url) await apagarDoStorage(url);
 }
 
@@ -1858,6 +1980,7 @@ export async function atualizarChamado(ctx, id, f) {
     custo_realizado: f.custo ? parseBRL(f.custo) : null,
     fechado_em: f.status === "concluido" || f.status === "cancelado" ? new Date().toISOString() : null,
   }).eq("id", id).select(), "chamados");
+  if (escritaVaiParaFila()) throw erroFila();
 }
 
 /* Pré-autorização: gera um token cujo hash fica no banco — o QR carrega o
@@ -1984,10 +2107,12 @@ export async function gerarCobrancas(ctx, f) {
       const nome = f.moradorNome.trim();
       let pessoa = ctx.pessoas.find((p) => p.nome.toLowerCase() === nome.toLowerCase());
       if (!pessoa) {
-        [pessoa] = await q(supabase.from("pessoas").insert({
+        const idPessoa = idDaFila(); // mãe do vínculo e do responsável da unidade
+        pessoa = linhaOuFila(await q(supabase.from("pessoas").insert({
+          ...comId(idPessoa),
           condominio_id: ctx.condominioId, nome, tipo_pessoa: "fisica",
           cpf_cnpj: `M-${Date.now().toString(36).toUpperCase()}`, // placeholder até completar o cadastro em Pessoas
-        }).select(), "pessoas");
+        }).select(), "pessoas"), idPessoa, "pessoas");
         await q(supabase.from("pessoa_vinculos").insert({
           condominio_id: ctx.condominioId, pessoa_id: pessoa.id, unidade_id: u.id,
           papel: "morador", inicio: new Date().toISOString().slice(0, 10),
@@ -2002,6 +2127,7 @@ export async function gerarCobrancas(ctx, f) {
       condominio_id: ctx.condominioId, unidade_id: u.id, responsavel_id: responsavelId,
       competencia, tipo: "extra", valor_original: comFundo(total), vencimento, status: "emitida",
     }).select(), "cobrancas");
+    if (escritaVaiParaFila()) throw avisoRascunho(1);
     return 1;
   }
 
@@ -2035,6 +2161,7 @@ export async function gerarCobrancas(ctx, f) {
     if (error.message.includes("uq_cobranca_ordinaria")) throw new Error(`Já existem cobranças ordinárias na competência ${compBR(competencia)}.`);
     throw new Error("cobranças: " + error.message);
   }
+  if (escritaVaiParaFila()) throw avisoRascunho(rows.length);
   return rows.length;
 }
 
@@ -2073,9 +2200,11 @@ export async function salvarPlanilhaCobrancas(ctx, { nome, colunas, linhas }) {
 
   let planilha = atual.planilha;
   if (!planilha) {
-    [planilha] = await q(supabase.from("planilhas_cobranca").insert({
+    const idPl = idDaFila(); // mãe das linhas: sem id conhecido elas apontariam para o nada
+    planilha = linhaOuFila(await q(supabase.from("planilhas_cobranca").insert({
+      ...comId(idPl),
       condominio_id: ctx.condominioId, nome: nome || "Histórico de cobranças", colunas,
-    }).select(), "planilhas_cobranca");
+    }).select(), "planilhas_cobranca"), idPl, "planilhas_cobranca");
   } else {
     const porChave = new Map((planilha.colunas || []).map((c) => [c.chave, c]));
     for (const c of colunas) {
@@ -2088,9 +2217,12 @@ export async function salvarPlanilhaCobrancas(ctx, { nome, colunas, linhas }) {
       porChave.set(c.chave, velha ? { ...velha, ...limpa } : c);
     }
     const fundidas = [...porChave.values()].map((c, i) => ({ ...c, ordem: i }));
-    [planilha] = await q(supabase.from("planilhas_cobranca")
+    const atualizada = await q(supabase.from("planilhas_cobranca")
       .update({ colunas: fundidas, atualizado_em: new Date().toISOString() })
       .eq("id", planilha.id).select(), "planilhas_cobranca");
+    /* update desviado não devolve linha — a planilha EXISTE (é a de antes),
+       só as colunas novas é que estão esperando aprovação */
+    planilha = atualizada[0] || { ...planilha, colunas: fundidas };
   }
 
   const base = atual.linhas.reduce((m, l) => Math.max(m, l.ordem || 0), 0);
@@ -2106,19 +2238,24 @@ export async function salvarPlanilhaCobrancas(ctx, { nome, colunas, linhas }) {
       .upsert(rows.slice(i, i + 500), { onConflict: "planilha_id,unidade_id,competencia" });
     if (error) throw new Error("linhas da planilha: " + error.message);
   }
+  if (escritaVaiParaFila()) throw erroFila();
   return { planilhaId: planilha.id, gravadas: rows.length };
 }
 
 export async function salvarColunasPlanilha(planilhaId, colunas) {
   await q(supabase.from("planilhas_cobranca")
     .update({ colunas, atualizado_em: new Date().toISOString() }).eq("id", planilhaId).select(), "planilhas_cobranca");
+  if (escritaVaiParaFila()) throw erroFila();
 }
 
-/* edição célula a célula: lê-modifica-grava o jsonb da própria linha */
+/* edição célula a célula: lê-modifica-grava o jsonb da própria linha.
+   Na fila o update não devolve linha: erroFila em vez de devolver undefined,
+   senão a tela trocava a célula por um valor que ainda não vale. */
 export async function atualizarCelulaPlanilha(linha, chave, valor) {
   const dados = { ...(linha.dados || {}), [chave]: valor };
   const [nova] = await q(supabase.from("planilha_cobranca_linhas")
     .update({ dados, atualizado_em: new Date().toISOString() }).eq("id", linha.id).select(), "planilha_cobranca_linhas");
+  if (!nova && escritaVaiParaFila()) throw erroFila();
   return nova;
 }
 
@@ -2127,12 +2264,14 @@ export async function criarLinhaPlanilha(ctx, planilhaId, { dados = {}, unidadeI
     condominio_id: ctx.condominioId, planilha_id: planilhaId, dados,
     unidade_id: unidadeId, competencia, origem: "manual", ordem,
   }).select(), "planilha_cobranca_linhas");
+  if (!nova && escritaVaiParaFila()) throw erroFila(); // linha fantasma na tela seria pior
   return nova;
 }
 
 export async function removerLinhaPlanilha(id) {
   const { error } = await supabase.from("planilha_cobranca_linhas").delete().eq("id", id);
   if (error) throw new Error("linha da planilha: " + error.message);
+  if (escritaVaiParaFila()) throw erroFila();
 }
 
 /* Exclui a planilha INTEIRA do condomínio — o `on delete cascade` do
@@ -2142,6 +2281,7 @@ export async function removerLinhaPlanilha(id) {
 export async function excluirPlanilhaCobrancas(planilhaId) {
   const { error } = await supabase.from("planilhas_cobranca").delete().eq("id", planilhaId);
   if (error) throw new Error("planilha: " + error.message);
+  if (escritaVaiParaFila()) throw erroFila();
 }
 
 /* Cria as cobranças das linhas "só na planilha". Mesmo formato de
@@ -2164,10 +2304,12 @@ export async function criarCobrancasDaPlanilha(ctx, linhas) {
       try {
         let pid = provisorios.get(u.id);
         if (!pid) {
-          const [pessoa] = await q(supabase.from("pessoas").insert({
+          const idPessoa = idDaFila(); // mãe do vínculo e do responsável da unidade
+          const pessoa = linhaOuFila(await q(supabase.from("pessoas").insert({
+            ...comId(idPessoa),
             condominio_id: ctx.condominioId, nome: `Responsável ${u.label}`, tipo_pessoa: "fisica",
             cpf_cnpj: `P-${crypto.randomUUID().slice(0, 12)}`, // placeholder até completar o cadastro
-          }).select(), "pessoas");
+          }).select(), "pessoas"), idPessoa, "pessoas");
           await q(supabase.from("pessoa_vinculos").insert({
             condominio_id: ctx.condominioId, pessoa_id: pessoa.id, unidade_id: u.id,
             papel: "morador", inicio: hoje,
@@ -2206,7 +2348,9 @@ export async function criarCobrancasDaPlanilha(ctx, linhas) {
   let criadas = 0;
   for (let i = 0; i < aCriar.length; i += 200) {
     const lote = aCriar.slice(i, i + 200);
-    const { data, error } = await supabase.from("cobrancas").insert(lote.map((x) => x.row)).select();
+    const idsLote = lote.map(() => idDaFila());
+    const { data, error } = await supabase.from("cobrancas")
+      .insert(lote.map((x, j) => ({ ...comId(idsLote[j]), ...x.row }))).select();
     if (error) {
       if (error.message.includes("uq_cobranca_ordinaria"))
         throw new Error("Alguma dessas competências já tem cobrança ordinária na unidade — recarregue a tela e tente de novo.");
@@ -2217,12 +2361,16 @@ export async function criarCobrancasDaPlanilha(ctx, linhas) {
        null quando o formato não casava — ex.: "3-D" vs unidade "3D");
        sem q(): se o unique do dedupe reclamar, a linha fica como estava */
     const porChave = new Map((data || []).map((c) => [`${c.unidade_id}|${c.competencia}`, c.id]));
-    for (const x of lote) {
-      const id = porChave.get(`${x.row.unidade_id}|${x.row.competencia}`);
+    for (const [j, x] of lote.entries()) {
+      /* na fila o insert não devolve nada: vale o id gerado aqui, para a
+         linha da planilha já apontar a cobrança que vai nascer na aprovação */
+      const id = porChave.get(`${x.row.unidade_id}|${x.row.competencia}`) || idsLote[j];
       if (id) await supabase.from("planilha_cobranca_linhas")
         .update({ cobranca_id: id, unidade_id: x.row.unidade_id }).eq("id", x.linhaId);
     }
     criadas += data?.length || 0;
   }
-  return { criadas, recusadas };
+  /* devolve o resultado (a tela da planilha mostra contagem, não erro) com
+     o aviso de que as cobranças nasceram rascunho */
+  return { criadas, recusadas, rascunho: escritaVaiParaFila() };
 }

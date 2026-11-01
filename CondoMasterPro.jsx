@@ -19,11 +19,11 @@ import {
   criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, baixarPdfCobranca, loginDiretor,
   assinarLicenca, verificarLicenca, cancelarAssinatura, abrirPortalCobranca, listarPlanos, trocarPlanoLicenca, registrarDiretor,
   iniciarOnboardingStripe, statusStripeConnect, pagarCobrancaOnline, verificarCobranca,
-  informarPagamentoCobranca, confirmarPagamentoManual, rejeitarPagamentoInformado, cancelarCobrancaIndevida,
+  informarPagamentoCobranca, confirmarPagamentoManual, rejeitarPagamentoInformado, cancelarCobrancaIndevida, emitirCobranca,
   criarAcesso, listarAcessos, removerAcesso, gerarCodigoRecuperacao, gerarMeuCodigoRecuperacao, recuperarSenha, loginUsuario, setAuthToken, encerrarSessaoServidor,
   solicitarLinkRecuperacao, redefinirSenhaPorLink,
   salvarLogoCondominio, removerLogoCondominio, salvarLogoMenuCondominio, removerLogoMenuCondominio,
-  obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade,
+  obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade, recalcularFracoes,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
   listarPermissoes, salvarPermissoes, restaurarPermissoes,
   listarAlteracoesPendentes, aprovarAlteracao, rejeitarAlteracao, escritaVaiParaFila,
@@ -41,7 +41,7 @@ import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado, val
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
 import { familiaCarteira, uriVerumPay, redesDaFamilia } from "./src/lib/qr-pagamento.js";
 import { pode, permsPadrao, permsEfetivas, PERMISSOES, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, PERMS_VEDADAS_AO_ADMIN, PERFIL_SOB_APROVACAO, mesmoConjunto } from "./src/lib/permissoes.js";
-import { rotuloTabela, rotuloOperacao, rotuloCampo, valorTexto, diff, resumir, pendentes } from "./src/lib/aprovacoes.js";
+import { rotuloTabela, rotuloOperacao, rotuloCampo, valorTexto, diff, resumir, agrupar, resumirGrupo, camposDoGrupo, ehPerfilSobAprovacao, ehAcao } from "./src/lib/aprovacoes.js";
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
 import { geoCache } from "./src/lib/geo.js";
@@ -256,7 +256,7 @@ const useData = () => React.useContext(DataCtx);
 
 /* Envia um formulário: coleta os campos com FormData, executa a ação e trata erros.
    Campos repetidos (ex.: input de arquivo com "multiple") viram array. */
-const useSubmit = (action) => {
+const useSubmit = (action, aoFila = null) => {
   const [saving, setSaving] = useState(false);
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -269,6 +269,11 @@ const useSubmit = (action) => {
          aprovação, não falhou. `err.fila` separa os dois casos — sem isso
          a pessoa leria "não foi possível salvar" e tentaria de novo, e
          cada tentativa viraria uma pendência a mais para o diretor. */
+      /* ...e desde que CRIAR pessoa/unidade/cobrança vale na hora, a ação
+         pode ter valido PELA METADE (a pessoa entrou; quem paga a unidade
+         espera). `aoFila` deixa a tela recarregar e fechar nesse caso —
+         sem ele a lista ficaria mostrando o estado velho. */
+      if (err?.fila && aoFila) { try { await aoFila(); } catch { /* a lista tenta de novo no próximo reload */ } }
       alert(err?.fila ? (err.message || "") : "Não foi possível salvar: " + (err?.message || err));
     }
     finally { setSaving(false); }
@@ -1670,7 +1675,8 @@ function Unidades({ t, role }) {
   const podeCriar = pode(usePerms(), "unidade.criar");
   const podeEditarArea = podeCriar;
   const [q, setQ] = useState(""); const [st, setSt] = useState("todos"); const [sel, setSel] = useState(null); const [novo, setNovo] = useState(false);
-  const [salvar, saving] = useSubmit(async (f) => { await criarUnidade(db.ctx, f); await reload(); setNovo(false); });
+  const [salvar, saving] = useSubmit(async (f) => { await criarUnidade(db.ctx, f); await reload(); setNovo(false); },
+    async () => { await reload(); setNovo(false); });
   const areaRef = React.useRef(null);
   const [salvandoArea, setSalvandoArea] = useState(false);
   const [respSel, setRespSel] = useState("");
@@ -1869,7 +1875,7 @@ function Pessoas({ t }) {
   const [salvar, saving] = useSubmit(async (f) => {
     if (edit) await atualizarPessoa(db.ctx, edit, f); else await criarPessoa(db.ctx, f);
     await reload(); fechar();
-  });
+  }, async () => { await reload(); fechar(); });
   const [excluindo, setExcluindo] = useState(false);
   const excluir = async () => {
     if (!confirm(`${L("Excluir o cadastro de")} ${edit.nome}? ${L("Esta ação não pode ser desfeita.")}`)) return;
@@ -2067,6 +2073,13 @@ function ImportarPessoas({ t, onClose }) {
             {resultado.puladas > 0 && <> · {resultado.puladas} {L("pessoa(s) pulada(s) — já cadastradas")}</>}
             {resultado.responsaveisDefinidos > 0 && <> · {resultado.responsaveisDefinidos} {L("unidade(s) ganharam responsável financeiro")}</>}
           </div>
+          {/* administrador predial: as pessoas entraram, mas quem PAGA cada
+              unidade é decisão do diretor e está esperando */}
+          {resultado.respNaFila && (
+            <div className="mx-auto max-w-md rounded-xl p-3 text-left text-xs" style={{ background: t.warn + "14", color: t.warn }}>
+              {L("As pessoas já estão cadastradas. A troca de responsável financeiro das unidades aguarda o diretor na tela Aprovações.")}
+            </div>
+          )}
           {resultado.avisos.length > 0 && (
             <div className="mx-auto max-w-md rounded-xl p-3 text-left text-xs" style={{ background: t.warn + "14", color: t.warn }}>
               <b>{L("Avisos:")}</b>
@@ -2740,7 +2753,7 @@ function Cobrancas({ t }) {
   const [gerar, gerando] = useSubmit(async (f) => {
     if (f.unidade) f.moradorNome = moradorDa(db.ctx.unidades.find((x) => x.id === f.unidade)?.label) || "";
     await gerarCobrancas(db.ctx, f); await reload(); setNova(false); setDestino("");
-  });
+  }, async () => { await reload(); setNova(false); setDestino(""); });
   const rows = db.cobr.filter((c) => (st === "todos" || c.status === st) && (c.unidade + c.resp).toLowerCase().includes(q.toLowerCase()));
   /* envio por WhatsApp: usa o telefone do responsável (ou de alguém vinculado à unidade);
      o DDI vem do próprio número (+…) ou do país do condomínio para valores legados */
@@ -2748,6 +2761,16 @@ function Cobrancas({ t }) {
   const enviarWhats = (c) => {
     const msg = `Olá${c.resp && c.resp !== "—" ? `, ${c.resp}` : ""}! ${L("Cobrança do condomínio")} ${db.cond?.nome || ""} — ${L("competência")} ${c.comp}, ${L("valor")} ${BRL(c.valorTotal ?? c.valor)}${c.encargos > 0 ? ` (${L("inclui encargos de atraso de")} ${BRL(c.encargos)})` : ""}, ${L("vencimento")} ${c.vencFull}. ${L("Você pode pagar pelo QR Code no portal do morador.")}`;
     window.open(`https://wa.me/${telDe(c)}?text=${encodeURIComponent(msg)}`, "_blank");
+  };
+  /* emitir rascunho é a decisão do diretor: `alteracao.aprovar` é a mesma
+     permissão da tela Aprovações, para o portão ser um só */
+  const podeEmitirRascunho = pode(usePerms(), "alteracao.aprovar");
+  const [emitindo, setEmitindo] = useState(null);
+  const emitir = async (c) => {
+    setEmitindo(c.id);
+    try { await emitirCobranca(db.ctx, c.id); await reload(); }
+    catch (err) { alert(err?.fila ? (err.message || "") : "Não foi possível emitir: " + (err?.message || err)); }
+    finally { setEmitindo(null); }
   };
   const [baixandoPdf, setBaixandoPdf] = useState(false);
   const baixarPdf = async (c) => {
@@ -2819,19 +2842,33 @@ function Cobrancas({ t }) {
             ? <b title={`${L("Original")}: ${BRL(r.valor)} · ${L("Encargos de atraso")}: ${BRL(r.encargos)} (${r.mesesAtraso} ${L("mês(es)")})`}
                 style={{ cursor: "help", color: t.warn }}>{BRL(r.valorTotal)}</b>
             : <b>{BRL(r.valor)}</b>;
-          if (k === "status") return <Badge t={t} s={r.status} />;
+          if (k === "status") return (<div className="flex items-center gap-1">
+            <Badge t={t} s={r.status} />
+            {/* rascunho = criada pelo Administrador e ainda invisível para o
+                morador; o status continua "emitida" para somas e filtros */}
+            {r.rascunho && <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              style={{ background: t.warn + "1A", color: t.warn }} title={L("Ainda não emitida — o morador não a vê nem consegue pagar até você emitir")}>
+              {L("rascunho")}</span>}
+          </div>);
           if (k === "acao") return (<div className="flex justify-end gap-1">
+            {/* emitir é o que faz a cobrança chegar ao morador: o portal e o
+                checkout recusam rascunho. Para o Administrador este update
+                cai na fila, então ele não emite a própria cobrança. */}
+            {r.rascunho && podeEmitirRascunho && (
+              <Btn t={t} kind="primary" className="!px-2 !py-1 text-xs" disabled={emitindo === r.id}
+                title={L("Libera a cobrança para o morador ver e pagar")}
+                onClick={() => emitir(r)}><Check size={13} /> {emitindo === r.id ? L("Emitindo…") : L("Emitir")}</Btn>)}
             {(r.status === "informado" || r.status === "divergente") && (
               <Btn t={t} kind="primary" className="!px-2 !py-1 text-xs" title={L("Conferir o pagamento informado pelo morador")}
                 onClick={() => setConf({ c: r })}><Check size={13} /> Confirmar</Btn>)}
-            {(r.status === "emitida" || r.status === "vencida") && (
+            {(r.status === "emitida" || r.status === "vencida") && !r.rascunho && (
               <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" title={L("Registrar recebimento em dinheiro")}
                 onClick={() => setReceb([r])}><Banknote size={13} /> Receber</Btn>)}
             {r.status !== "cancelada" && (
               <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" onClick={() => setQr(r)}
                 title={r.status === "pago" ? L("Recibo de pagamento") : undefined}>
                 {r.status === "pago" ? <><Receipt size={13} /> {L("Recibo")}</> : <><QrCode size={13} /> QR</>}</Btn>)}
-            {!["pago", "cancelada"].includes(r.status) && <Btn t={t} className="!px-2 !py-1 text-xs" title={L("Reenvia a cobrança por WhatsApp")} onClick={() => enviarWhats(r)}><Send size={13} /> Reenviar</Btn>}</div>);
+            {!["pago", "cancelada"].includes(r.status) && !r.rascunho && <Btn t={t} className="!px-2 !py-1 text-xs" title={L("Reenvia a cobrança por WhatsApp")} onClick={() => enviarWhats(r)}><Send size={13} /> Reenviar</Btn>}</div>);
           return r[k];
         }} />
       {qr && qr.status === "pago" && (
@@ -3137,8 +3174,10 @@ function PlanilhaCobrancas({ t }) {
   const faltando = linhas.filter((l) => l.situacao === "so_planilha" && Number(l.valor) > 0);
 
   const salvarCelula = async (linha, chave, valor) => {
-    const nova = await atualizarCelulaPlanilha(linha, chave, valor);
-    setEstado((e) => ({ ...e, linhas: e.linhas.map((x) => (x.id === nova.id ? nova : x)) }));
+    try {
+      const nova = await atualizarCelulaPlanilha(linha, chave, valor);
+      setEstado((e) => ({ ...e, linhas: e.linhas.map((x) => (x.id === nova.id ? nova : x)) }));
+    } catch (e) { setErro(e?.message || String(e)); } // administrador: a célula foi para a fila
   };
   /* linha avulsa: nasce vazia (sem unidade/competência, logo sem conflito
      com o dedupe) e é preenchida célula a célula */
@@ -4369,7 +4408,7 @@ function Portaria({ t }) {
 
 /* ══════════════ Gerenciar Acessos (exclusivo do diretor) ══════════════ */
 /* Duas abas: as CONTAS (quem entra) e a MATRIZ (o que cada perfil pode). */
-function GerenciarEmails({ t }) {
+function GerenciarEmails({ t, role }) {
   const [aba, setAba] = useState("acessos");
   return (
     <div className="vfade space-y-4">
@@ -4379,23 +4418,30 @@ function GerenciarEmails({ t }) {
             style={{ background: aba === k ? t.goldSoft : "transparent", color: aba === k ? t.gold : t.dim,
               border: `1px solid ${aba === k ? t.border : "transparent"}` }}>{L(l)}</button>))}
       </div>
-      {aba === "acessos" ? <AcessosDoCondominio t={t} /> : <EditorPermissoes t={t} />}
+      {aba === "acessos" ? <AcessosDoCondominio t={t} role={role} /> : <EditorPermissoes t={t} />}
     </div>
   );
 }
 
-function AcessosDoCondominio({ t }) {
+function AcessosDoCondominio({ t, role }) {
   const { db } = useData();
   const unidades = db.ctx.unidades; // unidades cadastradas na tela Unidades
   const [usuarios, setUsuarios] = useState(null); // null = carregando do banco
   const [novo, setNovo] = useState(false);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
-  const [perfil, setPerfil] = useState("sindico");
+  /* o administrador predial cria login de MORADOR e nada mais — criar um
+     síndico seria dar a si mesmo um caminho fora da fila de aprovação.
+     Esconder as outras opções é conforto; quem recusa é api/auth/acessos.js,
+     que roda com service role e não tem como virar pendência. */
+  const soMorador = ehPerfilSobAprovacao(role);
+  const [perfil, setPerfil] = useState(soMorador ? "morador" : "sindico");
   const [codigoGerado, setCodigoGerado] = useState(null); // { codigo, nome, permanente } — mostrado UMA vez
   const [gerando, setGerando] = useState(false);
   const [copiado, setCopiado] = useState(false);
-  const perfis = ["administrador_predial", "sindico", "tesouraria", "morador"];
+  const perfis = soMorador
+    ? ["morador"]
+    : ["administrador_predial", "sindico", "tesouraria", "morador"];
   /* atalhos do seletor de perfil: "Proprietário" (morador já marcado como
      dono, que vê o dashboard do condomínio) e os CARGOS criados na aba
      Gestão — o cargo é rótulo; o PODER é o nível escolhido na hora */
@@ -4600,11 +4646,11 @@ function Aprovacoes({ t, role }) {
   /* o administrador acompanha a própria fila, mas não decide — as RPCs
      recusam ele mesmo que o botão apareça (e recusam por perfil, não só
      por permissão: ninguém aprova a si mesmo) */
-  const sohLeitura = role === PERFIL_SOB_APROVACAO;
+  const sohLeitura = ehPerfilSobAprovacao(role);
   const [fila, setFila] = useState(null);     // null = carregando
   const [verDecididas, setVerDecididas] = useState(false);
-  const [sel, setSel] = useState(null);       // alteração aberta
-  const [correcao, setCorrecao] = useState({});
+  const [sel, setSel] = useState(null);       // GRUPO aberto (uma ação, N linhas)
+  const [correcao, setCorrecao] = useState({}); // { alteracaoId: { campo: valor } }
   const [parecer, setParecer] = useState("");
   const [agindo, setAgindo] = useState(false);
   const [erro, setErro] = useState("");
@@ -4615,21 +4661,43 @@ function Aprovacoes({ t, role }) {
   }, [db.ctx, verDecididas]);
   useEffect(() => { recarregar(); }, [recarregar]);
 
-  const abrir = (a) => { setSel(a); setCorrecao({}); setParecer(""); setErro(""); };
+  /* a pendência de AÇÃO guarda só o id da cobrança (em alvo_id); a tela
+     resolve para unidade + competência + valor, que é o que o diretor
+     precisa para decidir uma baixa ou um cancelamento */
+  const alvoCobranca = (a) => (a?.alvo_id ? db.cobr.find((c) => c.id === a.alvo_id) : null) || null;
+  const abrir = (g) => { setSel(g); setCorrecao({}); setParecer(""); setErro(""); };
   const decidir = async (aprovar) => {
     setAgindo(true); setErro("");
     try {
-      if (aprovar) await aprovarAlteracao(sel.id, Object.keys(correcao).length ? correcao : null, parecer || null);
-      else await rejeitarAlteracao(sel.id, parecer || null);
+      /* o grupo é aplicado NA ORDEM: a mãe precisa existir antes da filha,
+         senão a chave estrangeira recusa. Era isso que a tela pedia ao
+         diretor fazer "de cima para baixo" — agora o botão faz sozinho. */
+      for (const a of sel.itens) {
+        const c = correcao[a.id];
+        if (aprovar) await aprovarAlteracao(a.id, c && Object.keys(c).length ? c : null, parecer || null);
+        else await rejeitarAlteracao(a.id, parecer || null);
+      }
+      /* unidade criada/alterada/excluída muda a área total do prédio, e a
+         fração ideal é o rateio de TODAS as outras. O administrador não pôde
+         refazer a conta (cada update viraria uma pendência), então quem
+         refaz é esta tela, com o token do diretor, assim que a linha nasce. */
+      if (aprovar && sel.itens.some((a) => a.tabela === "unidades")) await recalcularFracoes(db.ctx);
       setSel(null);
       await recarregar();
       await reload(); // a linha aprovada passa a existir: o painel inteiro muda
-    } catch (e) { setErro(e.message); }
+    } catch (e) {
+      /* uma linha do meio pode falhar com as anteriores já aplicadas — a
+         fila precisa refletir isso em vez de continuar mostrando o antes */
+      setErro(e.message); await recarregar();
+    }
     finally { setAgindo(false); }
   };
 
-  const abertas = (fila || []).filter((a) => a.status === "pendente");
-  const linhas = verDecididas ? (fila || []) : abertas;
+  /* um CARTÃO por ação do administrador, não por linha de tabela */
+  const grupos = agrupar(fila || []);
+  const abertas = grupos.filter((g) => g.status === "pendente");
+  const linhas = verDecididas ? grupos : abertas;
+  const repetidas = abertas.filter((g) => g.repetida);
 
   if (fila === null) return <Skeleton t={t} />;
 
@@ -4639,18 +4707,26 @@ function Aprovacoes({ t, role }) {
         <StatCard t={t} icon={ClipboardCheck} label="Aguardando você" value={String(abertas.length)}
           color={abertas.length ? t.warn : undefined} />
         <StatCard t={t} icon={Users} label="Quem solicitou"
-          value={String(new Set(abertas.map((a) => a.solicitante)).size)} />
-        <StatCard t={t} icon={AlertCircle} label="Falharam ao aplicar"
-          value={String(abertas.filter((a) => a.erro).length)}
-          color={abertas.some((a) => a.erro) ? t.danger : undefined} />
+          value={String(new Set(abertas.map((g) => g.solicitante)).size)} />
+        {/* repetida = mesmo conteúdo de uma pendência anterior (o clique saiu
+            duas vezes); mais útil no topo do que a contagem de falhas, que já
+            aparece em vermelho no próprio cartão */}
+        {repetidas.length ? (
+          <StatCard t={t} icon={Copy} label="Repetidas" value={String(repetidas.length)} color={t.warn} />
+        ) : (
+          <StatCard t={t} icon={AlertCircle} label="Falharam ao aplicar"
+            value={String(abertas.filter((g) => g.erro).length)}
+            color={abertas.some((g) => g.erro) ? t.danger : undefined} />
+        )}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-xs" style={{ color: t.dim }}>
           {sohLeitura
             ? L("Estas são as suas alterações aguardando o diretor. Elas só passam a valer — e só aparecem nas outras telas — depois que ele aprovar.")
-            : L("Tudo que o Administrador cadastra, edita ou exclui para aqui e só vale depois que você aprovar. Você pode corrigir os valores antes de aplicar.")}{" "}
-          {!sohLeitura && abertas.length > 1 && L("Aprove de cima para baixo: itens de um mesmo cadastro dependem uns dos outros.")}</div>
+            : L("Tudo que o Síndico e o Administrador alteram, excluem ou dão baixa para aqui e só vale depois que você aprovar. Cada cartão é uma ação inteira: aprovar aplica todas as partes dela, na ordem certa. Você pode corrigir os valores antes.")}{" "}
+          {!sohLeitura && repetidas.length > 0 &&
+            L("Há pendências marcadas como repetidas: mesmo conteúdo enviado mais de uma vez. Aprovar as duas cria registro em dobro.")}</div>
         <Btn t={t} kind="soft" onClick={() => setVerDecididas((v) => !v)}>
           <ListChecks size={14} /> {verDecididas ? L("Só pendentes") : L("Ver histórico")}</Btn>
       </div>
@@ -4659,27 +4735,35 @@ function Aprovacoes({ t, role }) {
 
       {!linhas.length ? (
         <EmptyState t={t} icon={ClipboardCheck} title="Nada aguardando aprovação"
-          hint="Quando o Administrador cadastrar, editar ou excluir alguma coisa, aparece aqui para você decidir." />
+          hint="Quando o Síndico ou o Administrador alterar, excluir ou dar baixa em alguma coisa, aparece aqui para você decidir." />
       ) : (
         <div className="space-y-2">
-          {linhas.map((a) => {
-            const mudancas = diff(a);
-            const cor = a.operacao === "DELETE" ? t.danger : a.operacao === "INSERT" ? t.ok : t.info;
+          {linhas.map((g) => {
+            const op = g.principal.operacao;
+            const cor = op === "DELETE" ? t.danger : op === "INSERT" ? t.ok : t.info;
+            const extras = resumirGrupo(g);
             return (
-              <Card t={t} key={a.id}>
-                <button type="button" onClick={() => abrir(a)} className="flex w-full flex-wrap items-center gap-3 text-left">
+              <Card t={t} key={g.id}>
+                <button type="button" onClick={() => abrir(g)} className="flex w-full flex-wrap items-center gap-3 text-left">
                   <div className="rounded-xl p-2" style={{ background: cor + "1A" }}>
                     <ClipboardCheck size={16} color={cor} /></div>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold">{resumir(a)}</div>
+                    <div className="truncate text-sm font-semibold">
+                      {resumir(g.principal)}
+                      {extras && <span className="ml-2 font-normal" style={{ color: t.dim }}>{extras}</span>}
+                    </div>
                     <div className="text-xs" style={{ color: t.dim }}>
-                      {a.solicitante} · {new Date(a.solicitado_em).toLocaleString()} · {mudancas.length} {L("campo(s)")}</div>
+                      {g.solicitante} · {new Date(g.solicitado_em).toLocaleString()} · {camposDoGrupo(g)} {L("campo(s)")}
+                      {g.itens.length > 1 && <> · {g.itens.length} {L("partes")}</>}</div>
                   </div>
-                  {a.erro && <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.danger + "1A", color: t.danger }}>
+                  {g.repetida && <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.warn + "1A", color: t.warn }}>
+                    {L("repetida")}</span>}
+                  {g.erro && <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.danger + "1A", color: t.danger }}>
                     {L("falhou ao aplicar")}</span>}
                   <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.surface2, color: t.dim }}>
-                    {a.status === "pendente" ? L("pendente") : a.status === "aprovada" ? L("aprovada") : L("rejeitada")}</span>
-                  {a.status === "pendente" && <ChevronRight size={16} color={t.dim} />}
+                    {g.status === "pendente" ? L("pendente") : g.status === "aprovada" ? L("aprovada")
+                      : g.status === "parcial" ? L("parcial") : L("rejeitada")}</span>
+                  {g.status === "pendente" && <ChevronRight size={16} color={t.dim} />}
                 </button>
               </Card>);
           })}
@@ -4687,47 +4771,78 @@ function Aprovacoes({ t, role }) {
 
       {sel && (
         <Modal t={t} onClose={() => setSel(null)} wide>
-          <ModalHeader t={t} title={resumir(sel)} onClose={() => setSel(null)} />
+          <ModalHeader t={t} title={resumir(sel.principal)} onClose={() => setSel(null)} />
           <div className="space-y-3">
             <div className="text-xs" style={{ color: t.dim }}>
-              {rotuloOperacao(sel.operacao)} em <b>{rotuloTabela(sel.tabela)}</b> · {L("pedido por")} {sel.solicitante} · {new Date(sel.solicitado_em).toLocaleString()}</div>
+              {L("pedido por")} {sel.solicitante} · {new Date(sel.solicitado_em).toLocaleString()}
+              {sel.itens.length > 1 && <> · {sel.itens.length} {L("partes, aplicadas nesta ordem")}</>}</div>
+            {sel.repetida && (
+              <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "0D", color: t.warn }}>
+                {L("Conteúdo idêntico ao de uma pendência anterior")}
+                {sel.repeteDe && <> ({new Date(sel.repeteDe).toLocaleString()})</>}.{" "}
+                {L("Provavelmente o envio saiu duas vezes — aprovar as duas cria registro em dobro.")}</div>)}
             {sel.erro && (
               <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.danger + "55", background: t.danger + "0D", color: t.danger }}>
                 {L("A última tentativa de aplicar falhou:")} {sel.erro}</div>)}
 
-            {sel.operacao === "DELETE" ? (
+            {sel.itens.some((a) => a.operacao === "DELETE") ? (
               <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.danger + "55", background: t.danger + "0D", color: t.danger }}>
                 {L("Aprovar aqui EXCLUI o registro de verdade. Confira os valores abaixo antes.")}</div>
             ) : (
               <div className="text-xs" style={{ color: t.dim }}>
                 {L("Pode corrigir qualquer campo antes de aprovar — vale o que estiver na caixa.")}</div>)}
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead><tr style={{ color: t.dim }}>
-                  <th className="px-2 py-1 text-left">{L("Campo")}</th>
-                  <th className="px-2 py-1 text-left">{L("Antes")}</th>
-                  <th className="px-2 py-1 text-left">{L("Vai ficar")}</th>
-                </tr></thead>
-                <tbody>
-                  {diff(sel).map(({ campo, de, para }) => {
-                    const editavel = sel.operacao !== "DELETE" && (para === null || typeof para !== "object");
-                    const atual = campo in correcao ? correcao[campo] : para;
-                    return (
-                      <tr key={campo} style={{ borderTop: `1px solid ${t.borderSoft}` }}>
-                        <td className="px-2 py-1.5 font-medium">{rotuloCampo(campo)}</td>
-                        <td className="px-2 py-1.5" style={{ color: t.dim }}>{valorTexto(de)}</td>
-                        <td className="px-2 py-1.5">
-                          {editavel ? (
-                            <input value={atual ?? ""} style={{ ...inputStyle(t), padding: "4px 8px", fontSize: 12 }}
-                              onChange={(e) => setCorrecao((c) => ({ ...c, [campo]: e.target.value === "" ? null : e.target.value }))} />
-                          ) : <span style={{ color: sel.operacao === "DELETE" ? t.danger : t.text }}>{valorTexto(para)}</span>}
-                        </td>
-                      </tr>);
-                  })}
-                </tbody>
-              </table>
-            </div>
+            {/* uma seção por parte da ação; com uma parte só, o cabeçalho é a
+                mesma linha de contexto que a tela sempre mostrou */}
+            {sel.itens.map((a, i) => (
+              <div key={a.id} className="space-y-1">
+                <div className="flex items-center gap-2 text-xs font-semibold">
+                  {sel.itens.length > 1 && (
+                    <span className="rounded-full px-1.5" style={{ background: t.surface2, color: t.dim }}>{i + 1}</span>)}
+                  {/* AÇÃO já é um verbo ("Baixa de pagamento") — "Ação em
+                      Baixa de pagamento" não se lê */}
+                  <span>{ehAcao(a) ? rotuloTabela(a.tabela)
+                    : `${rotuloOperacao(a.operacao)} ${L("em")} ${rotuloTabela(a.tabela)}`}</span>
+                  {/* a ação mexe numa cobrança específica: mostrar o uuid não
+                      ajuda ninguém, então resolve para unidade + competência */}
+                  {ehAcao(a) && alvoCobranca(a) && (
+                    <span className="font-normal" style={{ color: t.dim }}>
+                      · {alvoCobranca(a).unidade} · {alvoCobranca(a).comp} · {BRL(alvoCobranca(a).valorTotal ?? alvoCobranca(a).valor)}</span>)}
+                  {a.status !== "pendente" && (
+                    <span className="rounded-full px-2 text-xs font-normal" style={{ background: t.ok + "1A", color: t.ok }}>
+                      {L("já aplicada")}</span>)}
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead><tr style={{ color: t.dim }}>
+                      <th className="px-2 py-1 text-left">{L("Campo")}</th>
+                      <th className="px-2 py-1 text-left">{L("Antes")}</th>
+                      <th className="px-2 py-1 text-left">{L("Vai ficar")}</th>
+                    </tr></thead>
+                    <tbody>
+                      {diff(a).map(({ campo, de, para }) => {
+                        const editavel = a.operacao !== "DELETE" && (para === null || typeof para !== "object");
+                        const feita = correcao[a.id] || {};
+                        const atual = campo in feita ? feita[campo] : para;
+                        return (
+                          <tr key={campo} style={{ borderTop: `1px solid ${t.borderSoft}` }}>
+                            <td className="px-2 py-1.5 font-medium">{rotuloCampo(campo)}</td>
+                            <td className="px-2 py-1.5" style={{ color: t.dim }}>{valorTexto(de)}</td>
+                            <td className="px-2 py-1.5">
+                              {editavel ? (
+                                <input value={atual ?? ""} style={{ ...inputStyle(t), padding: "4px 8px", fontSize: 12 }}
+                                  onChange={(e) => setCorrecao((c) => ({
+                                    ...c, [a.id]: { ...(c[a.id] || {}), [campo]: e.target.value === "" ? null : e.target.value },
+                                  }))} />
+                              ) : <span style={{ color: a.operacao === "DELETE" ? t.danger : t.text }}>{valorTexto(para)}</span>}
+                            </td>
+                          </tr>);
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
 
             <Field t={t} label="Parecer (opcional — fica no histórico)">
               <input value={parecer} onChange={(e) => setParecer(e.target.value)} style={inputStyle(t)}
@@ -4738,9 +4853,10 @@ function Aprovacoes({ t, role }) {
             <Btn t={t} onClick={() => setSel(null)}>{L("Fechar")}</Btn>
             {!sohLeitura && (<>
               <Btn t={t} kind="danger" disabled={agindo} onClick={() => decidir(false)}>
-                <Ban size={14} /> {L("Rejeitar")}</Btn>
+                <Ban size={14} /> {sel.itens.length > 1 ? L("Rejeitar a ação inteira") : L("Rejeitar")}</Btn>
               <Btn t={t} kind="primary" disabled={agindo} onClick={() => decidir(true)}>
-                <Check size={14} /> {agindo ? L("Aplicando…") : Object.keys(correcao).length ? L("Aprovar com correção") : L("Aprovar")}</Btn>
+                <Check size={14} /> {agindo ? L("Aplicando…")
+                  : Object.keys(correcao).length ? L("Aprovar com correção") : L("Aprovar")}</Btn>
             </>)}
           </div>
         </Modal>)}
@@ -4963,9 +5079,15 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
   /* entregas registradas na portaria para a unidade do morador */
   const minhasEntregas = db.acessos.filter((a) => a.tipo === "entrega" && a.destino === unidade);
   const agoraLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+  /* rascunho = cobrança que o Administrador criou e o diretor ainda não
+     emitiu. Fica FORA do portal: é este filtro que faz "o morador só é
+     cobrado depois do diretor aprovar" valer na prática — e o endpoint do
+     checkout recusa rascunho pelo mesmo motivo, para o portão não depender
+     de a tela esconder o botão. */
   const boletos = morador?.unidade
-    ? db.cobr.filter((c) => c.unidade === unidade).map((c) => ({ id: c.id, comp: c.comp, desc: "Taxa condominial", valor: c.valor, venc: c.vencFull, status: c.status,
-        encargos: c.encargos, mesesAtraso: c.mesesAtraso, valorTotal: c.valorTotal }))
+    ? db.cobr.filter((c) => c.unidade === unidade && !c.rascunho)
+        .map((c) => ({ id: c.id, comp: c.comp, desc: "Taxa condominial", valor: c.valor, venc: c.vencFull, status: c.status,
+          encargos: c.encargos, mesesAtraso: c.mesesAtraso, valorTotal: c.valorTotal }))
     : db.boletos;
   /* valor a pagar HOJE (original + encargos de atraso, quando ativos) */
   const devido = (b) => b?.valorTotal ?? b?.valor ?? 0;
@@ -6093,7 +6215,7 @@ export default function App() {
      que ele acompanha o que mandou. Decidir continua sendo do diretor, e
      quem garante isso são as RPCs, não este filtro. */
   const nav = NAV.filter((n) => role && (pode(perms, n.perm)
-    || (n.id === "aprovacoes" && role === PERFIL_SOB_APROVACAO)));
+    || (n.id === "aprovacoes" && ehPerfilSobAprovacao(role))));
   /* cargo de gestão do acesso logado (rótulo do menu lateral) — entra na
      sessão no login; quem já estava logado o recebe no próximo acesso */
   const cargoAcesso = lerSessao()?.cargo || null;
@@ -6117,6 +6239,10 @@ export default function App() {
     if (aprovar.length) n.push({ txt: `${aprovar.length} ${L("lançamento(s) aguardando aprovação")}`, c: "info", s: "financeiro" });
     const semResp = (db.chamados || []).filter((c) => c.status === "aberto" && c.resp === "—");
     if (semResp.length) n.push({ txt: `${semResp.length} ${L("chamado(s) abertos sem responsável designado")}`, c: "warn", s: "chamados" });
+    /* fila do administrador predial: nada do que ele fez existe ainda. O
+       filtro por tela abaixo já restringe a quem tem alteracao.aprovar — o
+       próprio administrador não é avisado da própria fila. */
+    if (db.aprovGrupos > 0) n.push({ txt: `${db.aprovGrupos} ${L("alteração(ões) do Administrador aguardando sua aprovação")}`, c: "warn", s: "aprovacoes" });
     return n.filter((x) => telaLiberada(perms, x.s));
   }, [db, role, perms, lang]); // lang: os textos passam por L(), então trocar o idioma precisa recalcular
 
@@ -6300,7 +6426,7 @@ export default function App() {
     unidades: <Unidades t={t} role={role} />, pessoas: <Pessoas t={t} />, financeiro: <Financeiro t={t} />,
     cobrancas: <Cobrancas t={t} />, multas: <Multas t={t} role={role} />, comunicados: <Comunicados t={t} />,
     documentos: <Documentos t={t} />, chamados: <Chamados t={t} />, portaria: <Portaria t={t} />,
-    emails: <GerenciarEmails t={t} />, aprovacoes: <Aprovacoes t={t} role={role} />, planos: <Planos t={t} />,
+    emails: <GerenciarEmails t={t} role={role} />, aprovacoes: <Aprovacoes t={t} role={role} />, planos: <Planos t={t} />,
   };
   const current = NAV.find((n) => n.id === screen);
 
@@ -6336,6 +6462,9 @@ export default function App() {
                     style={{ background: active ? t.goldSoft : "transparent", color: active ? t.gold : t.dim, border: `1px solid ${active ? t.border : "transparent"}` }}>
                     <n.icon size={16} /> {L(n.label)}
                     {n.id === "multas" && db?.stats.multasEmDefesa > 0 && <span className="ml-auto rounded-full px-1.5 text-[10px] font-bold" style={{ background: t.danger + "22", color: t.danger }}>{db.stats.multasEmDefesa}</span>}
+                    {/* a fila não aparece em nenhuma outra tela: sem este número
+                        o diretor só descobre que há algo esperando se abrir */}
+                    {n.id === "aprovacoes" && db?.aprovGrupos > 0 && <span className="ml-auto rounded-full px-1.5 text-[10px] font-bold" style={{ background: t.warn + "22", color: t.warn }}>{db.aprovGrupos}</span>}
                   </button>);
               })}
             </nav>

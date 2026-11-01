@@ -79,6 +79,22 @@ export default async function handler(req, res) {
     });
     if (!f) return;
 
+    /* ── administrador predial: SÓ cria login de morador ──
+       Este endpoint roda com service role, então o gatilho de aprovação não
+       o alcança — nada daqui pode virar pendência. Por isso o limite é
+       cravado aqui, e não na matriz: se ele pudesse criar um síndico,
+       entraria com esse login e escreveria direto, furando a fila inteira.
+       Morador não escreve nada de gestão, então é o único seguro.
+       Remover acesso e trocar cargo também ficam de fora: são alteração e
+       exclusão, que pela regra geral esperam o diretor — e aqui não há
+       como fazer esperar. */
+    if (claims.perfil === "administrador_predial") {
+      if (f.acao !== "criar" && f.acao !== "listar")
+        return res.status(403).json({ error: "Remover acessos ou trocar cargos é do diretor." });
+      if (f.acao === "criar" && f.perfil !== "morador")
+        return res.status(403).json({ error: "O Administrador só pode criar acesso de morador." });
+    }
+
     /* mutações (criar/remover) com retry de rede não podem duplicar.
        "codigo" fica de fora: o replay gravaria o código PURO no corpo da
        api_idempotencia — e gerar de novo já substitui o anterior, então o
