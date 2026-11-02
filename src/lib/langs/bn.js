@@ -277,7 +277,7 @@ export default {
   "Início": "হোম", "Pagamentos": "পরিশোধ", "Avisos": "নোটিশ",
 
   "Buscar por nome…": "নাম দিয়ে খুঁজুন…", "Buscar lançamento…": "এন্ট্রি খুঁজুন…",
-  "Buscar por unidade ou responsável…": "ইউনিট বা দায়িত্বপ্রাপ্ত দিয়ে খুঁজুন…",
+  "Buscar por unidade, andar, letra, tipo, status ou responsável…": "ইউনিট, তলা, অক্ষর, ধরন, অবস্থা বা দায়িত্বপ্রাপ্ত দিয়ে খুঁজুন…",
   "Nenhuma unidade encontrada": "কোনো ইউনিট পাওয়া যায়নি",
   "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "খোঁজ বা ফিল্টার বদলান, অথবা এই আবাসনের প্রথম ইউনিট নিবন্ধন করুন।",
   "Nenhuma pessoa encontrada": "কোনো ব্যক্তি পাওয়া যায়নি",

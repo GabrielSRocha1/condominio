@@ -277,7 +277,7 @@ export default {
   "Início": "Home", "Pagamentos": "Pagamenti", "Avisos": "Avvisi",
 
   "Buscar por nome…": "Cerca per nome…", "Buscar lançamento…": "Cerca registrazione…",
-  "Buscar por unidade ou responsável…": "Cerca per unità o responsabile…",
+  "Buscar por unidade, andar, letra, tipo, status ou responsável…": "Cerca per unità, piano, lettera, tipo, stato o responsabile…",
   "Nenhuma unidade encontrada": "Nessuna unità trovata",
   "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "Modifica la ricerca o i filtri, oppure registra la prima unità di questo condominio.",
   "Nenhuma pessoa encontrada": "Nessuna persona trovata",

@@ -277,7 +277,7 @@ export default {
   "Início": "ホーム", "Pagamentos": "支払い", "Avisos": "お知らせ",
 
   "Buscar por nome…": "名前で検索…", "Buscar lançamento…": "仕訳を検索…",
-  "Buscar por unidade ou responsável…": "住戸または担当者で検索…",
+  "Buscar por unidade, andar, letra, tipo, status ou responsável…": "住戸・階・記号・種別・状態または担当者で検索…",
   "Nenhuma unidade encontrada": "住戸が見つかりません",
   "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "検索条件を調整するか、このマンションの最初の住戸を登録してください。",
   "Nenhuma pessoa encontrada": "該当者が見つかりません",

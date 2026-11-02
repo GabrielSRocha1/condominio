@@ -277,7 +277,7 @@ export default {
   "Início": "Start", "Pagamentos": "Zahlungen", "Avisos": "Hinweise",
 
   "Buscar por nome…": "Nach Name suchen…", "Buscar lançamento…": "Buchung suchen…",
-  "Buscar por unidade ou responsável…": "Nach Einheit oder Verantwortlichem suchen…",
+  "Buscar por unidade, andar, letra, tipo, status ou responsável…": "Nach Einheit, Etage, Buchstabe, Typ, Status oder Verantwortlichem suchen…",
   "Nenhuma unidade encontrada": "Keine Einheiten gefunden",
   "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "Passen Sie Suche oder Filter an oder legen Sie die erste Einheit dieser Wohnanlage an.",
   "Nenhuma pessoa encontrada": "Keine Personen gefunden",

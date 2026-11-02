@@ -427,7 +427,7 @@ const EN = {
   /* buscas e estados vazios */
 
   "Buscar por nome…": "Search by name…", "Buscar lançamento…": "Search entries…",
-  "Buscar por unidade ou responsável…": "Search by unit or responsible…",
+  "Buscar por unidade, andar, letra, tipo, status ou responsável…": "Search by unit, floor, letter, type, status or responsible…",
   "Nenhuma unidade encontrada": "No units found",
   "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "Adjust the search or filters, or register this condominium's first unit.",
   "Nenhuma pessoa encontrada": "No people found",
@@ -1226,7 +1226,7 @@ const ES = {
   /* buscas e estados vazios */
 
   "Buscar por nome…": "Buscar por nombre…", "Buscar lançamento…": "Buscar registro…",
-  "Buscar por unidade ou responsável…": "Buscar por unidad o responsable…",
+  "Buscar por unidade, andar, letra, tipo, status ou responsável…": "Buscar por unidad, piso, letra, tipo, estado o responsable…",
   "Nenhuma unidade encontrada": "Ninguna unidad encontrada",
   "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "Ajuste la búsqueda o los filtros, o registre la primera unidad de este condominio.",
   "Nenhuma pessoa encontrada": "Ninguna persona encontrada",

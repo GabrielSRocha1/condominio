@@ -2,7 +2,7 @@
 import { supabase, setAuthToken, getAuthToken, encerrarSessaoServidor, sessaoPronta } from "./supabase";
 import { calcularEncargos, normalizarEncargosCfg } from "./encargos.js";
 import { saldoComAncora } from "./caixa.js";
-import { expandirUnidades } from "./unidades.js";
+import { expandirUnidades, mapaRotulos } from "./unidades.js";
 import { telExibicao } from "./telefone.js";
 import { agrupar, exigeAprovacao, ehPerfilSobAprovacao } from "./aprovacoes.js";
 import { jsPDF } from "jspdf";
@@ -297,10 +297,34 @@ export async function loadAll(condominioId) {
   };
 
   const uLabel = (u) => (u ? `${u.numero}-${u.blocos?.nome || "?"}` : "—");
-  /* uLabelTipo: "Apartamento 101 — Bloco A" — exibição nos dropdowns de unidade
+
+  /* ─── rótulo de EXIBIÇÃO, irmão do uLabel ───
+     uLabel é CHAVE: o mesmo "numero-bloco" é cunhado no servidor (api/auth/
+     login.js, refresh.js, acessos.js) e no SQL (notificações, sync da
+     planilha), e comparado por igualdade de string no portal do morador e na
+     importação. Ele não muda. uRot/uExib são o que a pessoa lê: "1001-A" no
+     10º andar vira "10-A" (regra em src/lib/unidades.js).
+     O mapa resolve o rótulo só com (numero, bloco) — par único pelo
+     constraint do banco — porque as outras consultas trazem a unidade
+     aninhada sem `andar` nem `tipo`. Unidade fora dele (soft delete, colisão
+     de rótulo) cai no número cru, que é o comportamento certo. */
+  const rotulos = mapaRotulos(unidadesRaw.map((u) => ({
+    numero: u.numero, bloco: u.blocos?.nome || "?", andar: u.andar, tipo: u.tipo,
+  })));
+  /* o bloco só aparece quando há mais de um: com o campo "Bloco / torre"
+     vazio criarUnidade joga tudo no bloco "A", então "não preenchido" só é
+     observável como "o condomínio tem um bloco só". Conta os blocos que de
+     fato têm unidade — um bloco cadastrado e vazio não obriga o sufixo. */
+  const blocosComUnidade = new Set(unidadesRaw.map((u) => u.blocos?.nome).filter(Boolean));
+  const uRot = (u) => (u ? rotulos.get(`${u.numero}|${u.blocos?.nome || "?"}`) || u.numero : "—");
+  const uExib = (u) => (u
+    ? uRot(u) + (blocosComUnidade.size > 1 && u.blocos?.nome ? ` · Bloco ${u.blocos.nome}` : "")
+    : "—");
+
+  /* uLabelTipo: "Apartamento 10-A — Bloco A" — exibição nos dropdowns de unidade
      (uLabel segue como chave de casamento entre registros; não trocar lá) */
   const TIPO_UNIDADE = { apartamento: "Apartamento", sala: "Sala comercial", loja: "Loja", cobertura: "Cobertura", box: "Box", deposito: "Depósito" };
-  const uLabelTipo = (u) => (u ? `${TIPO_UNIDADE[u.tipo] || "Unidade"} ${u.numero}${u.blocos?.nome ? ` — Bloco ${u.blocos.nome}` : ""}` : "—");
+  const uLabelTipo = (u) => (u ? `${TIPO_UNIDADE[u.tipo] || "Unidade"} ${uRot(u)}${blocosComUnidade.size > 1 && u.blocos?.nome ? ` — Bloco ${u.blocos.nome}` : ""}` : "—");
   const unidadeById = Object.fromEntries(unidadesRaw.map((u) => [u.id, u]));
 
   /* status "vencida" é DERIVADO aqui (não existe job que marque): emitida
@@ -317,7 +341,9 @@ export async function loadAll(condominioId) {
         + num(c.valor_original) + calcularEncargos(c, cond.encargos, hoje).encargos;
   });
   const unidades = unidadesRaw.map((u) => ({
-    id: u.id, num: u.numero, bloco: u.blocos?.nome || "?", andar: u.andar,
+    /* num = número CRU (o formulário de edição escreve nele); rotulo = o que
+       a tela mostra, sem o bloco — a coluna o anexa quando há mais de um */
+    id: u.id, num: u.numero, rotulo: uRot(u), bloco: u.blocos?.nome || "?", andar: u.andar,
     tipo: UNIDADE_TIPO_LABEL[u.tipo] || u.tipo, tipoRaw: u.tipo, status: u.status,
     fracao: num(u.fracao_ideal), area: num(u.area_privativa_m2), resp: u.pessoas?.nome || "—",
     respId: u.responsavel_financeiro_id || "",
@@ -332,7 +358,7 @@ export async function loadAll(condominioId) {
     const v = vs[0];
     return {
       id: p.id, nome: p.nome, papel: v ? PAPEL_LABEL[v.papel] : "—",
-      unidade: v?.unidade_id ? uLabel(unidadeById[v.unidade_id]) : "—", unidadeId: v?.unidade_id || null,
+      unidade: v?.unidade_id ? uExib(unidadeById[v.unidade_id]) : "—", unidadeId: v?.unidade_id || null,
       doc: maskDoc(p.cpf_cnpj), tel: telExibicao(p.telefone, cond.pais), status: "ativo",
       documentoUrl: p.documento_url || null,
       /* valores crus para o formulário de edição */
@@ -359,7 +385,9 @@ export async function loadAll(condominioId) {
     /* encargos do DIA (multa + juros × meses) — zero com a cfg desligada */
     const enc = calcularEncargos({ ...c, status: efetivo }, cond.encargos, hoje);
     return {
-      id: c.id, comp: compBR(c.competencia), unidade: uLabel(c.unidades),
+      /* unidade = CHAVE (o portal do morador compara com a do JWT);
+         unidadeExib = o que a tela e os PDFs mostram */
+      id: c.id, comp: compBR(c.competencia), unidade: uLabel(c.unidades), unidadeExib: uExib(c.unidades),
       resp: primeiroNome(c.pessoas?.nome), respId: c.responsavel_id || null, valor: num(c.valor_original),
       encargos: enc.encargos, mesesAtraso: enc.meses, valorTotal: enc.total,
       venc: ddmm(c.vencimento), vencFull: ddmmyyyy(c.vencimento),
@@ -394,7 +422,8 @@ export async function loadAll(condominioId) {
     else if (cobrancaM && (cobrancaM.status === "vencida" || cobrancaM.vencimento < hojeISO)) statusUI = "vencida";
     else statusUI = "entregue";
     return {
-      id: m.id, num: m.numero, unidade: uLabel(m.unidades), unidadeId: m.unidade_id, infrator: m.pessoas?.nome || "Não identificado",
+      id: m.id, num: m.numero, unidade: uLabel(m.unidades), unidadeExib: uExib(m.unidades),
+      unidadeId: m.unidade_id, infrator: m.pessoas?.nome || "Não identificado",
       categoria: m.categoria_infracao, data: ddmmyyyy(m.ocorrida_em), valor: num(m.valor),
       status: statusUI, prazo: m.prazo_defesa && statusUI === "pendente" ? ddmm(m.prazo_defesa) : "—",
       prazoISO: m.prazo_defesa || null, entregueEm: m.entregue_em ? ddmmyyyy(m.entregue_em) : null,
@@ -421,6 +450,8 @@ export async function loadAll(condominioId) {
   const chamados = chamadosRaw.map((c) => ({
     id: c.id, num: c.numero, cat: CHAMADO_CAT_LABEL[c.categoria] || c.categoria, desc: c.descricao,
     prio: c.prioridade, status: c.status,
+    /* chave pura: a tela de Chamados não mostra a unidade — só o portal do
+       morador compara, para listar os chamados da unidade dele */
     unidade: c.unidades ? uLabel(c.unidades) : null, // preenchida quando o chamado veio do portal do morador
     resp: primeiroNome(c.pessoa_vinculos?.pessoas?.nome) || "—",
     aberto: ddmm(c.criado_em), custo: num(c.custo_realizado) || num(c.custo_estimado),
@@ -434,7 +465,9 @@ export async function loadAll(condominioId) {
   /* acessos */
   const acessos = acessosRaw.map((a) => ({
     id: a.id, hora: a.ocorrido_em ? a.ocorrido_em.slice(11, 16) : "—", data: ddmm(a.ocorrido_em),
+    /* destino = CHAVE (o portal filtra as entregas da unidade); destinoExib = tela */
     nome: a.pessoa_nome, destino: a.unidades ? uLabel(a.unidades) : (a.detalhes || "—"),
+    destinoExib: a.unidades ? uExib(a.unidades) : (a.detalhes || "—"),
     tipo: ACESSO_UI[a.tipo]?.tipo || "visitante", via: a.detalhes || "Portaria",
     status: ACESSO_UI[a.tipo]?.status || a.tipo,
   }));
@@ -442,7 +475,7 @@ export async function loadAll(condominioId) {
   /* documentos */
   const docs = docsRaw.map((d) => ({
     id: d.id, nome: d.titulo, tipo: DOC_TIPO_LABEL[d.tipo] || d.tipo,
-    data: ddmmyyyy(d.criado_em), envios: d.unidades ? `Unidade ${uLabel(d.unidades)}` : "Portal",
+    data: ddmmyyyy(d.criado_em), envios: d.unidades ? `Unidade ${uExib(d.unidades)}` : "Portal",
     url: d.arquivo_url,
   }));
 
@@ -595,7 +628,7 @@ export async function loadAll(condominioId) {
   /* atividades recentes — todas, ordenadas da mais nova para a mais antiga;
      [texto, quando, tela de destino] para o clique navegar */
   const atividades = [
-    ...pagamentosRaw.map((p) => [`Pagamento confirmado — ${uLabel(p.cobrancas?.unidades)} · ${fmtMoeda(num(p.valor_pago), cond.moeda)}`, p.pago_em, "cobrancas"]),
+    ...pagamentosRaw.map((p) => [`Pagamento confirmado — ${uExib(p.cobrancas?.unidades)} · ${fmtMoeda(num(p.valor_pago), cond.moeda)}`, p.pago_em, "cobrancas"]),
     ...comunicRaw.map((c) => [`Comunicado "${c.titulo}" publicado`, c.publicado_em || c.criado_em, "comunicados"]),
     ...chamadosRaw.map((c) => [`Chamado ${c.numero} — ${c.descricao}`, c.criado_em, "chamados"]),
     ...multasRaw.map((m) => [`${m.tipo === "multa" ? "Multa" : "Advertência"} ${m.numero} — ${m.categoria_infracao}`, m.criado_em, "multas"]),
@@ -609,11 +642,17 @@ export async function loadAll(condominioId) {
     encargos: cond.encargos, fundoReservaPct: cond.fundoReservaPct,
     usuarioId: usuarios[0]?.usuario_id || null,
     blocos, categorias,
+    /* multiBloco: a tela Unidades precisa da mesma decisão que o uExib toma
+       aqui para só mostrar o bloco quando há mais de um */
+    multiBloco: blocosComUnidade.size > 1,
     unidades: unidadesRaw.map((u) => {
       /* labelResp: tipo + unidade + responsável financeiro — usado nos dropdowns de unidade */
       const respNome = pessoasRaw.find((p) => p.id === u.responsavel_financeiro_id)?.nome || "";
       return {
-        id: u.id, label: uLabel(u), labelTipo: uLabelTipo(u), labelResp: uLabelTipo(u) + (respNome ? ` · ${respNome}` : ""),
+        /* label = CHAVE (resolverUnidade da planilha, criarAcesso, o value de
+           um <option>); rotulo = o mesmo endereço em forma legível */
+        id: u.id, label: uLabel(u), rotulo: uExib(u),
+        labelTipo: uLabelTipo(u), labelResp: uLabelTipo(u) + (respNome ? ` · ${respNome}` : ""),
         responsavelId: u.responsavel_financeiro_id, fracao: num(u.fracao_ideal),
         bloco: u.blocos?.nome || "", tipo: u.tipo, andar: u.andar,
       };
@@ -625,7 +664,7 @@ export async function loadAll(condominioId) {
         .sort((a, b) => PAPEL_PRIORIDADE.indexOf(a.papel) - PAPEL_PRIORIDADE.indexOf(b.papel));
       const papel = vs[0] ? PAPEL_LABEL[vs[0].papel] : "";
       const vUni = vs.find((x) => x.unidade_id);
-      const unidade = vUni ? uLabel(unidadeById[vUni.unidade_id]) : "";
+      const unidade = vUni ? uExib(unidadeById[vUni.unidade_id]) : "";
       return {
         id: p.id, nome: p.nome, unidadeId: vUni?.unidade_id || null, unidade, papel,
         label: p.nome + (unidade ? ` — ${unidade}` : "") + (papel ? ` · ${papel}` : ""),
@@ -1455,7 +1494,7 @@ const rotuloSegmento = (seg, ctx) => {
   if (!seg || seg === "todas") return "Todas as unidades";
   if (seg === "inadimplentes") return "Somente inadimplentes";
   const [k, v] = seg.split(":");
-  if (k === "unidade") return `Unidade ${ctx?.unidades.find((u) => u.id === v)?.label || v}`;
+  if (k === "unidade") { const u = ctx?.unidades.find((x) => x.id === v); return `Unidade ${u?.rotulo || u?.label || v}`; }
   return k === "bloco" ? `Bloco ${v}` : k === "andar" ? `Andar ${v}` : `${UNIDADE_TIPO_LABEL[v] || v}s`;
 };
 
@@ -1520,7 +1559,7 @@ export async function criarDocumento(ctx, f) {
   const unidade = ctx.unidades.find((u) => u.id === f.unidade);
   const arquivo = await gerarPdfTimbrado(ctx, {
     tipo: f.tipo, titulo: f.titulo, corpo: f.corpo || f.titulo,
-    rodape: unidade ? `Unidade ${unidade.label}` : "",
+    rodape: unidade ? `Unidade ${unidade.rotulo || unidade.label}` : "",
   });
   const { url } = await arquivarPdfTimbrado(ctx, uid, {
     tipoDoc: DOC_TIPO_ENUM[f.tipo] || "circular", titulo: f.titulo,
@@ -1528,6 +1567,12 @@ export async function criarDocumento(ctx, f) {
   });
   return url;
 }
+
+/* Unidade nos documentos: o rótulo que a tela mostra ("10-A"), com o
+   "1001-A-A" legado como rede quando a cobrança veio de antes do campo.
+   uArq é o mesmo valor domado para virar nome de arquivo. */
+const uDoc = (c) => c?.unidadeExib || c?.unidade || "—";
+const uArq = (c) => String(uDoc(c)).replace(/[^\w-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 
 /* Baixa a cobrança em PDF timbrado (botão Baixar do popup de QR da tela Cobranças) */
 export async function baixarPdfCobranca(ctx, c) {
@@ -1539,13 +1584,13 @@ export async function baixarPdfCobranca(ctx, c) {
     : "";
   const arquivo = await gerarPdfTimbrado(ctx, {
     tipo: "Cobrança condominial",
-    titulo: `Cobrança ${c.comp} — Unidade ${c.unidade}`,
+    titulo: `Cobrança ${c.comp} — Unidade ${uDoc(c)}`,
     corpo: `Cobrança condominial da competência ${c.comp}, no valor de ${valor}, com vencimento em ${c.vencFull}.${encargos} Situação atual: ${c.status}. ${c.tx && c.tx !== "—" ? `Transação Verum Pay: ${c.tx} — baixa automática confirmada.` : "O pagamento pode ser feito pelo QR Code disponível no portal do morador."}`,
-    rodape: `Unidade ${c.unidade}${c.resp ? ` · Responsável: ${c.resp}` : ""}`,
+    rodape: `Unidade ${uDoc(c)}${c.resp ? ` · Responsável: ${c.resp}` : ""}`,
   });
   const url = URL.createObjectURL(arquivo);
   const a = document.createElement("a");
-  a.href = url; a.download = `cobranca-${c.competencia}-${c.unidade}.pdf`;
+  a.href = url; a.download = `cobranca-${c.competencia}-${uArq(c)}.pdf`;
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
@@ -1677,7 +1722,7 @@ export async function baixarPdfRecibo(ctx, c, r) {
   const doc = new jsPDF({ unit: "mm", format: "a5", orientation: "landscape" });
   desenharTimbreRecibo(doc, cond, await carregarLogoRecibo(cond), r);
   /* declaração de recebimento */
-  const quem = c.resp && c.resp !== "—" ? `${c.resp} — Unidade ${c.unidade}` : `Unidade ${c.unidade}`;
+  const quem = c.resp && c.resp !== "—" ? `${c.resp} — Unidade ${uDoc(c)}` : `Unidade ${uDoc(c)}`;
   doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(50, 50, 50);
   doc.text(doc.splitTextToSize(
     `Recebemos de ${quem} a importância de ${fmtMoeda(r.valorPago, ctx.moeda)}, referente à cobrança condominial da competência ${c.comp}, com vencimento original em ${c.vencFull}.`,
@@ -1700,7 +1745,7 @@ export async function baixarPdfRecibo(ctx, c, r) {
   doc.text([`Forma de pagamento: ${FORMA_ROTULO[r.forma] || r.forma || "—"}`,
             r.tx ? `Transação: ${r.tx}` : null].filter(Boolean).join("   ·   ").slice(0, 115), 20, y + 2);
   desenharRodapeRecibo(doc, cond, r.numero);
-  baixarBlobPdf(doc, `recibo-${c.competencia}-${c.unidade}.pdf`);
+  baixarBlobPdf(doc, `recibo-${c.competencia}-${uArq(c)}.pdf`);
 }
 
 /* Recibo do LOTE em PDF — mesma A5 paisagem do individual, com a tabela das
@@ -1714,7 +1759,7 @@ export async function baixarPdfReciboLote(ctx, cs, r) {
   const doc = new jsPDF({ unit: "mm", format: "a5", orientation: "landscape" });
   desenharTimbreRecibo(doc, cond, logo, r);
   /* declaração: destinatário único (a seleção ancora no responsável) */
-  const unidades = [...new Set(cs.map((c) => c.unidade))];
+  const unidades = [...new Set(cs.map((c) => uDoc(c)))];
   const resp = cs.find((c) => c.resp && c.resp !== "—")?.resp;
   const rotuloU = `Unidade${unidades.length > 1 ? "s" : ""} ${unidades.join(", ")}`;
   const quem = resp ? `${resp} — ${rotuloU}` : rotuloU;
@@ -1738,7 +1783,9 @@ export async function baixarPdfReciboLote(ctx, cs, r) {
     const it = r.itens[i];
     doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(50, 50, 50);
     doc.text(String(c.comp), 20, y);
-    doc.text(String(c.unidade), 44, y);
+    /* coluna estreita (22 mm): só o rótulo, sem o " · Bloco X" — o bloco já
+       saiu por extenso na declaração acima */
+    doc.text(String(uDoc(c)).split(" · ")[0], 44, y);
     doc.setTextColor(110, 110, 110); doc.text(it.numero, 66, y); doc.setTextColor(50, 50, 50);
     doc.text(fm(c.valor), 120, y, { align: "right" });
     doc.text(it.encargosPagos > 0.004 ? `+ ${fm(it.encargosPagos)}` : "—", 145, y, { align: "right" });
@@ -1764,7 +1811,7 @@ export async function baixarPdfReciboLote(ctx, cs, r) {
             r.pagoEm ? `Pago em ${new Date(r.pagoEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}` : null]
     .filter(Boolean).join("   ·   ").slice(0, 115), 20, y + 2);
   desenharRodapeRecibo(doc, cond, r.numero);
-  baixarBlobPdf(doc, `recibo-lote-${cs.length}x-${cs[0].unidade}-${new Date().toISOString().slice(0, 10)}.pdf`);
+  baixarBlobPdf(doc, `recibo-lote-${cs.length}x-${uArq(cs[0])}-${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 const COMUNIC_DOC_TIPO = { comunicado: "circular", convocacao: "convocacao", circular: "circular", aviso_manutencao: "circular", emergencia: "circular" };
@@ -2010,7 +2057,7 @@ export async function criarPreAutorizacao(ctx, f) {
   }).select(), "acessos_portaria");
   return {
     codigo: `CM1|${token}`, nome: f.nome, email: f.email || "",
-    unidade: ctx.unidades.find((u) => u.id === f.unidade)?.label || "—",
+    unidade: ctx.unidades.find((u) => u.id === f.unidade)?.rotulo || "—",
     janela: f.janela || "dia todo", geradoEm: new Date().toLocaleString("pt-BR"),
     validaAte: `${ddmmyyyy(dia)} 23:59`,
   };
@@ -2031,7 +2078,7 @@ export async function gerarQrAcesso(ctx, f) {
   }).select(), "pre_autorizacoes");
   return {
     codigo: `CM1|${token}`, nome: f.nome, email: f.email || "",
-    unidade: ctx.unidades.find((u) => u.id === f.unidade)?.label || "—",
+    unidade: ctx.unidades.find((u) => u.id === f.unidade)?.rotulo || "—",
     janela: f.janela || "1h-2h", geradoEm: agora.toLocaleString("pt-BR"),
     validaAte: ate.toLocaleString("pt-BR"),
   };
@@ -2048,7 +2095,10 @@ export async function validarQrAcesso(ctx, codigo) {
   if (!pa) return { permitido: false, motivo: "QR não encontrado para este condomínio." };
   const info = {
     id: pa.id, unidadeId: pa.unidade_id, nome: pa.nome, tipo: PREAUT_TIPO_LABEL_UI[pa.tipo] || pa.tipo,
-    unidade: pa.unidades ? `${pa.unidades.numero}-${pa.unidades.blocos?.nome || "?"}` : "—",
+    /* exibição na portaria: o rótulo do ctx (o join só traz numero+bloco,
+       sem andar, e não dá para colapsar a partir dele) */
+    unidade: ctx.unidades.find((u) => u.id === pa.unidade_id)?.rotulo
+      || (pa.unidades ? `${pa.unidades.numero}-${pa.unidades.blocos?.nome || "?"}` : "—"),
     janela: `${new Date(pa.valida_de).toLocaleString("pt-BR")} → ${new Date(pa.valida_ate).toLocaleString("pt-BR")}`,
   };
   const agora = new Date();
@@ -2312,7 +2362,7 @@ export async function criarCobrancasDaPlanilha(ctx, linhas) {
           const idPessoa = idDaFila(); // mãe do vínculo e do responsável da unidade
           const pessoa = linhaOuFila(await q(supabase.from("pessoas").insert({
             ...comId(idPessoa),
-            condominio_id: ctx.condominioId, nome: `Responsável ${u.label}`, tipo_pessoa: "fisica",
+            condominio_id: ctx.condominioId, nome: `Responsável ${u.rotulo || u.label}`, tipo_pessoa: "fisica",
             cpf_cnpj: `P-${crypto.randomUUID().slice(0, 12)}`, // placeholder até completar o cadastro
           }).select(), "pessoas"), idPessoa, "pessoas");
           await q(supabase.from("pessoa_vinculos").insert({
@@ -2325,7 +2375,7 @@ export async function criarCobrancasDaPlanilha(ctx, linhas) {
         }
         u.responsavelId = pid; // o ctx em memória acompanha
       } catch (e) {
-        recusadas.push({ linha: l, motivo: `${u.label}: não foi possível criar o responsável provisório (${e?.message || e}).` });
+        recusadas.push({ linha: l, motivo: `${u.rotulo || u.label}: não foi possível criar o responsável provisório (${e?.message || e}).` });
         continue;
       }
     }

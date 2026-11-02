@@ -277,7 +277,7 @@ export default {
   "Início": "الرئيسية", "Pagamentos": "المدفوعات", "Avisos": "الإشعارات",
 
   "Buscar por nome…": "ابحث بالاسم…", "Buscar lançamento…": "ابحث عن قيد…",
-  "Buscar por unidade ou responsável…": "ابحث بالوحدة أو المسؤول…",
+  "Buscar por unidade, andar, letra, tipo, status ou responsável…": "ابحث بالوحدة أو الطابق أو الحرف أو النوع أو الحالة أو المسؤول…",
   "Nenhuma unidade encontrada": "لم يُعثر على وحدات",
   "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "عدّل البحث أو عوامل التصفية، أو سجّل أول وحدة في هذا المجمّع.",
   "Nenhuma pessoa encontrada": "لم يُعثر على أشخاص",

@@ -34,6 +34,7 @@ import {
   obterReciboLote, baixarPdfRecibo, baixarPdfReciboLote, FORMA_ROTULO,
   listarNotificacoes,
 } from "./src/lib/api.js";
+import { casaUnidade } from "./src/lib/unidades.js";
 import { calcularLote, elegivelLote, chaveLote, ordenarLote } from "./src/lib/receber-lote.js";
 import { formatarNotificacao, contarNaoVistas, ehNova, horaCurta, chaveVisto, maisRecente } from "./src/lib/notificacoes.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
@@ -1699,38 +1700,15 @@ function Unidades({ t, role }) {
   };
   const [excluindo, setExcluindo] = useState(false);
   const excluir = async () => {
-    if (!confirm(`${L("Excluir a unidade")} ${sel.num} — ${L("Bloco")} ${sel.bloco}? ${L("O histórico de cobranças e multas é preservado, mas a unidade sai do rateio e das listagens.")}`)) return;
+    if (!confirm(`${L("Excluir a unidade")} ${sel.rotulo}${db.ctx.multiBloco ? ` — ${L("Bloco")} ${sel.bloco}` : ""}? ${L("O histórico de cobranças e multas é preservado, mas a unidade sai do rateio e das listagens.")}`)) return;
     setExcluindo(true);
     try { await excluirUnidade(db.ctx, sel.id); await reload(); setSel(null); }
     catch (err) { alert(err?.message || err); }
     finally { setExcluindo(false); }
   };
-  /* busca estruturada: "bloco X" filtra pelo bloco, "andar X" filtra pelo andar,
-     termo que começa com número busca pelo número da unidade; o restante (tipo,
-     status, responsável) busca por texto livre. Combinável: "bloco b andar 3 vaga" */
-  const buscaUnidade = (u) => {
-    const termos = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    for (let i = 0; i < termos.length; i++) {
-      const termo = termos[i], valor = termos[i + 1];
-      if (termo === "bloco" || termo === "torre") {
-        if (!valor) continue; // ainda digitando o bloco — não filtra nada
-        if (!String(u.bloco).toLowerCase().startsWith(valor)) return false;
-        i++; continue;
-      }
-      if (termo === "andar") {
-        if (!valor) continue; // ainda digitando o andar — não filtra nada
-        if (String(u.andar ?? "").toLowerCase() !== valor) return false;
-        i++; continue;
-      }
-      if (/^\d/.test(termo)) { // começa com dígito → número da unidade
-        if (!String(u.num).toLowerCase().startsWith(termo)) return false;
-        continue;
-      }
-      if (![u.num, u.tipo, u.tipoRaw, u.status, u.resp].join(" ").toLowerCase().includes(termo)) return false;
-    }
-    return true;
-  };
-  const rows = db.unidades.filter((u) => (st === "todos" || u.status === st) && buscaUnidade(u));
+  /* busca estruturada ("bloco X", "piso X") + número, letra do apartamento e
+     responsável — a regra vive em src/lib/unidades.js, sondada sem navegador */
+  const rows = db.unidades.filter((u) => (st === "todos" || u.status === st) && casaUnidade(u, q));
   const cols = [{k:"num",l:"Unidade"},{k:"andar",l:"Andar"},{k:"tipo",l:"Tipo"},{k:"status",l:"Status"},{k:"resp",l:"Responsável financeiro"},{k:"fracao",l:"Fração ideal"},{k:"saldo",l:"Saldo"}];
   /* franquia de unidades do plano: acima dela nada é bloqueado — o aviso
      abaixo sinaliza o excedente (cobrança automática fica para fase futura) */
@@ -1741,7 +1719,7 @@ function Unidades({ t, role }) {
         <div className="mb-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
           <AlertCircle size={13} className="mr-1 inline" />
           {L("Acima da franquia do plano")} ({db.unidades.length} / {limiteUn} {L("unidades")}) — {L("o excedente é cobrado por unidade adicional na fatura da licença.")}</div>)}
-      <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por unidade, andar, tipo, status ou responsável…"
+      <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por unidade, andar, letra, tipo, status ou responsável…"
         action={podeCriar ? <Btn t={t} kind="primary" onClick={() => setNovo(true)} data-tour="unidades-nova"><Plus size={15} /> Unidade</Btn> : null}>
         <Sel t={t} value={st} onChange={setSt} opts={[["todos","Todos os status"],["ocupada","Ocupada"],["alugada","Alugada"],["vaga","Vaga"],["vendida","Vendida"],["reservada","Reservada"],["inativa","Inativa"]]} />
       </Toolbar>
@@ -1751,7 +1729,11 @@ function Unidades({ t, role }) {
           hint={podeCriar ? "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio." : "Ajuste a busca ou os filtros. O cadastro de novas unidades é feito pelo diretor."}
           action={podeCriar ? <Btn t={t} kind="primary" onClick={() => setNovo(true)} data-tour="unidades-nova"><Plus size={14} /> Cadastrar unidade</Btn> : null} />}
         renderCell={(r, k) => {
-          if (k === "num") return <b>{r.num} · Bloco {r.bloco}</b>;
+          /* "10-A" (andar + letra). O bloco só entra quando o condomínio tem
+             mais de um: com o campo vazio toda unidade cai no bloco "A"
+             automático, e repetir "· Bloco A" em todas as linhas não informa
+             nada. A coluna Andar continua ao lado, para quem confere. */
+          if (k === "num") return <b>{r.rotulo}{db.ctx.multiBloco && <> · {L("Bloco")} {r.bloco}</>}</b>;
           if (k === "andar") return r.andar ?? <span style={{ color: t.dim }}>—</span>;
           if (k === "status") return <Badge t={t} s={r.status} />;
           if (k === "fracao") return (<span>{r.fracao.toFixed(2)}%{r.area > 0 && <span style={{ color: t.dim }}> · {String(r.area).replace(".", ",")} m²</span>}</span>);
@@ -1760,7 +1742,7 @@ function Unidades({ t, role }) {
         }} />
       {sel && (
         <Modal t={t} onClose={() => setSel(null)} wide>
-          <ModalHeader t={t} title={`Unidade ${sel.num} — Bloco ${sel.bloco}`} onClose={() => setSel(null)} />
+          <ModalHeader t={t} title={`${L("Unidade")} ${sel.rotulo}${db.ctx.multiBloco ? ` — ${L("Bloco")} ${sel.bloco}` : ""}`} onClose={() => setSel(null)} />
           <div className="mb-3 flex flex-wrap gap-2"><Badge t={t} s={sel.status} />
             <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.goldSoft, color: t.gold }}>{sel.tipo}</span>
             <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.surface2, color: t.dim }}>{sel.vagas} vaga(s)</span></div>
@@ -2212,7 +2194,7 @@ function ReceberModal({ t, cobrancas, onClose, onDepois }) {
             <div className="mt-2 space-y-1">
               {resultado.falhas.map(({ c: cf, msg }) => (
                 <div key={cf.id} style={{ color: t.warn }}>
-                  <AlertCircle size={12} className="mr-1 inline" /><b>{cf.unidade}</b> · {cf.comp} — {msg}</div>))}
+                  <AlertCircle size={12} className="mr-1 inline" /><b>{cf.unidadeExib}</b> · {cf.comp} — {msg}</div>))}
             </div>
           </div>
           {lote && <div className="text-[11px]" style={{ color: t.dim }}>
@@ -2230,7 +2212,7 @@ function ReceberModal({ t, cobrancas, onClose, onDepois }) {
               <div className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1">
                 {cs.map((x, i) => (
                   <div key={x.id} className="flex justify-between gap-3">
-                    <span style={{ color: t.dim }}>{x.comp} · {x.unidade}
+                    <span style={{ color: t.dim }}>{x.comp} · {x.unidadeExib}
                       {x.encargos > 0 && <span style={{ color: t.warn }}> (+{BRL(x.encargos)})</span>}</span>
                     <span>{BRL(plano.itens[i].devido)}</span>
                   </div>))}
@@ -2245,7 +2227,7 @@ function ReceberModal({ t, cobrancas, onClose, onDepois }) {
                   <span>{L("Total devido")}</span><span style={{ color: t.gold }}>{BRL(plano.totalDevido)}</span></div>
               </div>
             </>) : (<>
-              <div><b>{c.unidade}</b> · {c.comp} · {L("vencimento")} {c.vencFull}{c.resp && c.resp !== "—" && <> · {c.resp}</>}</div>
+              <div><b>{c.unidadeExib}</b> · {c.comp} · {L("vencimento")} {c.vencFull}{c.resp && c.resp !== "—" && <> · {c.resp}</>}</div>
               <div className="mt-2 space-y-1">
                 <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Original")}</span><span>{BRL(c.valor)}</span></div>
                 {c.encargos > 0 && (
@@ -2344,7 +2326,7 @@ function ReciboModal({ t, cobrancas, ctx, condNome, onClose, enviarTexto }) {
   const rr = r?.itens?.[0];
   const pagoEmTxt = r?.pagoEm ? new Date(r.pagoEm).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : null;
   const formaTxt = r?.forma ? L(FORMA_ROTULO[r.forma] || r.forma) : "—";
-  const unidades = [...new Set(cs.map((x) => x.unidade))].join(", ");
+  const unidades = [...new Set(cs.map((x) => x.unidadeExib))].join(", ");
   const whats = () => enviarTexto(lote
     ? `🧾 ${L("Recibo de pagamento")} ${r.numero} — ${condNome}: ${L("Unidade")} ${unidades}` +
       `${c.resp && c.resp !== "—" ? ` (${c.resp})` : ""} — ${cs.length} ${L("cobranças")}: ` +
@@ -2352,7 +2334,7 @@ function ReciboModal({ t, cobrancas, ctx, condNome, onClose, enviarTexto }) {
         ? `${L("competências")} ${cs[0].comp}–${cs[cs.length - 1].comp}`
         : cs.map((x, i) => `${x.comp} (${BRL(r.itens[i].valorPago)})`).join(", ")}. ` +
       `${L("Total pago:")} ${BRL(r.totalPago)} · ${formaTxt}${pagoEmTxt ? ` · ${L("Pago:")} ${pagoEmTxt}` : ""}.`
-    : `🧾 ${L("Recibo de pagamento")} ${rr.numero} — ${condNome}: ${L("Unidade")} ${c.unidade}` +
+    : `🧾 ${L("Recibo de pagamento")} ${rr.numero} — ${condNome}: ${L("Unidade")} ${c.unidadeExib}` +
       `${c.resp && c.resp !== "—" ? ` (${c.resp})` : ""}, ${L("competência")} ${c.comp}. ` +
       `${L("Total pago:")} ${BRL(rr.valorPago)} · ${formaTxt}${pagoEmTxt ? ` · ${L("Pago:")} ${pagoEmTxt}` : ""}.` +
       `${rr.tx ? ` ${L("Transação")}: ${rr.tx}` : ""}`);
@@ -2372,7 +2354,7 @@ function ReciboModal({ t, cobrancas, ctx, condNome, onClose, enviarTexto }) {
               <div className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1">
                 {cs.map((x, i) => (
                   <div key={x.id} className="flex justify-between gap-3">
-                    <span style={{ color: t.dim }}>{x.comp} · {x.unidade}
+                    <span style={{ color: t.dim }}>{x.comp} · {x.unidadeExib}
                       {r.itens[i].encargosPagos > 0.004 && <span style={{ color: t.warn }}> +{BRL(r.itens[i].encargosPagos)}</span>}
                       {r.itens[i].desconto > 0.004 && <span style={{ color: t.warn }}> −{BRL(r.itens[i].desconto)}</span>}</span>
                     <span>{BRL(r.itens[i].valorPago)}</span>
@@ -2388,7 +2370,7 @@ function ReciboModal({ t, cobrancas, ctx, condNome, onClose, enviarTexto }) {
                   <span>{L("Total pago:")}</span><span style={{ color: t.ok }}>{BRL(r.totalPago)}</span></div>
               </div>
             </>) : (<>
-              <div><b>{c.unidade}</b> · {c.comp} · {L("vencimento")} {c.vencFull}{c.resp && c.resp !== "—" && <> · {c.resp}</>}</div>
+              <div><b>{c.unidadeExib}</b> · {c.comp} · {L("vencimento")} {c.vencFull}{c.resp && c.resp !== "—" && <> · {c.resp}</>}</div>
               <div className="mt-2 space-y-1">
                 <div className="flex justify-between gap-3"><span style={{ color: t.dim }}>{L("Taxa condominial")}</span><span>{BRL(c.valor)}</span></div>
                 {rr.encargosPagos > 0.004 && (
@@ -2616,7 +2598,7 @@ function Financeiro({ t }) {
         {lote.sel.size > 0 && (
           <BarraLote t={t} selRows={lote.selRows} onReceber={() => setReceb(lote.selRows)}
             onLimpar={lote.limpar} onTodas={lote.selecionarTodasDaChave} />)}
-        <Tbl t={t} cols={[{k:"comp",l:"Competência"},{k:"unidade",l:"Unidade"},{k:"resp",l:"Responsável"},{k:"valor",l:"Valor"},{k:"vencFull",l:"Vencimento"},{k:"status",l:"Status"},{k:"acao",l:""}]}
+        <Tbl t={t} cols={[{k:"comp",l:"Competência"},{k:"unidadeExib",l:"Unidade"},{k:"resp",l:"Responsável"},{k:"valor",l:"Valor"},{k:"vencFull",l:"Vencimento"},{k:"status",l:"Status"},{k:"acao",l:""}]}
           rows={aReceber}
           selection={{ ids: lote.sel, onToggle: lote.toggle, selectable: elegivelLote,
             disabledReason: (r) => (lote.chave && chaveLote(r) !== lote.chave ? L("Selecione cobranças do mesmo responsável") : null) }}
@@ -2641,7 +2623,7 @@ function Financeiro({ t }) {
         {despComp === 0 && (
           <div className="rounded-xl border border-dashed px-4 py-3 text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
             <AlertCircle size={14} className="mr-1.5 inline" /> {L("Nada consta — nenhuma despesa lançada nesta competência; as cotas abaixo estão zeradas.")}</div>)}
-        <Tbl t={t} cols={[{k:"label",l:"Unidade"},{k:"andar",l:"Andar"},{k:"fracao",l:"Fração ideal"},{k:"cota",l:"Cota da competência"}]}
+        <Tbl t={t} cols={[{k:"rotulo",l:"Unidade"},{k:"andar",l:"Andar"},{k:"fracao",l:"Fração ideal"},{k:"cota",l:"Cota da competência"}]}
           rows={db.ctx.unidades}
           empty={<EmptyState t={t} icon={Home} title="Nenhuma unidade cadastrada"
             hint="Cadastre as unidades para calcular o rateio pela fração ideal." />}
@@ -2757,7 +2739,10 @@ function Cobrancas({ t }) {
     if (f.unidade) f.moradorNome = moradorDa(db.ctx.unidades.find((x) => x.id === f.unidade)?.label) || "";
     await gerarCobrancas(db.ctx, f); await reload(); setNova(false); setDestino("");
   }, async () => { await reload(); setNova(false); setDestino(""); });
-  const rows = db.cobr.filter((c) => (st === "todos" || c.status === st) && (c.unidade + c.resp).toLowerCase().includes(q.toLowerCase()));
+  /* busca pelo rótulo que a tela mostra ("10-A") E pela chave antiga
+     ("1001-A-A"), para quem já tinha o número decorado continuar achando */
+  const rows = db.cobr.filter((c) => (st === "todos" || c.status === st)
+    && `${c.unidadeExib} ${c.unidade} ${c.resp}`.toLowerCase().includes(q.toLowerCase()));
   /* envio por WhatsApp: usa o telefone do responsável (ou de alguém vinculado à unidade);
      o DDI vem do próprio número (+…) ou do país do condomínio para valores legados */
   const telDe = (c) => telDoResp(db, c);
@@ -2833,7 +2818,7 @@ function Cobrancas({ t }) {
       {lote.sel.size > 0 && (
         <BarraLote t={t} selRows={lote.selRows} onReceber={() => setReceb(lote.selRows)}
           onLimpar={lote.limpar} onTodas={lote.selecionarTodasDaChave} />)}
-      <Tbl t={t} cols={[{k:"unidade",l:"Unidade"},{k:"resp",l:"Responsável"},{k:"comp",l:"Competência"},{k:"valor",l:"Valor"},{k:"venc",l:"Vencimento"},{k:"status",l:"Status"},{k:"acao",l:""}]}
+      <Tbl t={t} cols={[{k:"unidadeExib",l:"Unidade"},{k:"resp",l:"Responsável"},{k:"comp",l:"Competência"},{k:"valor",l:"Valor"},{k:"venc",l:"Vencimento"},{k:"status",l:"Status"},{k:"acao",l:""}]}
         rows={rows}
         selection={{ ids: lote.sel, onToggle: lote.toggle, selectable: elegivelLote,
           disabledReason: (r) => (lote.chave && chaveLote(r) !== lote.chave ? L("Selecione cobranças do mesmo responsável") : null) }}
@@ -2879,7 +2864,7 @@ function Cobrancas({ t }) {
           enviarTexto={(txt) => window.open(`https://wa.me/${telDe(qr)}?text=${encodeURIComponent(txt)}`, "_blank")} />)}
       {qr && qr.status !== "pago" && (
         <Modal t={t} onClose={() => setQr(null)}>
-          <ModalHeader t={t} title={`Cobrança ${qr.comp} — ${qr.unidade}`} onClose={() => setQr(null)} />
+          <ModalHeader t={t} title={`Cobrança ${qr.comp} — ${qr.unidadeExib}`} onClose={() => setQr(null)} />
           <div className="flex flex-col items-center gap-3 text-center">
             {pixDisponivel(qr) && !!wallet && (
               <div className="flex flex-wrap justify-center gap-2">
@@ -2937,7 +2922,7 @@ function Cobrancas({ t }) {
           <form onSubmit={confirmarBaixa}>
             <div className="space-y-3">
               <div className="rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
-                <div><b>{conf.c.unidade}</b> · {conf.c.comp} · {L("valor da cobrança")}: <b style={{ color: t.gold }}>{BRL(conf.c.valor)}</b>
+                <div><b>{conf.c.unidadeExib}</b> · {conf.c.comp} · {L("valor da cobrança")}: <b style={{ color: t.gold }}>{BRL(conf.c.valor)}</b>
                   {conf.c.encargos > 0 && <> + {L("encargos")} <b style={{ color: t.warn }}>{BRL(conf.c.encargos)}</b> = <b style={{ color: t.gold }}>{BRL(conf.c.valorTotal)}</b></>}
                   {" · "}{L("vencimento")} {conf.c.vencFull}</div>
                 {conf.c.informe && (
@@ -3022,7 +3007,7 @@ function Cobrancas({ t }) {
                   <input type="checkbox" defaultChecked /> {c}</label>))}</div></Field>
               <div className="rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.gold }}>
                 {destino
-                  ? `${L("Será gerada 1 cobrança para")} ${db.ctx.unidades.find((x) => x.id === destino)?.label}${moradorDa(db.ctx.unidades.find((x) => x.id === destino)?.label) ? ` (${moradorDa(db.ctx.unidades.find((x) => x.id === destino)?.label)})` : ""}. ${L("O morador verá o aviso no portal dele.")}`
+                  ? `${L("Será gerada 1 cobrança para")} ${db.ctx.unidades.find((x) => x.id === destino)?.rotulo}${moradorDa(db.ctx.unidades.find((x) => x.id === destino)?.label) ? ` (${moradorDa(db.ctx.unidades.find((x) => x.id === destino)?.label)})` : ""}. ${L("O morador verá o aviso no portal dele.")}`
                   : `${L("Serão geradas")} ${nAlvo} ${L("cobranças (unidades com responsável financeiro)")} — ${base === "mesmo" ? L("mesmo valor cobrado de cada unidade") : base === "igual" ? L("valor dividido em partes iguais entre as unidades") : L("rateadas pela fração ideal de cada unidade")}.`}</div>
             </div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNova(false)}>Cancelar</Btn>
@@ -3770,7 +3755,7 @@ function Multas({ t, role }) {
       <div class="tipo">${m.valor > 0 ? "Notificação de multa" : "Advertência formal"} — Nº ${esc(m.num)}</div>
       <p>${esc(m.descricao || m.categoria)}</p>
       <table>
-        <tr><td><b>Unidade:</b></td><td>${esc(m.unidade)}</td></tr>
+        <tr><td><b>Unidade:</b></td><td>${esc(m.unidadeExib)}</td></tr>
         <tr><td><b>Categoria:</b></td><td>${esc(m.categoria)}</td></tr>
         <tr><td><b>Base normativa:</b></td><td>${esc(m.base || "Regimento interno")}</td></tr>
         <tr><td><b>Data da ocorrência:</b></td><td>${esc(m.data)}</td></tr>
@@ -3799,7 +3784,7 @@ function Multas({ t, role }) {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">Nº {m.num} · {m.categoria}
                   {m.reincidencia > 0 && <span className="rounded px-1.5 py-0.5 text-[10px] font-bold" style={{ background: t.danger + "22", color: t.danger }}>REINCIDENTE</span>}</div>
-                <div className="text-xs" style={{ color: t.dim }}>Unidade {m.unidade} · {m.infrator} · {m.data}{m.valor > 0 && <> · <b style={{ color: t.text }}>{BRL(m.valor)}</b></>}</div>
+                <div className="text-xs" style={{ color: t.dim }}>Unidade {m.unidadeExib} · {m.infrator} · {m.data}{m.valor > 0 && <> · <b style={{ color: t.text }}>{BRL(m.valor)}</b></>}</div>
               </div>
               <Badge t={t} s={m.status} /><ChevronRight size={16} color={t.dim} />
             </div>
@@ -3828,9 +3813,9 @@ function Multas({ t, role }) {
             </div>
           </>)}
           <div className="mb-2 text-xs font-semibold" style={{ color: t.dim }}>PRÉVIA DO DOCUMENTO TIMBRADO</div>
-          <Timbrado t={t} tipo={sel.valor > 0 ? "Notificação de multa" : "Advertência formal"} unidade={sel.unidade}
+          <Timbrado t={t} tipo={sel.valor > 0 ? "Notificação de multa" : "Advertência formal"} unidade={sel.unidadeExib}
             valor={sel.valor > 0 ? sel.valor : null} prazo={sel.prazo !== "—" ? sel.prazo : null}
-            corpo={`Fica a unidade ${sel.unidade} notificada pela infração "${sel.categoria}", registrada em ${sel.data}, conforme base normativa do regimento interno. ${sel.valor > 0 ? "O valor abaixo será lançado na próxima competência caso não haja defesa acolhida." : "Em caso de reincidência, será aplicada multa conforme tabela vigente."}`} />
+            corpo={`Fica a unidade ${sel.unidadeExib} notificada pela infração "${sel.categoria}", registrada em ${sel.data}, conforme base normativa do regimento interno. ${sel.valor > 0 ? "O valor abaixo será lançado na próxima competência caso não haja defesa acolhida." : "Em caso de reincidência, será aplicada multa conforme tabela vigente."}`} />
           <div className="mt-4 flex flex-wrap justify-end gap-2">
             <Btn t={t} onClick={() => imprimirPdf(sel)}><Printer size={14} /> Imprimir PDF</Btn>
             {/* enviar emite a cobrança da multa — a policy de `cobrancas`
@@ -3928,7 +3913,7 @@ function Comunicados({ t }) {
                   <Field t={t} label="Unidade específica (opcional)">
                     <select name="unidadeSeg" value={segUni} onChange={(e) => setSegUni(e.target.value)} style={inputStyle(t)}>
                       <option value="">{L("Todas as unidades deste tipo")}</option>
-                      {db.ctx.unidades.filter((u) => u.tipo === seg.split(":")[1]).map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+                      {db.ctx.unidades.filter((u) => u.tipo === seg.split(":")[1]).map((u) => <option key={u.id} value={u.id}>{u.rotulo}</option>)}
                     </select>
                   </Field>)}
               </div>
@@ -3979,11 +3964,11 @@ function Documentos({ t }) {
       || db.ctx.pessoas.find((p) => p.unidadeId === uniSel.id)?.nome || "")
     : "";
   const dModelo = {
-    cond: db.cond?.nome || "—", unidade: uniSel?.label || "", morador,
+    cond: db.cond?.nome || "—", unidade: uniSel?.rotulo || "", morador,
     titulo: fTitulo.trim() || "[título do documento]",
     data: new Date().toLocaleDateString("pt-BR"),
-    alvo: uniSel ? `a unidade ${uniSel.label}${morador ? `, sob responsabilidade de ${morador},` : ""}` : "todos os condôminos",
-    deAlvo: uniSel ? `da unidade ${uniSel.label}${morador ? ` (${morador})` : ""}` : "do pagador identificado no título",
+    alvo: uniSel ? `a unidade ${uniSel.rotulo}${morador ? `, sob responsabilidade de ${morador},` : ""}` : "todos os condôminos",
+    deAlvo: uniSel ? `da unidade ${uniSel.rotulo}${morador ? ` (${morador})` : ""}` : "do pagador identificado no título",
   };
   const corpoModelo = (DOC_MODELOS[fTipo] || DOC_MODELOS["Comunicados"])(dModelo);
   const corpoFinal = fDesc.trim() ? `${corpoModelo}\n\n${fDesc.trim()}` : corpoModelo;
@@ -4037,7 +4022,7 @@ function Documentos({ t }) {
             <Field t={t} label="Título"><input name="titulo" required value={fTitulo} onChange={(e) => setFTitulo(e.target.value)} placeholder={L("Ex.: Autorização de mudança")} style={{ ...inputStyle(t), marginTop: 4 }} /></Field>
             <Field t={t} label="Descrição adicional (opcional)"><textarea name="descricao" rows={2} value={fDesc} onChange={(e) => setFDesc(e.target.value)} placeholder={L("Algo a mais que queira acrescentar ao modelo…")} style={{ ...inputStyle(t), marginTop: 4, resize: "vertical" }} /></Field>
             <div className="mb-2 mt-4 text-xs font-semibold" style={{ color: t.dim }}>{L("PRÉVIA COM PAPEL TIMBRADO — MODELO + DADOS PREENCHIDOS")}</div>
-            <Timbrado t={t} tipo={`${DOC_SINGULAR[fTipo] || fTipo} — ${fTitulo.trim() || L("(sem título)")}`} unidade={uniSel ? `${uniSel.label}${morador ? ` · ${morador}` : ""}` : "—"} corpo={corpoFinal} />
+            <Timbrado t={t} tipo={`${DOC_SINGULAR[fTipo] || fTipo} — ${fTitulo.trim() || L("(sem título)")}`} unidade={uniSel ? `${uniSel.rotulo}${morador ? ` · ${morador}` : ""}` : "—"} corpo={corpoFinal} />
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setPreview(false)}>Cancelar</Btn>
               <Btn t={t} kind="primary" type="submit" disabled={gerando}><Printer size={14} /> {gerando ? "Gerando…" : "Gerar PDF"}</Btn></div>
           </form>
@@ -4272,7 +4257,7 @@ function Portaria({ t }) {
               <div className="rounded-lg p-1.5" style={{ background: t.surface2 }}><Ic size={14} color={t.dim} /></div>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm">{a.nome}</div>
-                <div className="text-xs" style={{ color: t.dim }}>Destino: {a.destino} · via {a.via}</div>
+                <div className="text-xs" style={{ color: t.dim }}>Destino: {a.destinoExib} · via {a.via}</div>
               </div>
               <Badge t={t} s={a.status} />
             </div>);
@@ -4429,6 +4414,9 @@ function GerenciarEmails({ t, role }) {
 function AcessosDoCondominio({ t, role }) {
   const { db } = useData();
   const unidades = db.ctx.unidades; // unidades cadastradas na tela Unidades
+  /* o servidor devolve a unidade da conta na forma canônica "numero-bloco"
+     (api/auth/acessos.js); aqui ela vira o rótulo que o resto do app mostra */
+  const rotuloDaChave = (chave) => unidades.find((u) => u.label === chave)?.rotulo || chave;
   const [usuarios, setUsuarios] = useState(null); // null = carregando do banco
   const [novo, setNovo] = useState(false);
   const [erro, setErro] = useState("");
@@ -4535,7 +4523,7 @@ function AcessosDoCondominio({ t, role }) {
                 <div className="rounded-xl p-2" style={{ background: t.goldSoft }}><Mail size={16} color={t.gold} /></div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold">{u.nome || u.email}</div>
-                  <div className="text-xs" style={{ color: t.dim }}>{u.unidade ? `${L("Unidade")} ${u.unidade}` : (u.email && u.nome ? u.email : L("Senha protegida por criptografia"))}</div>
+                  <div className="text-xs" style={{ color: t.dim }}>{u.unidade ? `${L("Unidade")} ${rotuloDaChave(u.unidade)}` : (u.email && u.nome ? u.email : L("Senha protegida por criptografia"))}</div>
                 </div>
                 {u.cargo && <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.surface2, color: t.text }}>{u.cargo}</span>}
                 <span className="rounded-full px-2 py-0.5 text-xs" style={{ background: t.goldSoft, color: t.gold }}>{PROFILES[u.role]?.label || u.role}</span>
@@ -4810,7 +4798,7 @@ function Aprovacoes({ t, role }) {
                       ajuda ninguém, então resolve para unidade + competência */}
                   {ehAcao(a) && alvoCobranca(a) && (
                     <span className="font-normal" style={{ color: t.dim }}>
-                      · {alvoCobranca(a).unidade} · {alvoCobranca(a).comp} · {BRL(alvoCobranca(a).valorTotal ?? alvoCobranca(a).valor)}</span>)}
+                      · {alvoCobranca(a).unidadeExib} · {alvoCobranca(a).comp} · {BRL(alvoCobranca(a).valorTotal ?? alvoCobranca(a).valor)}</span>)}
                   {a.status !== "pendente" && (
                     <span className="rounded-full px-2 text-xs font-normal" style={{ background: t.ok + "1A", color: t.ok }}>
                       {L("já aplicada")}</span>)}
@@ -5074,6 +5062,9 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
   }, [confirmandoPagto]); // eslint-disable-line react-hooks/exhaustive-deps
   /* unidade do morador logado (escolhida pelo diretor em Gerenciar Acessos); fallback: demo 102-A */
   const unidade = morador?.unidade || (db.unidades.find((u) => u.num === "102") ? "102-A" : (db.unidades[0] ? `${db.unidades[0].num}-${db.unidades[0].bloco}` : "—"));
+  /* `unidade` é a CHAVE que o JWT traz ("numero-bloco") e é por ela que todo
+     filtro abaixo casa — não trocar. `unidadeExib` é só o que a tela escreve. */
+  const unidadeExib = db.unidades.find((u) => `${u.num}-${u.bloco}` === unidade)?.rotulo || unidade;
   /* morador não abre chamado — apenas visualiza os existentes da unidade */
   /* ocorrências: o morador pode registrar e acompanhar as registradas */
   const [novaOcor, setNovaOcor] = useState(false);
@@ -5110,7 +5101,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
     ...meusChamadosLista.filter((c) => c.status === "aberto" || c.status === "andamento").map((c) => ({ txt: `${L("Chamada de manutenção")} ${c.num} ${c.status === "andamento" ? L("em andamento") : L("aberta")} — ${c.desc}`, c: "info" })),
     ...db.comunic.slice(0, 2).map((c) => ({ txt: `${L("Comunicado")}: ${c.titulo}`, c: "info", go: () => setAviso(c) })),
   ], [boletos, minhasMultasLista, meusChamadosLista, db.comunic, lang]); // eslint-disable-line react-hooks/exhaustive-deps
-  const textoEndereco = [db.cond?.nome, db.cond?.endereco, `${morador?.nome || L("Morador")} — ${L("Unidade")} ${unidade}`].filter(Boolean).join("\n");
+  const textoEndereco = [db.cond?.nome, db.cond?.endereco, `${morador?.nome || L("Morador")} — ${L("Unidade")} ${unidadeExib}`].filter(Boolean).join("\n");
   const copiarEndereco = async () => {
     try { await navigator.clipboard.writeText(textoEndereco); }
     catch { const ta = document.createElement("textarea"); ta.value = textoEndereco; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
@@ -5212,7 +5203,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
           {/* nome do edifício, morador e unidade abaixo do ícone — texto completo, sem truncar */}
           <div className="mt-1.5 break-words">
             <div className="text-sm font-semibold" style={{ fontFamily: "'Sora',sans-serif" }}>{db.cond?.nome || "—"}</div>
-            <div className="text-xs" style={{ color: t.dim }}>{morador?.nome || L("Morador")} · {L("Unidade")} {unidade}</div>
+            <div className="text-xs" style={{ color: t.dim }}>{morador?.nome || L("Morador")} · {L("Unidade")} {unidadeExib}</div>
           </div>
         </div>
       </header>
@@ -5290,7 +5281,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
           </div>)}
         {tab === "pagamentos" && (
           <div className="vfade space-y-2">
-            <SectionTitle t={t}>{L("Cobranças da unidade")} {unidade}</SectionTitle>
+            <SectionTitle t={t}>{L("Cobranças da unidade")} {unidadeExib}</SectionTitle>
             {confirmandoPagto && (
               <div className="flex items-center gap-2 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.gold + "55", background: t.goldSoft, color: t.gold }}>
                 <div className="vspin h-4 w-4 shrink-0 rounded-full border-2" style={{ borderColor: t.borderSoft, borderTopColor: t.gold }} />
@@ -5383,7 +5374,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
           </div>)}
         {tab === "entregas" && (
           <div className="vfade space-y-2">
-            <SectionTitle t={t}>{L("Entregas da unidade")} {unidade}</SectionTitle>
+            <SectionTitle t={t}>{L("Entregas da unidade")} {unidadeExib}</SectionTitle>
             {minhasEntregas.length === 0 && <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
               {L("Nenhuma entrega registrada para a sua unidade ainda.")}</div>}
             {minhasEntregas.map((e) => (
@@ -5459,7 +5450,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
             </div>
             <div className="flex items-start gap-2 rounded-xl border px-3 py-2" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
               <User size={15} color={t.gold} className="mt-0.5 shrink-0" />
-              <span className="break-words">{morador?.nome || L("Morador")} — {L("Unidade")} {unidade}</span>
+              <span className="break-words">{morador?.nome || L("Morador")} — {L("Unidade")} {unidadeExib}</span>
             </div>
             {db.cond?.sindico && (
               <div className="flex items-start gap-2 rounded-xl border px-3 py-2" style={{ borderColor: t.borderSoft, background: t.surface2 }}>

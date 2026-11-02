@@ -277,7 +277,7 @@ export default {
   "Início": "홈", "Pagamentos": "결제", "Avisos": "공지",
 
   "Buscar por nome…": "이름으로 검색…", "Buscar lançamento…": "회계 기록 검색…",
-  "Buscar por unidade ou responsável…": "세대 또는 담당자로 검색…",
+  "Buscar por unidade, andar, letra, tipo, status ou responsável…": "세대, 층, 기호, 유형, 상태 또는 담당자로 검색…",
   "Nenhuma unidade encontrada": "세대를 찾을 수 없습니다",
   "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "검색이나 필터를 조정하거나, 이 단지의 첫 세대를 등록하세요.",
   "Nenhuma pessoa encontrada": "해당 인원이 없습니다",

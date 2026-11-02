@@ -277,7 +277,7 @@ export default {
   "Início": "Главная", "Pagamentos": "Платежи", "Avisos": "Объявления",
 
   "Buscar por nome…": "Поиск по имени…", "Buscar lançamento…": "Поиск записи…",
-  "Buscar por unidade ou responsável…": "Поиск по квартире или ответственному…",
+  "Buscar por unidade, andar, letra, tipo, status ou responsável…": "Поиск по квартире, этажу, букве, типу, статусу или ответственному…",
   "Nenhuma unidade encontrada": "Квартиры не найдены",
   "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "Измените поиск или фильтры либо зарегистрируйте первую квартиру этого ЖК.",
   "Nenhuma pessoa encontrada": "Никто не найден",

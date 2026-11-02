@@ -277,7 +277,7 @@ export default {
   "Início": "首页", "Pagamentos": "付款", "Avisos": "公告",
 
   "Buscar por nome…": "按姓名搜索…", "Buscar lançamento…": "搜索记账…",
-  "Buscar por unidade ou responsável…": "按单元或负责人搜索…",
+  "Buscar por unidade, andar, letra, tipo, status ou responsável…": "按单元、楼层、字母、类型、状态或负责人搜索…",
   "Nenhuma unidade encontrada": "未找到单元",
   "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "调整搜索或筛选条件，或登记本小区的第一个单元。",
   "Nenhuma pessoa encontrada": "未找到人员",

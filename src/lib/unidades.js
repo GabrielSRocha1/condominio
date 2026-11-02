@@ -1,6 +1,8 @@
-/* Expansão da criação de unidades em LOTE (tela Unidades) — extraída de
-   criarUnidade para ser pura e sondável sem app nem banco (mesmo racional
-   de caixa.js/encargos.js).
+/* Expansão da criação de unidades em LOTE e o RÓTULO de exibição da unidade
+   (tela Unidades) — extraídos de criarUnidade e da listagem para serem puros
+   e sondáveis sem app nem banco (mesmo racional de caixa.js/encargos.js).
+   Sem imports de propósito: arrastar `norm` da planilha traria i18n.js e os
+   12 dicionários de idioma para dentro de um módulo que é só regra.
 
    Entrada (strings cruas do formulário): { numero, numeroAte, andar, andarAte }
    Saída: [{ numero, andar }]  — lança Error com mensagem de tela ao validar.
@@ -87,4 +89,133 @@ export function expandirUnidades(f) {
   }
   if (itens.length > 500) throw new Error("Máximo de 500 unidades por vez.");
   return itens;
+}
+
+/* ═══════════════ RÓTULO DE EXIBIÇÃO: andar + letra ═══════════════
+
+   A criação em lote grava o andar DENTRO do número ("1-A" com andares 1 a 12
+   vira 101-A … 1201-A), então a listagem mostrava "1001-A" — um número que
+   embute o andar e uma sequência "01" que não diz nada a quem lê. O rótulo
+   devolve o que identifica a unidade para uma pessoa: andar e letra.
+
+   Só colapsa quando dá para provar que o número embute o andar. Na dúvida
+   devolve null e quem chama fica com o número cru — um condomínio numerado
+   101/102/103 (sem letra) não muda em nada. */
+
+/* box e depósito numeram por conta própria: "B12" é o box 12, não o andar 12
+   com a letra B — e expandirUnidades espelha o andar da letra (linha 83),
+   então eles chegariam aqui com andar 12 e colapsariam errado */
+const SEM_ANDAR_NO_NUMERO = new Set(["box", "deposito"]);
+
+export function rotuloCurto(u) {
+  if (!u || SEM_ANDAR_NO_NUMERO.has(u.tipo)) return null;
+  if (!Number.isInteger(u.andar) || u.andar < 0) return null; // sem andar não há o que colapsar
+  const m = partes(u.numero);
+  if (!m) return null;
+  const [, prefixo, digitos, sufixo] = m;
+  const pre = prefixo.replace(/[^A-Za-z]/g, ""), suf = sufixo.replace(/[^A-Za-z]/g, "");
+  if (!!pre === !!suf) return null;              // sem letra nenhuma, ou letra dos DOIS lados ("A101B")
+  const letra = pre || suf;
+  if (!/^[A-Za-z]{1,2}$/.test(letra)) return null;
+  const andar = String(u.andar);
+  if (!digitos.startsWith(andar)) return null;   // o número não embute este andar
+  /* o que sobra depois do andar é a sequência da unidade no andar: vazia
+     ("1A" no andar 1) ou com os dois dígitos que o lote usa ("1001A" no
+     andar 10 → "01"). Um dígito só é ambíguo — "12D" no andar 1 sobraria
+     "2" e viraria "1-D", comendo o 12. */
+  const resto = digitos.slice(andar.length);
+  if (resto.length === 1) return null;
+  return `${u.andar}-${letra.toUpperCase()}`;
+}
+
+/* Mapa "numero|bloco" → rótulo curto, montado uma vez sobre TODAS as unidades
+   do condomínio. Existe por dois motivos: a colisão só é visível olhando o
+   bloco inteiro, e as outras consultas trazem a unidade aninhada sem `andar`
+   nem `tipo` — com o mapa elas resolvem o rótulo só com (numero, bloco), que
+   é único pelo constraint do banco.
+   Entrada: [{ numero, bloco, andar, tipo }]. */
+export function mapaRotulos(unidades) {
+  const itens = [], repetida = new Set(), quantos = new Map();
+  const vistos = new Set();
+  for (const u of unidades || []) {
+    const chave = `${u.numero}|${u.bloco}`;
+    /* bloco homônimo (blocos não tem unique(condominio, nome), e criar em
+       corrida duplica "A"): a chave deixa de ser única, então nem tenta */
+    if (vistos.has(chave)) { repetida.add(chave); continue; }
+    vistos.add(chave);
+    const curto = rotuloCurto(u);
+    itens.push({ chave, bloco: u.bloco, curto });
+    if (curto) {
+      const k = `${u.bloco}|${curto}`;
+      quantos.set(k, (quantos.get(k) || 0) + 1);
+    }
+  }
+  const mapa = new Map();
+  for (const it of itens) {
+    if (!it.curto || repetida.has(it.chave)) continue;
+    /* duas unidades do mesmo bloco colapsando no mesmo rótulo: as duas
+       voltam ao número cru — duas linhas iguais seriam pior que o "1001-A" */
+    if (quantos.get(`${it.bloco}|${it.curto}`) > 1) continue;
+    mapa.set(it.chave, it.curto);
+  }
+  return mapa;
+}
+
+/* ═══════════════ BUSCA da tela Unidades ═══════════════
+
+   A busca antiga tratava todo termo começado em dígito como
+   `numero.startsWith(termo)`: quem via "1001-A" e digitava "1-A" não achava
+   nada, e quem digitava "A" caía no texto livre e casava com "apartamento",
+   trazendo o prédio inteiro. */
+
+const norm = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+const compacto = (s) => norm(s).replace(/[^a-z0-9]+/g, "");
+
+/* prefixos estruturados, nos idiomas em que o app é usado */
+const PREF_BLOCO = new Set(["bloco", "blocos", "torre", "torres", "bloque", "bloques", "block", "blocks", "tower"]);
+const PREF_ANDAR = new Set(["andar", "andares", "piso", "pisos", "pavimento", "floor"]);
+
+/* letra do apartamento, de qualquer lado do número ("1001-A" e "A1001" → "a") */
+export const letraDaUnidade = (numero) => {
+  const m = partes(numero || "");
+  return m ? norm((m[1] + m[3]).replace(/[^A-Za-z]/g, "")) : "";
+};
+
+const casaTermo = (u, t, curto, letra) => {
+  const ct = compacto(t), andar = String(u.andar ?? "");
+  if (t.length <= 2) {
+    /* 1 ou 2 caracteres: só identificador EXATO. Qualquer afrouxamento aqui
+       faz "a" casar com "apartamento", com "alugada" e com o bloco "A" que
+       toda unidade herda quando o campo fica vazio. */
+    return letra === t || andar === t || compacto(curto) === ct || compacto(u.num) === ct;
+  }
+  /* 3+ caracteres: rótulo e número por dentro (compactos, para "10-a", "10a"
+     e "1001" caírem na mesma unidade), depois o texto livre */
+  if (ct && (compacto(curto).includes(ct) || compacto(u.num).includes(ct))) return true;
+  if (andar === t) return true;
+  return norm([u.bloco, u.tipo, u.tipoRaw, u.status, u.resp].join(" ")).includes(t);
+};
+
+/* u = linha de db.unidades ({ num, rotulo, bloco, andar, tipo, tipoRaw, status, resp }) */
+export function casaUnidade(u, termo) {
+  const termos = norm(termo).split(/\s+/).filter(Boolean);
+  if (!termos.length) return true;
+  const curto = u.rotulo || u.num || "";
+  const letra = letraDaUnidade(u.num);
+  for (let i = 0; i < termos.length; i++) {
+    const t = termos[i], valor = termos[i + 1];
+    if (PREF_BLOCO.has(t)) {
+      if (!valor) continue; // ainda digitando o bloco — não filtra nada
+      if (!norm(u.bloco).startsWith(valor)) return false;
+      i++; continue;
+    }
+    if (PREF_ANDAR.has(t)) {
+      if (!valor) continue; // ainda digitando o andar
+      /* comparação numérica: "andar 1" não traz o 10, e "andar 01" traz o 1 */
+      if (!/^\d+$/.test(valor) || u.andar == null || Number(valor) !== Number(u.andar)) return false;
+      i++; continue;
+    }
+    if (!casaTermo(u, t, curto, letra)) return false;
+  }
+  return true;
 }

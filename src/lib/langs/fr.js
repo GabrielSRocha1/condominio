@@ -277,7 +277,7 @@ export default {
   "Início": "Accueil", "Pagamentos": "Paiements", "Avisos": "Avis",
 
   "Buscar por nome…": "Rechercher par nom…", "Buscar lançamento…": "Rechercher une écriture…",
-  "Buscar por unidade ou responsável…": "Rechercher par unité ou responsable…",
+  "Buscar por unidade, andar, letra, tipo, status ou responsável…": "Rechercher par unité, étage, lettre, type, statut ou responsable…",
   "Nenhuma unidade encontrada": "Aucune unité trouvée",
   "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "Ajustez la recherche ou les filtres, ou enregistrez la première unité de cette copropriété.",
   "Nenhuma pessoa encontrada": "Aucune personne trouvée",

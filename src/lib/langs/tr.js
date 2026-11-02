@@ -277,7 +277,7 @@ export default {
   "Início": "Ana sayfa", "Pagamentos": "Ödemeler", "Avisos": "Duyurular",
 
   "Buscar por nome…": "Ada göre ara…", "Buscar lançamento…": "Kayıt ara…",
-  "Buscar por unidade ou responsável…": "Daire veya sorumluya göre ara…",
+  "Buscar por unidade, andar, letra, tipo, status ou responsável…": "Daire, kat, harf, tür, durum veya sorumluya göre ara…",
   "Nenhuma unidade encontrada": "Daire bulunamadı",
   "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "Aramayı veya filtreleri değiştirin ya da bu sitenin ilk dairesini kaydedin.",
   "Nenhuma pessoa encontrada": "Kişi bulunamadı",

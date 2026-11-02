@@ -704,11 +704,21 @@ export function achatarPlanilhaMora(matriz, det, opts = {}, nomeArquivo = "") {
 /* label canônico é "numero-bloco" (ex.: "101-A"); tolera "A-101" e o número
    puro quando ele é único no condomínio. Vive aqui porque tanto a
    importação de pessoas quanto a de cobranças precisam da mesma regra. */
+const rotuloSemBloco = (u) => String(u.rotulo || "").split(" · ")[0];
+
 export function resolverUnidade(txt, ctx) {
   const n = norm(txt);
   if (!n) return { id: null };
   const porLabel = ctx.unidades.find((u) => norm(u.label) === n);
   if (porLabel) return { id: porLabel.id };
+  /* o RÓTULO que a tela mostra ("10-A" para a unidade 1001-A do 10º andar):
+     quem copia da tela para a planilha digita isso, não o label canônico.
+     `rotulo` pode vir com o sufixo " · Bloco X" quando o condomínio tem mais
+     de um — vale tanto o rótulo inteiro quanto só a parte antes do sufixo.
+     Guardado por `u.rotulo &&` porque as sondas montam ctx à mão sem ele. */
+  const porRotulo = ctx.unidades.filter((u) => u.rotulo
+    && (norm(u.rotulo) === n || norm(rotuloSemBloco(u)) === n));
+  if (porRotulo.length === 1) return { id: porRotulo[0].id };
   const invertido = n.split("-").reverse().join("-");
   const porInvertido = ctx.unidades.find((u) => norm(u.label) === invertido);
   if (porInvertido) return { id: porInvertido.id };
@@ -725,7 +735,8 @@ export function resolverUnidade(txt, ctx) {
       const blo = u.bloco != null ? norm(String(u.bloco)) : "";
       return blo && lab.endsWith(`-${blo}`) ? lab.slice(0, lab.length - blo.length - 1) : lab.split("-")[0];
     };
-    const cands = ctx.unidades.filter((u) => compacta(numeroDe(u)) === alvo || compacta(u.label) === alvo);
+    const cands = ctx.unidades.filter((u) => compacta(numeroDe(u)) === alvo || compacta(u.label) === alvo
+      || (u.rotulo && compacta(rotuloSemBloco(u)) === alvo));
     if (cands.length === 1) return { id: cands[0].id };
   }
   return { erro: true };

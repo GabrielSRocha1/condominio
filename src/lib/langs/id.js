@@ -277,7 +277,7 @@ export default {
   "Início": "Beranda", "Pagamentos": "Pembayaran", "Avisos": "Pemberitahuan",
 
   "Buscar por nome…": "Cari berdasarkan nama…", "Buscar lançamento…": "Cari catatan…",
-  "Buscar por unidade ou responsável…": "Cari berdasarkan unit atau penanggung jawab…",
+  "Buscar por unidade, andar, letra, tipo, status ou responsável…": "Cari berdasarkan unit, lantai, huruf, tipe, status, atau penanggung jawab…",
   "Nenhuma unidade encontrada": "Tidak ada unit ditemukan",
   "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "Ubah pencarian atau filter, atau daftarkan unit pertama kompleks ini.",
   "Nenhuma pessoa encontrada": "Tidak ada orang ditemukan",

@@ -277,7 +277,7 @@ export default {
   "Início": "होम", "Pagamentos": "भुगतान", "Avisos": "सूचनाएँ",
 
   "Buscar por nome…": "नाम से खोजें…", "Buscar lançamento…": "प्रविष्टि खोजें…",
-  "Buscar por unidade ou responsável…": "यूनिट या ज़िम्मेदार से खोजें…",
+  "Buscar por unidade, andar, letra, tipo, status ou responsável…": "यूनिट, मंज़िल, अक्षर, प्रकार, स्थिति या ज़िम्मेदार से खोजें…",
   "Nenhuma unidade encontrada": "कोई यूनिट नहीं मिली",
   "Ajuste a busca ou os filtros, ou cadastre a primeira unidade deste condomínio.": "खोज या फ़िल्टर बदलें, या इस सोसाइटी की पहली यूनिट पंजीकृत करें।",
   "Nenhuma pessoa encontrada": "कोई व्यक्ति नहीं मिला",
