@@ -35,6 +35,7 @@ import {
   listarNotificacoes,
 } from "./src/lib/api.js";
 import { casaUnidade } from "./src/lib/unidades.js";
+import { filtrarOpcoes, ehListaLonga } from "./src/lib/combo.js";
 import { calcularLote, elegivelLote, chaveLote, ordenarLote } from "./src/lib/receber-lote.js";
 import { formatarNotificacao, contarNaoVistas, ehNova, horaCurta, chaveVisto, maisRecente } from "./src/lib/notificacoes.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
@@ -616,6 +617,145 @@ const Sel = ({ t, value, onChange, opts }) => (
     {opts.map(([v, l]) => <option key={v} value={v}>{L(l)}</option>)}
   </select>
 );
+
+/* ─────────────── Dropdown que se digita para buscar ───────────────
+   Um condomínio com 90 apartamentos vira uma lista de 90 linhas: achar
+   "Apartamento 3-D" rolando é trabalho. Acima de LISTA_LONGA opções o campo
+   passa a FILTRAR enquanto se digita (número, letra, bloco, tipo ou nome do
+   responsável — tudo que está no rótulo, sem acento e sem caixa).
+
+   Abaixo disso continua `<select>` NATIVO de propósito: no celular ele abre
+   o seletor do sistema, que é melhor que qualquer lista nossa, e é o
+   comportamento que as telas já tinham.
+
+   A lista aberta vive em posição FIXA, calculada do rect do campo. Os
+   modais são `max-h-[92vh] overflow-y-auto`, então uma lista absoluta seria
+   cortada na borda do modal — que é justamente onde este campo mais
+   aparece. Mesma razão do z-index acima do backdrop (z-50). */
+function ComboBusca({ t, name, opcoes, value, defaultValue, onChange, vazio, required, disabled, placeholder, compacto }) {
+  const controlado = value !== undefined;
+  const [interno, setInterno] = useState(defaultValue ?? "");
+  const sel = String((controlado ? value : interno) ?? "");
+  /* a opção vazia é a primeira da lista, como o <option value=""> era */
+  const todas = useMemo(() => (vazio != null ? [["", vazio], ...opcoes] : opcoes), [opcoes, vazio]);
+  const rotuloDe = (v) => L((todas.find(([x]) => String(x) === String(v)) || [, ""])[1] || "");
+
+  const [aberto, setAberto] = useState(false);
+  const [q, setQ] = useState("");
+  const [destaque, setDestaque] = useState(0);
+  const [caixa, setCaixa] = useState(null);
+  const campoRef = useRef(null);
+  const listaRef = useRef(null);
+
+  /* a regra da busca vive em src/lib/combo.js (pura, sondada no Node) */
+  const filtradas = useMemo(() => filtrarOpcoes(todas, q, L), [todas, q]);
+
+  const posicionar = useCallback(() => {
+    const r = campoRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const abaixo = window.innerHeight - r.bottom - 12;
+    const acima = r.top - 12;
+    /* sem espaço embaixo (campo no rodapé do modal), abre para cima */
+    const paraCima = abaixo < 180 && acima > abaixo;
+    setCaixa({ left: r.left, width: r.width, paraCima,
+      top: paraCima ? undefined : r.bottom + 4,
+      bottom: paraCima ? window.innerHeight - r.top + 4 : undefined,
+      altura: Math.min(260, Math.max(120, paraCima ? acima : abaixo)) });
+  }, []);
+
+  useEffect(() => {
+    if (!aberto) return undefined;
+    posicionar();
+    const ao = () => posicionar();
+    /* `true` = fase de captura: pega o scroll do modal, não só o da janela */
+    window.addEventListener("scroll", ao, true);
+    window.addEventListener("resize", ao);
+    const fora = (e) => {
+      if (campoRef.current?.contains(e.target) || listaRef.current?.contains(e.target)) return;
+      setAberto(false); setQ("");
+    };
+    document.addEventListener("mousedown", fora);
+    return () => {
+      window.removeEventListener("scroll", ao, true);
+      window.removeEventListener("resize", ao);
+      document.removeEventListener("mousedown", fora);
+    };
+  }, [aberto, posicionar]);
+
+  /* lista curta: o <select> de sempre */
+  if (!ehListaLonga(todas.length)) {
+    const comuns = { name, required, disabled, style: inputStyle(t) };
+    return (
+      <select {...comuns} {...(controlado
+        ? { value: sel, onChange: (e) => onChange?.(e.target.value) }
+        : { defaultValue: sel, onChange: (e) => { setInterno(e.target.value); onChange?.(e.target.value); } })}>
+        {todas.map(([v, l]) => <option key={v} value={v}>{L(l)}</option>)}
+      </select>);
+  }
+
+  const escolher = (v) => {
+    if (!controlado) setInterno(v);
+    onChange?.(v);
+    setAberto(false); setQ("");
+    /* NÃO devolver o foco ao campo aqui: `onFocus` chama abrir(), e o
+       setAberto(true) cairia na mesma batida do setAberto(false) acima — a
+       lista reabriria sozinha e nunca fecharia no clique. Quem escolhe pelo
+       teclado nunca perdeu o foco; quem escolhe pelo mouse não precisa dele. */
+  };
+  const abrir = () => { if (!disabled) { setAberto(true); setQ(""); setDestaque(Math.max(0, filtradas.findIndex(([v]) => v === sel))); } };
+  const mover = (d) => setDestaque((i) => {
+    const n = Math.min(filtradas.length - 1, Math.max(0, i + d));
+    listaRef.current?.children?.[n]?.scrollIntoView({ block: "nearest" });
+    return n;
+  });
+  const tecla = (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); aberto ? mover(1) : abrir(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); mover(-1); }
+    else if (e.key === "Enter" && aberto) {
+      /* sem o preventDefault o Enter enviaria o formulário inteiro */
+      e.preventDefault();
+      const op = filtradas[destaque];
+      if (op) escolher(op[0]);
+    } else if (e.key === "Escape" && aberto) { e.preventDefault(); setAberto(false); setQ(""); }
+    else if (e.key === "Tab") { setAberto(false); setQ(""); }
+  };
+
+  const base = compacto
+    ? { background: t.surface, color: t.text, border: `1px solid ${t.borderSoft}`, borderRadius: 12, padding: "7px 28px 7px 10px", fontSize: 12, minWidth: 200 }
+    : { ...inputStyle(t), paddingRight: 30 };
+  return (
+    <div ref={campoRef} className="relative">
+      {/* o valor que o formulário envia (FormData lê por `name`) */}
+      <input type="hidden" name={name} value={sel} />
+      <input
+        value={aberto ? q : rotuloDe(sel)}
+        onChange={(e) => { setQ(e.target.value); setDestaque(0); if (!aberto) setAberto(true); }}
+        onFocus={abrir} onClick={abrir} onKeyDown={tecla}
+        placeholder={aberto ? (rotuloDe(sel) || L(placeholder || "Digite para buscar…")) : L(placeholder || "Digite para buscar…")}
+        /* `required` aqui, não no hidden: campo oculto não entra na validação
+           do navegador. Sem seleção o visível fica vazio e o envio trava. */
+        required={required} disabled={disabled} autoComplete="off" role="combobox"
+        aria-expanded={aberto} aria-autocomplete="list" style={base} />
+      <ChevronDown size={15} color={t.dim} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2" />
+      {aberto && caixa && (
+        <div ref={listaRef} role="listbox"
+          className="fixed overflow-y-auto rounded-xl border py-1 shadow-xl"
+          style={{ left: caixa.left, top: caixa.top, bottom: caixa.bottom, width: caixa.width,
+            maxHeight: caixa.altura, background: t.surface, borderColor: t.border, zIndex: 60 }}>
+          {filtradas.length === 0 ? (
+            <div className="px-3 py-2 text-xs" style={{ color: t.dim }}>{L("Nada encontrado")}</div>
+          ) : filtradas.map(([v, l], i) => (
+            <div key={v} role="option" aria-selected={v === sel}
+              onMouseEnter={() => setDestaque(i)} onClick={() => escolher(v)}
+              className="cursor-pointer px-3 py-2 text-sm"
+              style={{ background: i === destaque ? t.goldSoft : "transparent",
+                color: v === sel ? t.gold : t.text, fontWeight: v === sel ? 600 : 400 }}>
+              {L(l)}
+            </div>))}
+        </div>)}
+    </div>
+  );
+}
 
 const chartTip = (t) => ({ contentStyle: { background: t.surface, border: `1px solid ${t.borderSoft}`, borderRadius: 10, color: t.text, fontSize: 12 } });
 
@@ -1765,10 +1905,9 @@ function Unidades({ t, role }) {
               <Field t={t} label="Andar"><input type="number" value={ed.andar} onChange={(e) => setEd({ ...ed, andar: e.target.value })} style={inputStyle(t)} /></Field>
             </>)}
             <Field t={t} label="Responsável financeiro">
-              <select value={respSel} onChange={(e) => setRespSel(e.target.value)} style={inputStyle(t)}>
-                <option value="">{L("— sem responsável —")}</option>
-                {pessoasOrd.map((p) => <option key={p.id} value={p.id}>{p.label || p.nome}</option>)}
-              </select></Field>
+              <ComboBusca t={t} value={respSel} onChange={setRespSel} vazio="— sem responsável —"
+                placeholder="Digite o nome para buscar…"
+                opcoes={pessoasOrd.map((p) => [p.id, p.label || p.nome])} /></Field>
             <Field t={t} label="Fração ideal (calculada)"><input readOnly value={`${sel.fracao.toFixed(4).replace(".", ",")}%`} title={L("Área privativa da unidade ÷ área total do edifício")} style={{ ...inputStyle(t), opacity: 0.7 }} /></Field>
             <Field t={t} label="Área privativa (m²)">
               {podeEditarArea
@@ -1914,7 +2053,9 @@ function Pessoas({ t, role }) {
               <Field t={t} label="Nome completo"><input name="nome" required defaultValue={edit?.nome || ""} style={inputStyle(t)} /></Field>
               <Field t={t} label="Carteira de identificação (CI)"><input name="doc" required defaultValue={edit?.docRaw || ""} placeholder={L("RG, CPF ou CI")} style={inputStyle(t)} /></Field>
               <Field t={t} label="Papel no condomínio"><select name="papel" defaultValue={papeis.includes(edit?.papel) ? edit.papel : "Morador"} style={inputStyle(t)}>{(edit?.papel === "Diretor" ? papeis : papeisAtribuiveis).map((p)=><option key={p}>{p}</option>)}</select></Field>
-              <Field t={t} label="Unidade vinculada"><select name="unidade" defaultValue={edit?.unidadeId || ""} style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.labelResp}</option>)}</select></Field>
+              <Field t={t} label="Unidade vinculada"><ComboBusca t={t} name="unidade" vazio="—"
+                defaultValue={edit?.unidadeId || ""}
+                opcoes={db.ctx.unidades.map((u) => [u.id, u.labelResp])} /></Field>
               <Field t={t} label="Telefone"><PhoneInput t={t} name="tel" defaultValue={edit?.telRaw || ""} paisPadrao={db.cond?.pais || geoCache()?.pais || "BR"} /></Field>
               <Field t={t} label="E-mail"><input name="email" type="email" defaultValue={edit?.email || ""} style={inputStyle(t)} /></Field>
               <Field t={t} label="Data de entrada"><input name="inicio" type="date" defaultValue={edit?.inicio || ""} style={inputStyle(t)} /></Field>
@@ -2645,8 +2786,9 @@ function Financeiro({ t }) {
           }} />
       </>) : (<>
         <div className="flex flex-wrap items-center gap-2">
-          <Sel t={t} value={uniExtrato} onChange={setUniExtrato}
-            opts={[["", L("Escolha a unidade…")], ...db.ctx.unidades.map((u) => [u.id, u.labelResp])]} />
+          <ComboBusca t={t} compacto value={uniExtrato} onChange={setUniExtrato}
+            vazio="Escolha a unidade…" placeholder="Escolha a unidade…"
+            opcoes={db.ctx.unidades.map((u) => [u.id, u.labelResp])} />
           {uniExtrato && (
             <div className="text-xs" style={{ color: t.dim }}>
               {L("Pago:")} <b style={{ color: t.ok }}>{BRL(extrato.filter((c) => c.status === "pago").reduce((s, c) => s + c.valor, 0))}</b>{" · "}
@@ -2998,11 +3140,10 @@ function Cobrancas({ t }) {
           <form onSubmit={gerar}>
             <div className="space-y-3">
               <Field t={t} label="Destino">
-                <select name="unidade" value={destino} onChange={(e) => setDestino(e.target.value)} style={inputStyle(t)}>
-                  <option value="">{L("Todas as unidades (rateio pela fração)")}</option>
-                  {db.ctx.unidades.map((u) => (
-                    <option key={u.id} value={u.id}>{u.responsavelId ? u.labelResp : `${u.labelTipo}${moradorDa(u.label) ? ` · ${moradorDa(u.label)}` : ""}`}</option>))}
-                </select>
+                <ComboBusca t={t} name="unidade" value={destino} onChange={setDestino}
+                  vazio="Todas as unidades (rateio pela fração)"
+                  opcoes={db.ctx.unidades.map((u) => [u.id,
+                    u.responsavelId ? u.labelResp : `${u.labelTipo}${moradorDa(u.label) ? ` · ${moradorDa(u.label)}` : ""}`])} />
               </Field>
               <Field t={t} label="Competência"><input name="competencia" type="month" defaultValue={new Date().toISOString().slice(0, 7)} style={inputStyle(t)} /></Field>
               <Field t={t} label={`${destino ? L("Valor da cobrança") : base === "mesmo" ? L("Valor por unidade") : L("Valor total a ratear")} (${moeda})`}>
@@ -3851,7 +3992,8 @@ function Multas({ t, role }) {
           <form onSubmit={salvar}>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field t={t} label="Categoria da infração"><select name="categoria" style={inputStyle(t)}>{["Barulho após horário de silêncio","Uso indevido de vaga","Descarte irregular de resíduos","Animal sem coleira","Dano à área comum","Obra fora do horário","Outra"].map((c)=><option key={c}>{c}</option>)}</select></Field>
-              <Field t={t} label="Unidade responsável"><select name="unidade" required style={inputStyle(t)}>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.labelResp}</option>)}</select></Field>
+              <Field t={t} label="Unidade responsável"><ComboBusca t={t} name="unidade" required
+                opcoes={db.ctx.unidades.map((u) => [u.id, u.labelResp])} /></Field>
               <Field t={t} label="Data e hora"><input name="data" type="datetime-local" style={inputStyle(t)} /></Field>
               <Field t={t} label="Tipo de penalidade"><select name="tipo" style={inputStyle(t)}><option>Advertência (primeira ocorrência)</option><option>Multa</option></select></Field>
               <Field t={t} label="Valor (se multa)"><input name="valor" placeholder="$ 0,00" style={inputStyle(t)} /></Field>
@@ -3925,10 +4067,9 @@ function Comunicados({ t }) {
                 </Field>
                 {seg.startsWith("tipo:") && (
                   <Field t={t} label="Unidade específica (opcional)">
-                    <select name="unidadeSeg" value={segUni} onChange={(e) => setSegUni(e.target.value)} style={inputStyle(t)}>
-                      <option value="">{L("Todas as unidades deste tipo")}</option>
-                      {db.ctx.unidades.filter((u) => u.tipo === seg.split(":")[1]).map((u) => <option key={u.id} value={u.id}>{u.rotulo}</option>)}
-                    </select>
+                    <ComboBusca t={t} name="unidadeSeg" value={segUni} onChange={setSegUni}
+                      vazio="Todas as unidades deste tipo"
+                      opcoes={db.ctx.unidades.filter((u) => u.tipo === seg.split(":")[1]).map((u) => [u.id, u.rotulo])} />
                   </Field>)}
               </div>
               <Field t={t} label="Título"><input name="titulo" required style={inputStyle(t)} /></Field>
@@ -4028,7 +4169,9 @@ function Documentos({ t }) {
           <form onSubmit={gerar}>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field t={t} label="Tipo"><select name="tipo" value={fTipo} onChange={(e) => setFTipo(e.target.value)} style={inputStyle(t)}>{tipos.slice(1).map((x)=><option key={x}>{x}</option>)}</select></Field>
-              <Field t={t} label="Unidade (se aplicável)"><select name="unidade" value={fUni} onChange={(e) => setFUni(e.target.value)} style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.labelResp}</option>)}</select></Field>
+              <Field t={t} label="Unidade (se aplicável)"><ComboBusca t={t} name="unidade" vazio="—"
+                value={fUni} onChange={setFUni}
+                opcoes={db.ctx.unidades.map((u) => [u.id, u.labelResp])} /></Field>
             </div>
             {fUni && (
               <div className="mt-2 text-xs" style={{ color: t.dim }}>
@@ -4285,7 +4428,8 @@ function Portaria({ t }) {
               <Field t={t} label="Tipo"><select name="tipo" style={inputStyle(t)}><option>Visitante</option><option>Prestador de serviço</option><option>Entrega</option><option>Visitante recorrente</option></select></Field>
               <Field t={t} label="Nome / empresa"><input name="nome" required style={inputStyle(t)} /></Field>
               <Field t={t} label="E-mail do visitante (recebe o QR Code)"><input name="email" type="email" placeholder="visitante@email.com" style={inputStyle(t)} /></Field>
-              <Field t={t} label="Unidade de destino"><select name="unidade" required style={inputStyle(t)}>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.labelResp}</option>)}</select></Field>
+              <Field t={t} label="Unidade de destino"><ComboBusca t={t} name="unidade" required
+                opcoes={db.ctx.unidades.map((u) => [u.id, u.labelResp])} /></Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field t={t} label="Data"><input name="data" type="date" style={inputStyle(t)} /></Field>
                 <Field t={t} label="Janela de horário"><input name="janela" placeholder="14h — 18h" style={inputStyle(t)} /></Field>
@@ -4304,7 +4448,8 @@ function Portaria({ t }) {
           <form onSubmit={gerar}>
             <div className="space-y-3">
               <Field t={t} label="Nome de quem vai acessar"><input name="nome" required style={inputStyle(t)} /></Field>
-              <Field t={t} label="Unidade que irá acessar"><select name="unidade" required style={inputStyle(t)}>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.labelResp}</option>)}</select></Field>
+              <Field t={t} label="Unidade que irá acessar"><ComboBusca t={t} name="unidade" required
+                opcoes={db.ctx.unidades.map((u) => [u.id, u.labelResp])} /></Field>
               <Field t={t} label="Janela de horário (a partir de agora)">
                 <select name="janela" style={inputStyle(t)}>
                   <option value="1h-2h">1h — 2h</option>
@@ -4396,7 +4541,8 @@ function Portaria({ t }) {
           <form onSubmit={salvarEntrega}>
             <div className="space-y-3">
               <Field t={t} label="Nome do morador"><input name="morador" required style={inputStyle(t)} /></Field>
-              <Field t={t} label="Unidade correspondente"><select name="unidade" style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.labelResp}</option>)}</select></Field>
+              <Field t={t} label="Unidade correspondente"><ComboBusca t={t} name="unidade" vazio="—"
+                opcoes={db.ctx.unidades.map((u) => [u.id, u.labelResp])} /></Field>
               <Field t={t} label="Data e hora da entrega"><input name="quando" type="datetime-local" defaultValue={agoraLocal()} style={inputStyle(t)} /></Field>
               <Field t={t} label="Observação (opcional)"><input name="obs" placeholder={L("Ex.: caixa dos Correios, retirada na portaria")} style={inputStyle(t)} /></Field>
             </div>
@@ -4597,9 +4743,10 @@ function AcessosDoCondominio({ t, role }) {
                   <Field t={t} label="Nome completo"><input name="nome" required placeholder="Nome que o morador usará para entrar" style={inputStyle(t)} /></Field>
                   <Field t={t} label="Unidade / apartamento">
                     {unidades.length ? (
-                      <select name="unidade" required style={inputStyle(t)}>
-                        {unidades.map((u) => <option key={u.id} value={u.label}>{u.labelResp}</option>)}
-                      </select>
+                      /* o valor aqui é o `label` da unidade (chave cunhada),
+                         não o id — o endpoint casa por ela */
+                      <ComboBusca t={t} name="unidade" required
+                        opcoes={unidades.map((u) => [u.label, u.labelResp])} />
                     ) : (
                       <div className="flex h-[38px] items-center rounded-xl border border-dashed px-3 text-xs" style={{ borderColor: t.borderSoft, color: t.warn }}>
                         {L("Cadastre unidades primeiro na tela Unidades.")}</div>
