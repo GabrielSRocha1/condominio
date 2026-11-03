@@ -139,9 +139,14 @@ begin
     return jsonb_build_object('ok', false, 'erro', 'cobranca_inexistente');
   end if;
 
-  -- autorização: service role (endpoints) OU gestor do próprio condomínio
+  /* autorização por PERMISSÃO, não por nome de perfil: o embrulho de
+     supabase-permissoes.sql exige `cobranca.cancelar`, e decidir por nome
+     aqui dentro fazia um perfil novo COM a permissão ser recusado (foi o
+     caso do administrador_predial em 02/11/2026). O escopo — a cobrança ser
+     do condomínio de quem chama — continua sendo conferido aqui.
+     Depende do supabase-permissoes.sql (jwt_pode), que é passo obrigatório. */
   if public.jwt_role() <> 'service_role' then
-    if public.jwt_perfil() not in ('diretor','sindico','tesouraria')
+    if not public.jwt_pode('cobranca.cancelar')
        or public.jwt_condominio() is distinct from c.condominio_id then
       return jsonb_build_object('ok', false, 'erro', 'nao_autorizado');
     end if;

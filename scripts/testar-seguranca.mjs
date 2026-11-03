@@ -211,8 +211,29 @@ const ac1 = await post("auth/acessos", { acao: "listar" }, { token: TOKEN_SINDIC
 ok("síndico em /auth/acessos → 403", ac1.http === 403, `${ac1.http}`);
 const ac2 = await post("auth/acessos", { acao: "listar" }, { token: TOKEN });
 ok("diretor lista acessos via backend", ac2.http === 200 && Array.isArray(ac2.corpo.acessos), `${ac2.http}`);
+/* acesso de DIRETOR: criável, mas SÓ por outro diretor (02/11/2026 — antes
+   disso `diretor` nem estava na whitelist do corpo e a resposta era 400).
+   Quem recusa é podeCriarPerfil, pelo PERFIL de quem pede: a prova de que o
+   administrador predial é barrado está em testar-aprovacoes (bloco B), com o
+   token dele. Aqui provamos o outro lado — e limpamos a conta, senão a sonda
+   deixa um diretor extra no condomínio de teste. */
 const ac3 = await post("auth/acessos", { acao: "criar", perfil: "diretor", email: "evil@x.dev", senha: "12345678" }, { token: TOKEN });
-ok("criar acesso com perfil 'diretor' → recusado", ac3.http === 400, `${ac3.http}`);
+ok("acesso de 'diretor' só o diretor cria", ac3.http === 200, `${ac3.http}`);
+{
+  const { data: us } = await admin.from("usuarios").select("id, pessoa_id").eq("email", "evil@x.dev");
+  for (const u of us || []) {
+    await admin.from("auth_sessoes").delete().eq("usuario_id", u.id).then(() => {}, () => {});
+    await admin.from("usuario_perfis").delete().eq("usuario_id", u.id);
+    await admin.from("usuarios").delete().eq("id", u.id);
+    if (u.pessoa_id) {
+      await admin.from("pessoa_vinculos").delete().eq("pessoa_id", u.pessoa_id);
+      await admin.from("pessoas").delete().eq("id", u.pessoa_id);
+    }
+  }
+  const { count: sobrou } = await admin.from("usuarios")
+    .select("*", { count: "exact", head: true }).eq("email", "evil@x.dev");
+  ok("e a conta da sonda não fica no condomínio", (sobrou || 0) === 0, `sobraram: ${sobrou}`);
+}
 
 /* limpeza da conta legada de teste */
 await admin.from("usuario_perfis").delete().eq("usuario_id", uLeg.id);

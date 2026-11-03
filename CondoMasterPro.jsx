@@ -26,7 +26,7 @@ import {
   obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade, recalcularFracoes,
   atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
   listarPermissoes, salvarPermissoes, restaurarPermissoes,
-  listarAlteracoesPendentes, aprovarAlteracao, rejeitarAlteracao, escritaVaiParaFila,
+  listarAlteracoesPendentes, aprovarAlteracao, rejeitarAlteracao,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
   salvarPreferencias, importarPessoas, LOCALE_MOEDA, definirPapelAcesso,
   carregarPlanilhaCobrancas, salvarPlanilhaCobrancas, salvarColunasPlanilha, atualizarCelulaPlanilha,
@@ -41,7 +41,7 @@ import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.
 import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado, valorDaColuna, valorExibido, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
 import { familiaCarteira, uriVerumPay, redesDaFamilia } from "./src/lib/qr-pagamento.js";
-import { pode, permsPadrao, permsEfetivas, PERMISSOES, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, PERMS_VEDADAS_AO_ADMIN, PERFIL_SOB_APROVACAO, mesmoConjunto } from "./src/lib/permissoes.js";
+import { pode, permsEfetivas, PERMISSOES, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, PERFIS_CRIAVEIS, PERFIL_SO_DIRETOR_CRIA, podeCriarPerfil, mesmoConjunto } from "./src/lib/permissoes.js";
 import { rotuloTabela, rotuloOperacao, rotuloCampo, valorTexto, diff, resumir, agrupar, resumirGrupo, camposDoGrupo, ehPerfilSobAprovacao, ehAcao } from "./src/lib/aprovacoes.js";
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
@@ -150,7 +150,7 @@ setAuthToken(lerSessao()?.token || null); // restaura o token do RLS antes da pr
 const PROFILES = {
   diretor:       { label: "Diretor",        icon: Star,        desc: "Visão estratégica, aprovações e auditoria" },
   administrador_predial: { label: "Administrador", icon: ClipboardCheck,
-    desc: "Opera como o diretor; toda alteração espera aprovação dele" },
+    desc: "Administra o prédio: opera como o diretor, menos licença e acesso de diretor" },
   sindico:       { label: "Síndico",        icon: ShieldCheck, desc: "Operação, multas, comunicados e manutenção" },
   tesouraria:    { label: "Tesouraria",     icon: Wallet,      desc: "Financeiro, cobranças e conciliação" },
   morador:       { label: "Morador",        icon: Home,        desc: "Boletos, comprovantes, comunicados e chamados" },
@@ -180,8 +180,12 @@ const NAV = [
   { id: "chamados",   label: "Manutenção",       icon: Wrench,          perm: "tela.chamados" },
   { id: "portaria",   label: "Portaria",         icon: DoorOpen,        perm: "tela.portaria" },
   { id: "emails",     label: "Gerenciar Acessos",icon: Mail,            perm: "tela.acessos" },
-  { id: "aprovacoes", label: "Aprovações",       icon: ClipboardCheck,  perm: "alteracao.aprovar" },
   { id: "planos",     label: "Planos",           icon: Star,            perm: "tela.planos" },
+  /* "Aprovações" saiu daqui em 02/11/2026, com a fila congelada. Tirar só a
+     exceção por perfil não bastaria: o diretor tem `alteracao.aprovar` pelo
+     atalho anti-trava e continuaria vendo a tela. O componente Aprovacoes
+     segue no arquivo, inalcançável — religar é devolver esta linha e a
+     entrada em SCREENS. */
 ];
 /* Permissões da sessão. Contexto (e não prop) para não mudar a assinatura
    de todos os componentes de tela; a lista vem do login/refresh, que a
@@ -1848,7 +1852,7 @@ function Unidades({ t, role }) {
 }
 
 /* ══════════════ PESSOAS ══════════════ */
-function Pessoas({ t }) {
+function Pessoas({ t, role }) {
   const { db, reload } = useData();
   const [q, setQ] = useState(""); const [papel, setPapel] = useState("todos"); const [novo, setNovo] = useState(false);
   const [edit, setEdit] = useState(null); // pessoa em edição — reutiliza o mesmo popup de criar
@@ -1870,6 +1874,12 @@ function Pessoas({ t }) {
      Administrador → Síndico → Tesouraria); espelhado em PAPEIS_UI
      (importPessoas.js), que precisa aceitar as mesmas palavras na planilha */
   const papeis = ["Proprietário","Temporário","Morador","Dependente","Diretor","Administrador","Síndico","Tesouraria","Funcionário","Prestador","Visitante recorrente"];
+  /* "Diretor" só o diretor atribui: a pessoa marcada assim fica protegida
+     por gatilho (seção E do supabase-aprovacoes.sql) e quem não é diretor
+     não conseguiria mais apagar o próprio cadastro criado por engano. O
+     FILTRO da lista continua com todos os papéis — esconder na busca não
+     protege nada e só faria desaparecer gente da tela. */
+  const papeisAtribuiveis = role === "diretor" ? papeis : papeis.filter((p) => p !== "Diretor");
   const rows = db.pessoas.filter((p) => (papel === "todos" || p.papel === papel) && p.nome.toLowerCase().includes(q.toLowerCase()));
   return (
     <div className="vfade">
@@ -1903,7 +1913,7 @@ function Pessoas({ t }) {
             <div className="grid gap-3 sm:grid-cols-2">
               <Field t={t} label="Nome completo"><input name="nome" required defaultValue={edit?.nome || ""} style={inputStyle(t)} /></Field>
               <Field t={t} label="Carteira de identificação (CI)"><input name="doc" required defaultValue={edit?.docRaw || ""} placeholder={L("RG, CPF ou CI")} style={inputStyle(t)} /></Field>
-              <Field t={t} label="Papel no condomínio"><select name="papel" defaultValue={papeis.includes(edit?.papel) ? edit.papel : "Morador"} style={inputStyle(t)}>{papeis.map((p)=><option key={p}>{p}</option>)}</select></Field>
+              <Field t={t} label="Papel no condomínio"><select name="papel" defaultValue={papeis.includes(edit?.papel) ? edit.papel : "Morador"} style={inputStyle(t)}>{(edit?.papel === "Diretor" ? papeis : papeisAtribuiveis).map((p)=><option key={p}>{p}</option>)}</select></Field>
               <Field t={t} label="Unidade vinculada"><select name="unidade" defaultValue={edit?.unidadeId || ""} style={inputStyle(t)}><option value="">—</option>{db.ctx.unidades.map((u)=><option key={u.id} value={u.id}>{u.labelResp}</option>)}</select></Field>
               <Field t={t} label="Telefone"><PhoneInput t={t} name="tel" defaultValue={edit?.telRaw || ""} paisPadrao={db.cond?.pais || geoCache()?.pais || "BR"} /></Field>
               <Field t={t} label="E-mail"><input name="email" type="email" defaultValue={edit?.email || ""} style={inputStyle(t)} /></Field>
@@ -2750,9 +2760,13 @@ function Cobrancas({ t }) {
     const msg = `Olá${c.resp && c.resp !== "—" ? `, ${c.resp}` : ""}! ${L("Cobrança do condomínio")} ${db.cond?.nome || ""} — ${L("competência")} ${c.comp}, ${L("valor")} ${BRL(c.valorTotal ?? c.valor)}${c.encargos > 0 ? ` (${L("inclui encargos de atraso de")} ${BRL(c.encargos)})` : ""}, ${L("vencimento")} ${c.vencFull}. ${L("Você pode pagar pelo QR Code no portal do morador.")}`;
     window.open(`https://wa.me/${telDe(c)}?text=${encodeURIComponent(msg)}`, "_blank");
   };
-  /* emitir rascunho é a decisão do diretor: `alteracao.aprovar` é a mesma
-     permissão da tela Aprovações, para o portão ser um só */
-  const podeEmitirRascunho = pode(usePerms(), "alteracao.aprovar");
+  /* Emitir um rascunho é emitir cobrança — e é por isso que o portão é
+     `cobranca.emitir`. Era `alteracao.aprovar` (o mesmo da tela Aprovações)
+     enquanto o rascunho existia por causa da fila; com a fila congelada,
+     nenhuma cobrança nova nasce rascunho, mas as que ficaram precisam
+     continuar emitíveis por quem opera as cobranças — senão o passivo fica
+     visível e sem ação, esperando um clique que só o diretor podia dar. */
+  const podeEmitirRascunho = pode(usePerms(), "cobranca.emitir");
   const [emitindo, setEmitindo] = useState(null);
   const emitir = async (c) => {
     setEmitindo(c.id);
@@ -4394,19 +4408,30 @@ function Portaria({ t }) {
   );
 }
 
-/* ══════════════ Gerenciar Acessos (exclusivo do diretor) ══════════════ */
-/* Duas abas: as CONTAS (quem entra) e a MATRIZ (o que cada perfil pode). */
+/* ══════════════════════ Gerenciar Acessos ══════════════════════ */
+/* Duas abas: as CONTAS (quem entra, para quem tem `acesso.gerir`) e a MATRIZ
+   (o que cada perfil pode). A MATRIZ é só do diretor — `permissao.gerir` não
+   é delegável, nem na API (api/auth/permissoes.js recusa com 403 quem não é
+   diretor) nem no banco (jwt_pode devolve false). Por isso a aba só aparece
+   para quem ela atende: oferecida ao Administrador, ela carregava em erro e
+   o botão "Salvar alterações" batia num 403 — a tela prometendo o que o
+   backend nega. */
 function GerenciarEmails({ t, role }) {
+  const podeMatriz = pode(usePerms(), "permissao.gerir");
+  const abas = [["acessos", "Acessos"], ...(podeMatriz ? [["permissoes", "Permissões"]] : [])];
   const [aba, setAba] = useState("acessos");
+  const atual = abas.some(([k]) => k === aba) ? aba : "acessos";
   return (
     <div className="vfade space-y-4">
-      <div className="flex gap-1 overflow-x-auto">
-        {[["acessos", "Acessos"], ["permissoes", "Permissões"]].map(([k, l]) => (
-          <button key={k} onClick={() => setAba(k)} className="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium"
-            style={{ background: aba === k ? t.goldSoft : "transparent", color: aba === k ? t.gold : t.dim,
-              border: `1px solid ${aba === k ? t.border : "transparent"}` }}>{L(l)}</button>))}
-      </div>
-      {aba === "acessos" ? <AcessosDoCondominio t={t} role={role} /> : <EditorPermissoes t={t} />}
+      {abas.length > 1 && (
+        <div className="flex gap-1 overflow-x-auto">
+          {abas.map(([k, l]) => (
+            <button key={k} onClick={() => setAba(k)} className="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium"
+              style={{ background: atual === k ? t.goldSoft : "transparent", color: atual === k ? t.gold : t.dim,
+                border: `1px solid ${atual === k ? t.border : "transparent"}` }}>{L(l)}</button>))}
+        </div>
+      )}
+      {atual === "acessos" ? <AcessosDoCondominio t={t} role={role} /> : <EditorPermissoes t={t} />}
     </div>
   );
 }
@@ -4421,21 +4446,22 @@ function AcessosDoCondominio({ t, role }) {
   const [novo, setNovo] = useState(false);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
-  /* o administrador predial cria login de MORADOR e nada mais — criar um
-     síndico seria dar a si mesmo um caminho fora da fila de aprovação.
-     Esconder as outras opções é conforto; quem recusa é api/auth/acessos.js,
-     que roda com service role e não tem como virar pendência. */
-  const soMorador = ehPerfilSobAprovacao(role);
-  const [perfil, setPerfil] = useState(soMorador ? "morador" : "sindico");
+  /* A lista vem de podeCriarPerfil, a MESMA função que api/auth/acessos.js
+     usa para recusar: a tela não oferece o que o endpoint vai negar. Na
+     prática, "diretor" aparece só para o diretor — um diretor novo decide a
+     matriz de permissões e pode remover quem o criou, então esse acesso não
+     é delegável a quem administra o prédio. */
+  const perfis = PERFIS_CRIAVEIS.filter((p) => podeCriarPerfil(role, p));
+  const [perfil, setPerfil] = useState(perfis.includes("sindico") ? "sindico" : perfis[0]);
   const [codigoGerado, setCodigoGerado] = useState(null); // { codigo, nome, permanente } — mostrado UMA vez
   const [gerando, setGerando] = useState(false);
   const [copiado, setCopiado] = useState(false);
-  const perfis = soMorador
-    ? ["morador"]
-    : ["administrador_predial", "sindico", "tesouraria", "morador"];
   /* atalhos do seletor de perfil: "Proprietário" (morador já marcado como
      dono, que vê o dashboard do condomínio) e os CARGOS criados na aba
-     Gestão — o cargo é rótulo; o PODER é o nível escolhido na hora */
+     Gestão — o cargo é rótulo; o PODER é o nível escolhido na hora.
+     O NÍVEL nunca é diretor: um "Zelador" com poder de diretor seria o mesmo
+     acesso com outro nome, e sem o 403 que protege o nível. */
+  const niveis = perfis.filter((p) => p !== PERFIL_SO_DIRETOR_CRIA);
   const [nivel, setNivel] = useState("tesouraria");
   const cargosGestao = (db.cond?.cargos || []).filter((c) => c?.cargo);
   const ehCargoSel = String(perfil).startsWith("cargo:");
@@ -4558,7 +4584,7 @@ function AcessosDoCondominio({ t, role }) {
               {ehCargoSel && (<>
                 <Field t={t} label="Nível de permissão">
                   <select name="nivel" value={nivel} onChange={(e) => setNivel(e.target.value)} style={inputStyle(t)}>
-                    {perfis.map((r) => <option key={r} value={r}>{PROFILES[r].label}</option>)}
+                    {niveis.map((r) => <option key={r} value={r}>{PROFILES[r].label}</option>)}
                   </select></Field>
                 <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.dim }}>
                   {L("O acesso entra com os poderes do nível escolhido; o nome do cargo aparece na lista de acessos e no menu de quem entra.")}</div>
@@ -6205,11 +6231,10 @@ export default function App() {
   }, [dark, db]);
 
   const go = useCallback((s) => { setScreen(s); setSideOpen(false); }, []);
-  /* o administrador também vê a tela Aprovações — só que em leitura: é lá
-     que ele acompanha o que mandou. Decidir continua sendo do diretor, e
-     quem garante isso são as RPCs, não este filtro. */
-  const nav = NAV.filter((n) => role && (pode(perms, n.perm)
-    || (n.id === "aprovacoes" && ehPerfilSobAprovacao(role))));
+  /* cada item é liberado pela própria permissão, sem exceção por perfil —
+     a que existia (Aprovações em leitura para quem estava na fila) saiu com
+     a tela, em 02/11/2026 */
+  const nav = NAV.filter((n) => role && pode(perms, n.perm));
   /* cargo de gestão do acesso logado (rótulo do menu lateral) — entra na
      sessão no login; quem já estava logado o recebe no próximo acesso */
   const cargoAcesso = lerSessao()?.cargo || null;
@@ -6233,10 +6258,9 @@ export default function App() {
     if (aprovar.length) n.push({ txt: `${aprovar.length} ${L("lançamento(s) aguardando aprovação")}`, c: "info", s: "financeiro" });
     const semResp = (db.chamados || []).filter((c) => c.status === "aberto" && c.resp === "—");
     if (semResp.length) n.push({ txt: `${semResp.length} ${L("chamado(s) abertos sem responsável designado")}`, c: "warn", s: "chamados" });
-    /* fila do administrador predial: nada do que ele fez existe ainda. O
-       filtro por tela abaixo já restringe a quem tem alteracao.aprovar — o
-       próprio administrador não é avisado da própria fila. */
-    if (db.aprovGrupos > 0) n.push({ txt: `${db.aprovGrupos} ${L("alteração(ões) do Administrador aguardando sua aprovação")}`, c: "warn", s: "aprovacoes" });
+    /* o item da fila de aprovação saiu daqui com a tela (02/11/2026): com a
+       fila congelada, ele seria um contador permanente de pendências que
+       ninguém vai decidir. O passivo se consulta por SQL. */
     return n.filter((x) => telaLiberada(perms, x.s));
   }, [db, role, perms, lang]); // lang: os textos passam por L(), então trocar o idioma precisa recalcular
 
@@ -6417,10 +6441,14 @@ export default function App() {
 
   const SCREENS = {
     dashboard: <Dashboard t={t} role={role} go={go} />, condominio: <Condominio t={t} role={role} />,
-    unidades: <Unidades t={t} role={role} />, pessoas: <Pessoas t={t} />, financeiro: <Financeiro t={t} />,
+    unidades: <Unidades t={t} role={role} />, pessoas: <Pessoas t={t} role={role} />, financeiro: <Financeiro t={t} />,
     cobrancas: <Cobrancas t={t} />, multas: <Multas t={t} role={role} />, comunicados: <Comunicados t={t} />,
     documentos: <Documentos t={t} />, chamados: <Chamados t={t} />, portaria: <Portaria t={t} />,
-    emails: <GerenciarEmails t={t} role={role} />, aprovacoes: <Aprovacoes t={t} role={role} />, planos: <Planos t={t} />,
+    /* `aprovacoes: <Aprovacoes …/>` saiu em 02/11/2026 junto com o item do
+       NAV: sem entrada aqui e sem item lá, nada chama setScreen("aprovacoes")
+       e a tela fica inalcançável. O componente continua logo acima, pronto
+       para religar em duas linhas se a fila voltar. */
+    emails: <GerenciarEmails t={t} role={role} />, planos: <Planos t={t} />,
   };
   const current = NAV.find((n) => n.id === screen);
 
@@ -6456,9 +6484,6 @@ export default function App() {
                     style={{ background: active ? t.goldSoft : "transparent", color: active ? t.gold : t.dim, border: `1px solid ${active ? t.border : "transparent"}` }}>
                     <n.icon size={16} /> {L(n.label)}
                     {n.id === "multas" && db?.stats.multasEmDefesa > 0 && <span className="ml-auto rounded-full px-1.5 text-[10px] font-bold" style={{ background: t.danger + "22", color: t.danger }}>{db.stats.multasEmDefesa}</span>}
-                    {/* a fila não aparece em nenhuma outra tela: sem este número
-                        o diretor só descobre que há algo esperando se abrir */}
-                    {n.id === "aprovacoes" && db?.aprovGrupos > 0 && <span className="ml-auto rounded-full px-1.5 text-[10px] font-bold" style={{ background: t.warn + "22", color: t.warn }}>{db.aprovGrupos}</span>}
                   </button>);
               })}
             </nav>

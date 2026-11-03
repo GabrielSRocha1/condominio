@@ -90,6 +90,10 @@ create policy admin_select on public.saas_assinaturas for select to authenticate
 alter table public.condominios enable row level security;
 create policy cond_select on public.condominios for select to authenticated
   using (id = public.jwt_condominio() or public.jwt_perfil() = 'administradora');
+/* decide por NOME porque jwt_pode() só existe a partir do
+   supabase-permissoes.sql (passo 10), que REFAZ esta policy por PERMISSÃO
+   (`condominio.editar`) — é lá que ela fica correta. Deixar o nome aqui é o
+   mesmo padrão do tenant_escrita abaixo: vale até o passo 10 rodar. */
 create policy cond_update on public.condominios for update to authenticated
   using (id = public.jwt_condominio() and public.jwt_perfil() = 'diretor')
   with check (id = public.jwt_condominio());

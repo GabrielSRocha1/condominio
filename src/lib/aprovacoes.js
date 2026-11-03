@@ -1,10 +1,16 @@
-/* FILA DE APROVAÇÃO do administrador predial — regras de leitura.
+/* FILA DE APROVAÇÃO — regras de leitura. CONGELADA desde 02/11/2026.
 
-   O desvio das escritas é feito no BANCO (supabase-aprovacoes.sql): o
-   gatilho cancela a operação do administrador e guarda a linha proposta em
-   `alteracoes_pendentes`. Este módulo é só a camada de LEITURA: traduz a
-   linha crua em algo que o diretor entenda — o que é, o que muda, e em que
-   ordem aplicar.
+   O desvio das escritas era feito no BANCO (supabase-aprovacoes.sql): o
+   gatilho cancelava a operação do administrador (e do síndico) e guardava a
+   linha proposta em `alteracoes_pendentes`. Este módulo é a camada de
+   LEITURA: traduz a linha crua em algo que o diretor entenda — o que é, o
+   que muda, e em que ordem aplicar.
+
+   Hoje PERFIS_SOB_APROVACAO está vazio: ninguém opera sob aprovação, nada
+   novo entra na fila e a tela Aprovações saiu do menu. O módulo continua
+   aqui por duas razões — as pendências que já existiam foram preservadas no
+   banco, e re-armar o mecanismo é devolver perfis a três listas (a função
+   SQL, esta e a de permissoes.js).
 
    Módulo PURO (zero imports): sondável no Node, usado pela UI.
 
@@ -45,10 +51,13 @@ export const rotuloOperacao = (o) => OPERACOES[String(o)] || String(o);
 
 /* ─────────────────────────────────────────────────────────────────
    QUEM OPERA SOB APROVAÇÃO — espelho de perfis_sob_aprovacao() no SQL.
-   O síndico entrou junto com o administrador predial: ele opera o dia a
-   dia e o diretor confirma. A sonda compara esta lista com a do banco.
+   VAZIO desde 02/11/2026: o administrador e o síndico saíram da fila e
+   escrevem direto. Era ["administrador_predial", "sindico"].
+   Para re-armar, os TRÊS espelhos voltam juntos: a função no SQL (quem
+   manda), esta lista (o que a tela promete) e a de src/lib/permissoes.js
+   (que o backend lê). A sonda compara os três.
    ───────────────────────────────────────────────────────────────── */
-export const PERFIS_SOB_APROVACAO = ["administrador_predial", "sindico"];
+export const PERFIS_SOB_APROVACAO = [];
 export const ehPerfilSobAprovacao = (p) => PERFIS_SOB_APROVACAO.includes(String(p));
 
 /* ─────────────────────────────────────────────────────────────────
@@ -64,11 +73,18 @@ export const ACOES = {
   "financeiro.baixar":  { rotulo: "Baixa de pagamento",            tela: "cobrancas" },
   "cobranca.cancelar":  { rotulo: "Cancelamento de cobrança",      tela: "cobrancas" },
   "pagamento.rejeitar": { rotulo: "Rejeição de pagamento informado", tela: "cobrancas" },
+  /* Tirar o acesso não passa por escrita em tabela: acontece em
+     /api/auth/acessos, com service role, onde o gatilho nem dispara. Enquanto
+     a fila valia, o endpoint enfileirava por conta própria. Hoje ele remove na
+     hora e nada novo entra com este código — o rótulo fica para as pendências
+     que já estavam abertas (e para o dia em que a fila voltar). */
+  "acesso.remover":     { rotulo: "Remoção de acesso",             tela: "emails" },
 };
 export const ehAcao = (a) => String(a?.operacao) === "ACAO";
 
 /* ─────────────────────────────────────────────────────────────────
-   O QUE NÃO ESPERA O DIRETOR
+   O QUE NÃO ESPERA O DIRETOR — inerte hoje (ninguém espera), mantido como
+   espelho do gatilho para o caso de a fila voltar; a sonda compara os dois.
 
    ESPELHO do filtro de supabase-aprovacoes.sql — quem manda é o gatilho
    (o app não tem como se impor: a escrita sai do navegador com o JWT do
@@ -116,6 +132,7 @@ const NOMES = {
   /* argumentos das AÇÕES */
   pago_em: "Pago em", forma: "Forma de pagamento", tx: "Comprovante / tx",
   justificativa: "Justificativa", motivo: "Motivo",
+  perfil: "Perfil de acesso", email: "E-mail", unidade: "Unidade",
 };
 export function rotuloCampo(campo) {
   const c = String(campo);
@@ -142,7 +159,7 @@ export function valorTexto(v) {
 /* Identificadores que a AÇÃO carrega para saber em quem mexer: não são
    decisão do diretor e viram uuid cru na tela. A cobrança em questão
    aparece resolvida (unidade + competência) a partir de `alvo_id`. */
-export const ARGS_OCULTOS = new Set(["cobranca_id", "informado_id"]);
+export const ARGS_OCULTOS = new Set(["cobranca_id", "informado_id", "usuario_id"]);
 
 export function diff(alteracao) {
   const { operacao, payload = {}, anterior } = alteracao || {};

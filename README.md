@@ -42,7 +42,14 @@ idiomas, instalável como PWA.
    7. `supabase-fundo-reserva.sql` — a baixa divide o lançamento quando o
       FR% está embutido na cobrança (Taxa condominial + Fundo de reserva) e
       faz o backfill das cobranças já pagas; sem ele o app funciona e o
-      card do fundo soma só os lançamentos manuais da categoria
+      card do fundo soma só os lançamentos manuais da categoria.
+      É o arquivo DEFINITIVO da família da baixa: define
+      `registrar_pagamento_manual`, `registrar_pagamento_stripe` e — desde
+      02/11/2026 — `rejeitar_pagamento_informado`, que morava no schema e
+      veio para cá para poder ser corrigida sem re-rodar o schema inteiro
+      (o primeiro `create type` dele falha com "type already exists").
+      As três conferem AUTORIDADE por permissão (`jwt_pode`), não por nome
+      de perfil, e o ESCOPO (condomínio da linha) por dentro
    8. `supabase-notificacoes.sql` — o sino da gestão ganha a seção
       "Movimentações": triggers gravam uma notificação por entrada recebida
       (baixa manual, lote, Stripe, cripto, receita avulsa) e por conta paga,
@@ -71,14 +78,25 @@ idiomas, instalável como PWA.
       o comportamento antigo e a aba Permissões abre em leitura, avisando.
 
    11. `supabase-aprovacoes.sql` — perfil **Administrador** (`administrador_predial`):
-      opera como o diretor, mas toda escrita dele é DESVIADA por gatilho
-      para a fila `alteracoes_pendentes` e a operação original é cancelada
-      — a linha não existe até o diretor aprovar na tela Aprovações, onde
-      ele pode corrigir os valores antes de aplicar. Fora da fila ficam a
-      portaria em tempo real (visitante no portão) e o que não passa por
-      escrita direta (baixa, cancelar cobrança, criar acessos, licença) —
-      essas o perfil não recebe, senão a promessa seria falsa. Exige o
-      `supabase-permissoes.sql` antes. Sem ele o perfil não existe e nada muda.
+      quem administra o prédio por contrato. Opera e escreve como o diretor,
+      e o que ele faz **vale na hora** — criar, alterar e excluir. Quatro
+      exceções, nenhuma delas um código de permissão: não cria acesso de
+      Diretor, não exclui acesso de Diretor (as duas em `api/auth/acessos.js`,
+      pelo perfil de quem pede), não exclui a pessoa ligada ao Diretor
+      (gatilho `trg_a_protege_diretor`, seção E) e não vê a tela **Planos**
+      (`tela.planos` + `licenca.gerir` ficam fora e são vedadas na matriz).
+      O síndico opera do mesmo jeito.
+      A **fila de aprovação** que este arquivo instalava até 01/11/2026
+      continua aqui, instalada e **inerte**: `perfis_sob_aprovacao()` devolve
+      vazio (seção A0), nada novo entra em `alteracoes_pendentes`, a tela
+      Aprovações saiu do menu e as pendências que já existiam ficam
+      **congeladas** (preservadas, nunca aplicadas — liste-as com a consulta
+      do rodapé do arquivo). Devolver perfis àquela função re-arma o
+      mecanismo inteiro, mas aí os dois espelhos JS têm de voltar junto
+      (`PERFIS_SOB_APROVACAO` em `src/lib/aprovacoes.js` e em
+      `src/lib/permissoes.js`) — a sonda compara os três.
+      Exige o `supabase-permissoes.sql` antes. Sem ele o perfil não existe e
+      nada muda.
 
    Banco **já instalado**? Não re-rode o schema inteiro — rode apenas o que
    faltar, na ordem: o `alter table usuarios add column if not exists
@@ -101,7 +119,10 @@ idiomas, instalável como PWA.
 
    Atenção: re-rodar o `supabase-rls.sql` exige re-rodar seguranca 1→5 **e o
    `supabase-permissoes.sql`** em seguida (ele derruba e recria todas as
-   policies — inclusive as que decidem por permissão).
+   policies — inclusive as que decidem por permissão). E re-rodar o
+   `supabase-permissoes.sql` exige re-rodar o `supabase-aprovacoes.sql`
+   depois: ele recria os embrulhos das RPCs de baixa/cancelamento sem o
+   desvio da fila, e é o passo 11 que os devolve ao estado atual.
 4. **Stripe** — `node scripts/preparar-stripe-producao.mjs --cotacao <USD→BRL> --executar`
    cria products/prices (base BRL = USD × cotação + `currency_options.usd`
    exato — a licença é ancorada em USD), o promotion code de ativação manual
@@ -130,7 +151,7 @@ idiomas, instalável como PWA.
 | `testar-notificacoes.mjs` | sondas do feed de movimentações do sino (motor puro): os 3 eventos, fallback de evento desconhecido, payload corrompido, contagem/destaque de não-vistas por instante absoluto, hora no fuso local e o topo do feed que dispara o reload entre janelas |
 | `testar-permissoes.mjs` | sondas da matriz de permissões: catálogo, padrão que reproduz o comportamento pré-matriz, override que SUBSTITUI (e zera) o padrão, paridade JS ≡ SQL ≡ NAV e, com banco, policies por permissão + gatilho de aprovação + blindagem da própria matriz (bloco B pula se o supabase-permissoes.sql não rodou) |
 | `testar-webhook-stripe.mjs` | sondas da autenticação dos webhooks da Stripe: corpo bruto preservado byte a byte (inclusive multibyte partido entre chunks), recusa de corpo re-serializado e a contingência que confirma o evento na própria Stripe quando a plataforma já parseou o corpo |
-| `testar-aprovacoes.mjs` | sondas do Administrador predial: diff e ordem da fila, paridade gatilho ⇄ rótulos, e a prova no banco de que a escrita dele não entra, vira pendência, não pode ser auto-aprovada e só nasce quando o diretor aprova (com ou sem correção) |
+| `testar-aprovacoes.mjs` | sondas do Administrador predial: a fila está desarmada nos três espelhos (SQL + 2 JS) e o mecanismo segue instalado; a prova no banco de que a escrita dele ENTRA na hora e nada é enfileirado; e as 4 exceções recusadas de verdade — criar/remover acesso de Diretor, excluir a pessoa do Diretor (pelas duas ligações, mais o rebaixamento do papel) e Planos/licença negadas pelo próprio `jwt_pode`. Inclui o ACL de `executar_acao` e o retrato das pendências congeladas (nenhuma é tocada) |
 | `relatorio-seguranca.mjs` | auditoria semanal (sessões, eventos, anomalias) |
 | `emergencia-sessoes.mjs` | resposta a incidente: revoga sessões em massa |
 | `verificar-segredos-bundle.mjs` | confere que nenhum segredo vazou no build |

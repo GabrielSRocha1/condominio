@@ -288,6 +288,19 @@ begin
   end loop;
 end $$;
 
+-- condominios fica de fora do loop porque a chave dele é `id`, não
+-- `condominio_id` — e por isso a policy de supabase-rls.sql, que decide por
+-- NOME de perfil ('diretor'), nunca era substituída. Isso passou a divergir
+-- da matriz em 02/11/2026: `condominio.editar` entrou no conjunto do
+-- administrador predial, a tela Condomínio abre editável para ele e o UPDATE
+-- casava ZERO linha. RLS não acusa erro — só não encontra a linha —, então a
+-- tela dizia "Salvo!" e nada mudava, em TODAS as abas (o formulário é um só).
+-- Agora decide pela permissão, como todo o resto.
+drop policy if exists cond_update on public.condominios;
+create policy cond_update on public.condominios for update to authenticated
+  using (id = public.jwt_condominio() and public.jwt_pode('condominio.editar'))
+  with check (id = public.jwt_condominio());
+
 -- usuario_perfis fica de fora do loop: quem mexe em perfil de usuário é o
 -- backend (api/auth/acessos.js, service role). Escrita pelo navegador = não.
 alter table public.usuario_perfis enable row level security;

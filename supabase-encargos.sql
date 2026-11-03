@@ -45,9 +45,11 @@ begin
     return jsonb_build_object('ok', false, 'erro', 'cobranca_inexistente');
   end if;
 
-  -- autorização: service role (endpoints) OU gestor do próprio condomínio
+  /* autorização por PERMISSÃO, não por nome de perfil — ver a nota longa em
+     supabase-fundo-reserva.sql, que define a versão definitiva desta função.
+     O escopo (condomínio da cobrança) continua aqui. */
   if public.jwt_role() <> 'service_role' then
-    if public.jwt_perfil() not in ('diretor','sindico','tesouraria')
+    if not public.jwt_pode('financeiro.baixar')
        or public.jwt_condominio() is distinct from c.condominio_id then
       return jsonb_build_object('ok', false, 'erro', 'nao_autorizado');
     end if;

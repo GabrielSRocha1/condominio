@@ -51,9 +51,16 @@ begin
     return jsonb_build_object('ok', false, 'erro', 'cobranca_inexistente');
   end if;
 
-  -- autorização: service role (endpoints) OU gestor do próprio condomínio
+  /* autorização: service role (endpoints) OU quem TEM a permissão.
+     Decidia por NOME de perfil até 02/11/2026, e aí a autoridade divergia da
+     matriz: um perfil novo COM `financeiro.baixar` era liberado pelo
+     embrulho de supabase-permissoes.sql e recusado aqui dentro — foi o que
+     aconteceu com o administrador_predial. O ESCOPO continua sendo
+     conferido aqui: a cobrança tem de ser do condomínio de quem chama (o
+     embrulho não olha isso, e a permissão é do perfil, não da linha).
+     Depende do supabase-permissoes.sql (jwt_pode), que é passo obrigatório. */
   if public.jwt_role() <> 'service_role' then
-    if public.jwt_perfil() not in ('diretor','sindico','tesouraria')
+    if not public.jwt_pode('financeiro.baixar')
        or public.jwt_condominio() is distinct from c.condominio_id then
       return jsonb_build_object('ok', false, 'erro', 'nao_autorizado');
     end if;
@@ -293,3 +300,60 @@ begin
               v_share, r.data, r.competencia, r.forma_pagamento, 'pago', 'cobranca', r.origem_id);
   end loop;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────
+-- E) REJEIÇÃO DO INFORME — irmã da baixa
+--
+-- Veio do supabase-schema.sql em 02/11/2026. Mora aqui porque é o par da
+-- `registrar_pagamento_manual` acima (as duas decidem o informe de pagamento
+-- do morador, e as duas são embrulhadas por supabase-permissoes.sql com
+-- `financeiro.baixar`) e porque o schema não se re-roda: uma correção presa
+-- lá exigiria colar bloco à mão no SQL Editor.
+-- ─────────────────────────────────────────────────────────────────
+create or replace function public.rejeitar_pagamento_informado(
+  p_informado_id uuid,
+  p_motivo       text
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  i pagamentos_informados%rowtype;
+  c cobrancas%rowtype;
+begin
+  select * into i from pagamentos_informados where id = p_informado_id for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'erro', 'informe_inexistente');
+  end if;
+  select * into c from cobrancas where id = i.cobranca_id for update;
+
+  /* autorização por PERMISSÃO, não por nome de perfil — mesma razão da baixa
+     (ver a nota longa na seção da registrar_pagamento_manual): decidir por
+     nome aqui dentro recusava um perfil novo que a matriz já havia liberado.
+     O escopo — o informe ser do condomínio de quem chama — continua aqui. */
+  if public.jwt_role() <> 'service_role' then
+    if not public.jwt_pode('financeiro.baixar')
+       or public.jwt_condominio() is distinct from i.condominio_id then
+      return jsonb_build_object('ok', false, 'erro', 'nao_autorizado');
+    end if;
+  end if;
+  if i.situacao <> 'pendente' then
+    return jsonb_build_object('ok', true, 'ja_decidido', true, 'situacao', i.situacao);
+  end if;
+
+  update pagamentos_informados
+     set situacao = 'rejeitado', motivo_rejeicao = coalesce(p_motivo, ''), atualizado_em = now()
+   where id = p_informado_id;
+
+  -- só reabre se a cobrança ainda está na fase de conferência
+  if c.status in ('pagamento_informado', 'pagamento_divergente') then
+    update cobrancas
+       set status = case when c.vencimento < current_date
+                         then 'vencida'::cobranca_status
+                         else 'emitida'::cobranca_status end
+     where id = c.id;
+  end if;
+
+  return jsonb_build_object('ok', true);
+end $$;
+
+revoke all on function public.rejeitar_pagamento_informado(uuid, text) from public, anon;
+grant execute on function public.rejeitar_pagamento_informado(uuid, text) to authenticated;

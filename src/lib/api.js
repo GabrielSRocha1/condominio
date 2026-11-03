@@ -4,7 +4,7 @@ import { calcularEncargos, normalizarEncargosCfg } from "./encargos.js";
 import { saldoComAncora } from "./caixa.js";
 import { expandirUnidades, mapaRotulos } from "./unidades.js";
 import { telExibicao } from "./telefone.js";
-import { agrupar, exigeAprovacao, ehPerfilSobAprovacao } from "./aprovacoes.js";
+import { exigeAprovacao, ehPerfilSobAprovacao } from "./aprovacoes.js";
 import { jsPDF } from "jspdf";
 
 /* POST com Idempotency-Key + retry único de rede: cada chamada ganha uma
@@ -105,11 +105,39 @@ const q = async (promise, label) => {
   return data;
 };
 
-/* ─────────── fila de aprovação (administrador predial) ───────────
-   Para esse perfil, o gatilho do banco (supabase-aprovacoes.sql) CANCELA a
-   escrita e guarda a linha proposta. Do lado do cliente isso chega como
-   "0 linhas retornadas" — que, sem tratamento, viraria um `undefined.id`
-   algumas linhas adiante e um erro incompreensível na tela.
+/* UPDATE/DELETE que casa ZERO linha NÃO é erro para o PostgREST: a RLS não
+   acusa nada, ela só faz a linha deixar de existir para quem pediu. Sem
+   conferir isto, a tela mostra "Salvo!", chama reload() e os dados antigos
+   voltam — "não está salvando" sem uma única mensagem de erro. Foi
+   exatamente o que aconteceu com a tela Condomínio enquanto a policy dela
+   decidia por nome de perfil (02/11/2026).
+   Use em toda escrita de linha CONHECIDA (tem id e tem de existir). Não use
+   em efeito colateral de lote nem em consumo concorrente (um QR que outro
+   portão já usou casa zero linha legitimamente). */
+const q1 = async (promise, label, oQue) => {
+  const data = await q(promise, label);
+  if (!data?.length) {
+    const e = new Error(`${oQue}: o banco não aceitou a alteração. Pode ser permissão do seu perfil ou a linha ter sido removida — recarregue a tela e tente de novo.`);
+    e.recusada = true;
+    throw e;
+  }
+  return data;
+};
+
+/* ─────────── fila de aprovação — INERTE desde 02/11/2026 ───────────
+   Enquanto ela valia, o gatilho do banco (supabase-aprovacoes.sql) CANCELAVA
+   a escrita do administrador (e do síndico) e guardava a linha proposta. Do
+   lado do cliente isso chegava como "0 linhas retornadas" — que, sem
+   tratamento, virava um `undefined.id` algumas linhas adiante e um erro
+   incompreensível na tela. Custou um crash em produção; daí este
+   encanamento, espalhado por ~30 funções de escrita.
+
+   Hoje PERFIS_SOB_APROVACAO está vazio, então tudo aqui se auto-neutraliza:
+   escritaVaiParaFila() é sempre false, idDaFila() devolve null, comId({})
+   não acrescenta nada e linhaOuFila() cai no data[0] de sempre. Por isso o
+   encanamento FICA: não custa nada em runtime, as sondas provam que cada
+   escritora continua ciente, e re-armar a fila volta a ser uma linha de SQL
+   — não uma reescrita de 30 funções.
 
    O perfil vem do próprio JWT: api.js não enxerga o estado do React. */
 const perfilDaSessao = () => {
@@ -138,9 +166,10 @@ export function erroFila(msg) {
   return e;
 }
 
-/* Cobrança do administrador predial NASCE rascunho (o gatilho força): está
-   na lista do gestor e invisível para o morador até o diretor emitir. Não é
-   falha — é o portão mudando de lugar, então a tela avisa onde ele está. */
+/* Aviso de cobrança nascida RASCUNHO — hoje inalcançável (o gatilho que
+   forçava o rascunho está inerte e a cobrança nasce emitida). Fica porque é
+   a outra metade do encanamento acima: se a fila voltar, o portão volta com
+   ela, e o texto já explica onde ele está. */
 const avisoRascunho = (n = 1) => erroFila(n > 1
   ? `${n} cobranças criadas como RASCUNHO. O morador só passa a vê-las — e a poder pagar — depois que o diretor emitir, na tela Cobranças.`
   : "Cobrança criada como RASCUNHO. O morador só passa a vê-la — e a poder pagar — depois que o diretor emitir, na tela Cobranças.");
@@ -248,16 +277,13 @@ export async function loadAll(condominioId) {
     q(supabase.from("condominios").select("nome_fantasia, cnpj, endereco, identidade_visual, regras_internas, encargos_atraso").eq("id", cid), "condominios"),
   ]);
 
-  /* fila do administrador predial: o diretor precisa SABER que há coisa
-     esperando sem abrir a tela. Vem com o payload porque o número que vale
-     é o de AÇÕES (uma pessoa cadastrada = 3 linhas), e agrupar exige o
-     payload. Sem o supabase-aprovacoes.sql a tabela não existe e isto
-     degrada para zero — o app segue igual. */
-  const aprovGrupos = await supabase.from("alteracoes_pendentes")
-    .select("id, tabela, operacao, alvo_id, payload, status, solicitado_em")
-    .eq("condominio_id", cid).eq("status", "pendente")
-    .order("solicitado_em", { ascending: true }).limit(300)
-    .then(({ data }) => agrupar(data || []).length).catch(() => 0);
+  /* A fila de aprovação foi congelada em 02/11/2026: ninguém opera sob
+     aprovação, a tela saiu do menu e as pendências antigas ficaram no banco
+     sem serem aplicadas. A consulta que contava os grupos saiu daqui — ela
+     trazia até 300 linhas COM payload em todo loadAll (agrupar precisa do
+     payload) e, com a fila parada, trazia sempre as mesmas. Quem quiser ver
+     o passivo usa a consulta do rodapé do supabase-aprovacoes.sql. */
+  const aprovGrupos = 0;
 
   /* pagamentos informados pelo morador aguardando confirmação (tabela
      pagamentos_informados do supabase-schema.sql — sem ela, segue vazio) */
@@ -790,7 +816,7 @@ export async function aprovarAlteracao(id, correcao = null, parecer = null) {
    que ela passa a existir PARA O MORADOR (portal e checkout). Para o próprio
    administrador este UPDATE cai na fila, então ele não se auto-emite. */
 export async function emitirCobranca(ctx, id) {
-  await q(supabase.from("cobrancas").update({ status: "emitida" }).eq("id", id).select(), "cobrancas");
+  await q1(supabase.from("cobrancas").update({ status: "emitida" }).eq("id", id).select(), "cobrancas", "Emitir a cobrança");
   if (escritaVaiParaFila("cobrancas", "UPDATE")) throw erroFila();
 }
 
@@ -1170,7 +1196,7 @@ export async function atualizarUnidade(ctx, id, f) {
     responsavel_financeiro_id: f.responsavel || null,
   };
   if (bloco) patch.bloco_id = bloco.id;
-  await q(supabase.from("unidades").update(patch).eq("id", id).select(), "unidades");
+  await q1(supabase.from("unidades").update(patch).eq("id", id).select(), "unidades", "Salvar a unidade");
   if (escritaVaiParaFila()) throw erroFila();
   await recalcularFracoes(ctx); // a área pode ter mudado — refaz as frações do prédio
 }
@@ -1180,8 +1206,8 @@ export async function atualizarUnidade(ctx, id, f) {
    (criarPessoa já avisa no fim) — ligado quando é a ação terminal, senão o
    administrador clicaria em salvar e a tela não diria nada. */
 export async function salvarResponsavelUnidade(ctx, unidadeId, pessoaId, avisarFila = true) {
-  await q(supabase.from("unidades").update({ responsavel_financeiro_id: pessoaId || null })
-    .eq("id", unidadeId).select(), "unidades");
+  await q1(supabase.from("unidades").update({ responsavel_financeiro_id: pessoaId || null })
+    .eq("id", unidadeId).select(), "unidades", "Trocar quem paga a unidade");
   if (avisarFila && escritaVaiParaFila()) throw erroFila();
 }
 
@@ -1326,11 +1352,11 @@ export async function atualizarPessoa(ctx, pessoa, f) {
     cpf_cnpj: f.doc, telefone: String(f.tel || "").slice(0, 20) || null, email: f.email || null,
   };
   if (doc) upd.documento_url = doc.url;
-  await q(supabase.from("pessoas").update(upd).eq("id", pessoa.id).select(), "pessoas");
+  await q1(supabase.from("pessoas").update(upd).eq("id", pessoa.id).select(), "pessoas", "Salvar a pessoa");
   const dados = { unidade_id: f.unidade || null, papel: PAPEL_ENUM[f.papel] || "morador" };
   if (f.inicio) dados.inicio = f.inicio;
   if (pessoa.vinculoId)
-    await q(supabase.from("pessoa_vinculos").update(dados).eq("id", pessoa.vinculoId).select(), "pessoa_vinculos");
+    await q1(supabase.from("pessoa_vinculos").update(dados).eq("id", pessoa.vinculoId).select(), "pessoa_vinculos", "Salvar o vínculo da pessoa");
   else
     await q(supabase.from("pessoa_vinculos").insert({
       condominio_id: ctx.condominioId, pessoa_id: pessoa.id, ...dados,
@@ -1346,6 +1372,14 @@ export async function atualizarPessoa(ctx, pessoa, f) {
    o impedimento — em vez de estourar um erro de chave estrangeira do banco. */
 export async function removerPessoa(ctx, id) {
   const checagens = [
+    /* o PAPEL diretor é a 3ª exceção do Administrador. Quem impede de
+       verdade é o gatilho trg_a_protege_diretor (seção E do
+       supabase-aprovacoes.sql) — isto aqui é só para a mensagem sair antes
+       do round-trip. Conferir por `pessoa_vinculos`, e não por `usuarios`:
+       a policy usuarios_select só atende diretor e síndico, então para o
+       administrador a checagem seguinte devolve zero linha sem erro. */
+    [supabase.from("pessoa_vinculos").select("id").eq("pessoa_id", id).eq("papel", "diretor").limit(1),
+      "é diretor do condomínio — só um diretor pode excluí-la"],
     [supabase.from("usuarios").select("id").eq("pessoa_id", id).limit(1), "possui conta de acesso — remova primeiro em Gerenciar Acessos"],
     [supabase.from("unidades").select("id").eq("responsavel_financeiro_id", id).limit(1), "é responsável financeiro de uma unidade"],
     [supabase.from("cobrancas").select("id").eq("responsavel_id", id).limit(1), "é responsável por cobranças emitidas"],
@@ -1355,12 +1389,18 @@ export async function removerPessoa(ctx, id) {
     const { data } = await consulta;
     if (data?.length) throw new Error(`Não é possível excluir: esta pessoa ${motivo}. O histórico precisa ser preservado.`);
   }
+  /* 42501 = recusa de gatilho/RLS, e a mensagem dele já é para ser lida pelo
+     usuário: repassar limpa, sem o prefixo "vínculos:" nem o texto genérico
+     de chave estrangeira. É por aqui que a guarda do diretor aparece na
+     tela quando a checagem acima não a pegou (vínculo de outro condomínio,
+     conta de diretor sem papel). */
+  const recusa = (e) => String(e?.code) === "42501";
   const { error: eV } = await supabase.from("pessoa_vinculos").delete().eq("pessoa_id", id);
-  if (eV) throw new Error(/foreign key|violates/i.test(eV.message)
+  if (eV) throw new Error(recusa(eV) ? eV.message : /foreign key|violates/i.test(eV.message)
     ? "Não é possível excluir: esta pessoa tem histórico vinculado (chamados ou outros registros)."
     : `vínculos: ${eV.message}`);
   const { error: eP } = await supabase.from("pessoas").delete().eq("id", id);
-  if (eP) throw new Error(/foreign key|violates/i.test(eP.message)
+  if (eP) throw new Error(recusa(eP) ? eP.message : /foreign key|violates/i.test(eP.message)
     ? "Não é possível excluir: esta pessoa tem histórico vinculado no condomínio."
     : `pessoas: ${eP.message}`);
   if (escritaVaiParaFila()) throw erroFila(); // a pessoa continua na tela até o diretor aprovar
@@ -1397,9 +1437,9 @@ export async function criarLancamento(ctx, f) {
    rejeitado cancela o lançamento. */
 export async function decidirLancamento(ctx, id, aprovar, tipo) {
   const uid = precisaUsuario(ctx);
-  await q(supabase.from("lancamentos").update({
+  await q1(supabase.from("lancamentos").update({
     status: aprovar ? (tipo === "receita" ? "pago" : "aprovado") : "rejeitado", aprovado_por: uid,
-  }).eq("id", id).select(), "lancamentos");
+  }).eq("id", id).select(), "lancamentos", "Decidir o lançamento");
   /* o administrador TEM financeiro.aprovar, mas a decisão dele também é uma
      escrita: sem este aviso ele clicaria em aprovar e o lançamento ficaria
      teimosamente "aguardando" na tela, sem explicação */
@@ -1408,7 +1448,7 @@ export async function decidirLancamento(ctx, id, aprovar, tipo) {
 
 /* Dar baixa numa conta a pagar (aba Contas a pagar do Financeiro) */
 export async function marcarLancamentoPago(ctx, id) {
-  await q(supabase.from("lancamentos").update({ status: "pago" }).eq("id", id).select(), "lancamentos");
+  await q1(supabase.from("lancamentos").update({ status: "pago" }).eq("id", id).select(), "lancamentos", "Marcar o lançamento como pago");
   if (escritaVaiParaFila()) throw erroFila();
 }
 
@@ -1472,10 +1512,10 @@ export async function enviarPenalidade(ctx, m) {
 
 export async function decidirPenalidade(ctx, id, aprovar) {
   const uid = precisaUsuario(ctx);
-  await q(supabase.from("penalidades").update({
+  await q1(supabase.from("penalidades").update({
     status: aprovar ? "aprovada" : "cancelada", decidida_por: uid,
     parecer: aprovar ? "Aprovada pelo síndico via painel." : "Cancelada pelo síndico via painel.",
-  }).eq("id", id).select(), "penalidades");
+  }).eq("id", id).select(), "penalidades", "Decidir a multa");
   if (escritaVaiParaFila()) throw erroFila();
 }
 
@@ -1912,7 +1952,10 @@ export async function obterCondominio(ctx) {
 export async function salvarCondominio(ctx, f) {
   const identidade = await obterIdentidade(ctx); // preserva o logo já enviado
   const pct = (v) => Math.max(0, Number(String(v ?? "").replace(",", ".")) || 0);
-  await q(supabase.from("condominios").update({
+  /* q1, não q: a policy de `condominios` decide por PERMISSÃO
+     (`condominio.editar`) e quem não a tem casa ZERO linha SEM erro — a tela
+     dizia "Salvo!" em todas as abas e o reload trazia o dado velho de volta */
+  await q1(supabase.from("condominios").update({
     nome_fantasia: f.nome, razao_social: f.razao || f.nome, cnpj: f.cnpj,
     inscricao_municipal: f.inscricao || null,
     tipo: COND_TIPO_ENUM[f.tipo] || "residencial", porte: COND_PORTE_ENUM[f.porte] || "medio",
@@ -1966,7 +2009,7 @@ export async function salvarCondominio(ctx, f) {
         : {},
     },
     identidade_visual: { ...identidade, cor_primaria: f.cor || identidade.cor_primaria || "#D4AF37" },
-  }).eq("id", ctx.condominioId).select(), "condominios");
+  }).eq("id", ctx.condominioId).select(), "condominios", "Salvar o cadastro do condomínio");
   if (escritaVaiParaFila()) throw erroFila();
 }
 
@@ -1992,8 +2035,8 @@ async function salvarLogoIdentidade(ctx, arquivo, chave) {
   const [logo] = await uploadArquivos(ctx, arquivo, "identidade");
   if (!logo) throw new Error("Escolha um arquivo de imagem.");
   const atual = await obterIdentidade(ctx);
-  await q(supabase.from("condominios").update({ identidade_visual: { ...atual, [chave]: logo.url } })
-    .eq("id", ctx.condominioId).select(), "condominios");
+  await q1(supabase.from("condominios").update({ identidade_visual: { ...atual, [chave]: logo.url } })
+    .eq("id", ctx.condominioId).select(), "condominios", "Salvar o logo");
   /* o storage NÃO passa pela fila: apagar o logo antigo aqui deixaria o
      condomínio sem imagem enquanto a troca espera o diretor — a linha ainda
      aponta para o arquivo velho. Quem limpa é a aprovação (ou ninguém: um
@@ -2006,8 +2049,8 @@ async function salvarLogoIdentidade(ctx, arquivo, chave) {
 async function removerLogoIdentidade(ctx, chave) {
   const atual = await obterIdentidade(ctx);
   const { [chave]: url, ...resto } = atual;
-  await q(supabase.from("condominios").update({ identidade_visual: resto })
-    .eq("id", ctx.condominioId).select(), "condominios");
+  await q1(supabase.from("condominios").update({ identidade_visual: resto })
+    .eq("id", ctx.condominioId).select(), "condominios", "Remover o logo");
   if (escritaVaiParaFila()) throw erroFila(); // idem: o arquivo some só quando a remoção valer
   if (url) await apagarDoStorage(url);
 }
@@ -2024,14 +2067,14 @@ export async function atualizarChamado(ctx, id, f) {
   const [atual] = await q(supabase.from("chamados").select("status").eq("id", id), "chamados");
   if (atual?.status === "concluido")
     throw new Error("Este chamado já foi concluído e não pode mais ser editado.");
-  await q(supabase.from("chamados").update({
+  await q1(supabase.from("chamados").update({
     responsavel_vinculo_id: f.responsavel || null,
     status: f.status || "aberto",
     prioridade: PRIO_ENUM[f.prioridade] || "media",
     prazo: f.prazo || null,
     custo_realizado: f.custo ? parseBRL(f.custo) : null,
     fechado_em: f.status === "concluido" || f.status === "cancelado" ? new Date().toISOString() : null,
-  }).eq("id", id).select(), "chamados");
+  }).eq("id", id).select(), "chamados", "Salvar o chamado");
   if (escritaVaiParaFila()) throw erroFila();
 }
 
@@ -2298,8 +2341,8 @@ export async function salvarPlanilhaCobrancas(ctx, { nome, colunas, linhas }) {
 }
 
 export async function salvarColunasPlanilha(planilhaId, colunas) {
-  await q(supabase.from("planilhas_cobranca")
-    .update({ colunas, atualizado_em: new Date().toISOString() }).eq("id", planilhaId).select(), "planilhas_cobranca");
+  await q1(supabase.from("planilhas_cobranca")
+    .update({ colunas, atualizado_em: new Date().toISOString() }).eq("id", planilhaId).select(), "planilhas_cobranca", "Salvar as colunas da planilha");
   if (escritaVaiParaFila()) throw erroFila();
 }
 

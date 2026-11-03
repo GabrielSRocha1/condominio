@@ -848,9 +848,11 @@ begin
     return jsonb_build_object('ok', false, 'erro', 'cobranca_inexistente');
   end if;
 
-  -- autorização: service role (endpoints) OU gestor do próprio condomínio
+  /* autorização por PERMISSÃO, não por nome de perfil — ver a nota longa em
+     supabase-fundo-reserva.sql, que define a versão definitiva desta função
+     (esta aqui é a original, sobrescrita no passo 7). O escopo continua. */
   if public.jwt_role() <> 'service_role' then
-    if public.jwt_perfil() not in ('diretor','sindico','tesouraria')
+    if not public.jwt_pode('financeiro.baixar')
        or public.jwt_condominio() is distinct from c.condominio_id then
       return jsonb_build_object('ok', false, 'erro', 'nao_autorizado');
     end if;
@@ -919,50 +921,14 @@ revoke all on function public.registrar_pagamento_manual(uuid, forma_pagamento, 
 grant execute on function public.registrar_pagamento_manual(uuid, forma_pagamento, numeric, timestamptz, text, varchar, uuid)
   to authenticated;
 
--- Rejeição de um informe: cobrança volta ao estado aberto correto
-create or replace function public.rejeitar_pagamento_informado(
-  p_informado_id uuid,
-  p_motivo       text
-) returns jsonb
-language plpgsql security definer set search_path = public as $$
-declare
-  i pagamentos_informados%rowtype;
-  c cobrancas%rowtype;
-begin
-  select * into i from pagamentos_informados where id = p_informado_id for update;
-  if not found then
-    return jsonb_build_object('ok', false, 'erro', 'informe_inexistente');
-  end if;
-  select * into c from cobrancas where id = i.cobranca_id for update;
-
-  if public.jwt_role() <> 'service_role' then
-    if public.jwt_perfil() not in ('diretor','sindico','tesouraria')
-       or public.jwt_condominio() is distinct from i.condominio_id then
-      return jsonb_build_object('ok', false, 'erro', 'nao_autorizado');
-    end if;
-  end if;
-  if i.situacao <> 'pendente' then
-    return jsonb_build_object('ok', true, 'ja_decidido', true, 'situacao', i.situacao);
-  end if;
-
-  update pagamentos_informados
-     set situacao = 'rejeitado', motivo_rejeicao = coalesce(p_motivo, ''), atualizado_em = now()
-   where id = p_informado_id;
-
-  -- só reabre se a cobrança ainda está na fase de conferência
-  if c.status in ('pagamento_informado', 'pagamento_divergente') then
-    update cobrancas
-       set status = case when c.vencimento < current_date
-                         then 'vencida'::cobranca_status
-                         else 'emitida'::cobranca_status end
-     where id = c.id;
-  end if;
-
-  return jsonb_build_object('ok', true);
-end $$;
-
-revoke all on function public.rejeitar_pagamento_informado(uuid, text) from public, anon;
-grant execute on function public.rejeitar_pagamento_informado(uuid, text) to authenticated;
+-- `rejeitar_pagamento_informado` MUDOU DE ARQUIVO em 02/11/2026: agora vive
+-- em supabase-fundo-reserva.sql (passo 7), junto da baixa, que é sua irmã —
+-- as duas decidem o informe do morador e as duas são embrulhadas por
+-- supabase-permissoes.sql. Veio para cá porque a autorização dela precisou
+-- deixar de ser por nome de perfil, e ESTE arquivo não se re-roda (o primeiro
+-- `create type` já falha com "type already exists"): uma correção presa aqui
+-- exigiria colar bloco à mão no SQL Editor. Nada entre os passos 1 e 7
+-- depende dela.
 
 -- ═══════════════════════ ROW LEVEL SECURITY ═══════════════════════
 -- ⚠️  ATENÇÃO: as políticas abaixo são de DESENVOLVIMENTO — liberam leitura e

@@ -61,11 +61,11 @@ export const PERMISSOES = [
   { codigo: "chamado.abrir",       grupo: "acao", rotulo: "Abrir chamado de manutenção" },
   { codigo: "pagamento.informar",  grupo: "acao", rotulo: "Informar pagamento com comprovante" },
   { codigo: "acesso.gerir",        grupo: "acao", rotulo: "Criar e remover acessos",
-    ajuda: "Os perfis criáveis seguem limitados a síndico, tesouraria e morador." },
+    ajuda: "Criar e remover valem na hora. O acesso de DIRETOR é a exceção: só outro diretor cria, remove — ou enxerga na lista." },
   { codigo: "licenca.gerir",       grupo: "acao", rotulo: "Contratar, trocar e cancelar a licença",
-    ajuda: "Inclui o portal de cobrança da Stripe e o onboarding de recebimento." },
-  { codigo: "alteracao.aprovar",   grupo: "acao", rotulo: "Aprovar as alterações do Administrador",
-    ajuda: "Abre a tela Aprovações. O próprio Administrador nunca recebe esta permissão — ninguém aprova a si mesmo." },
+    ajuda: "Inclui o portal de cobrança da Stripe e o onboarding de recebimento. Anda junto com a tela Planos: as duas são do dono do condomínio." },
+  { codigo: "alteracao.aprovar",   grupo: "acao", fixo: true, rotulo: "Decidir alterações pendentes",
+    ajuda: "Fila de aprovação congelada em 02/11/2026. O código continua existindo porque as RPCs aprovar/rejeitar_alteracao o exigem, e ficou INDELEGÁVEL: decidir pendência antiga é aplicar escrita sem ninguém olhando." },
 
   /* base + fixas */
   { codigo: "dados.escrever",   grupo: "base", rotulo: "Escrever nos dados do condomínio",
@@ -81,7 +81,12 @@ export const infoPermissao = (c) => PORCODIGO.get(String(c)) || null;
 
 /* Não delegáveis: editar a matriz é o caminho mais curto para um perfil se
    promover a tudo, então fica cravado no diretor; saas.gerir é da
-   administradora (dona da plataforma), fora de qualquer condomínio. */
+   administradora (dona da plataforma), fora de qualquer condomínio;
+   alteracao.aprovar entrou em 02/11/2026, quando a fila foi congelada —
+   aplicar uma pendência antiga é escrita sem segunda vista.
+   Consumidores: sanearPerms (abaixo, descarta para TODO perfil),
+   api/auth/permissoes.js (manda a lista para a tela) e o editor em
+   CondoMasterPro.jsx, que filtra `!p.fixo` e nem mostra a caixa. */
 export const PERMISSOES_FIXAS = PERMISSOES.filter((p) => p.fixo).map((p) => p.codigo);
 
 /* Perfis que o editor mostra. Diretor não aparece (tem tudo por definição);
@@ -91,43 +96,59 @@ export const PERMISSOES_FIXAS = PERMISSOES.filter((p) => p.fixo).map((p) => p.co
 export const PERFIS_EDITAVEIS = ["administrador_predial", "sindico", "tesouraria", "morador"];
 export const PERFIL_TUDO = "diretor";
 
-/* Administrador predial: opera como o diretor, mas toda escrita dele é
-   desviada para a fila de aprovação por um gatilho no banco
-   (supabase-aprovacoes.sql). Estas permissões NUNCA podem ser dadas a ele —
-   não por política, por mecânica: são ações que não passam por escrita
-   direta em tabela (RPC SECURITY DEFINER ou endpoint com service role), ou
-   seja, a fila não as alcança. Concedê-las faria a promessa "tudo é
-   aprovado pelo diretor" virar mentira — e `acesso.gerir` é a pior delas:
-   com ela o administrador criaria um síndico e entraria por fora. */
-export const PERFIL_SOB_APROVACAO = "administrador_predial";
-/* Espelho de PERFIS_SOB_APROVACAO (aprovacoes.js) — repetido aqui porque
-   permissoes.js é importado pelo backend, que não carrega aquele módulo. */
-export const PERFIS_SOB_APROVACAO = ["administrador_predial", "sindico"];
+/* Administrador predial: administra o prédio por contrato. Opera e escreve
+   como o diretor, e o que ele faz VALE NA HORA — criar, alterar e excluir.
+   São quatro as exceções (02/11/2026), e três delas não são permissão
+   nenhuma: não cria acesso de Diretor, não exclui acesso de Diretor (as duas
+   em api/auth/acessos.js, por PERFIL de quem pede) e não exclui a pessoa
+   ligada ao Diretor (gatilho trg_a_protege_diretor, seção E do
+   supabase-aprovacoes.sql). A quarta é de permissão e está logo abaixo. */
+export const PERFIL_ADMINISTRADOR = "administrador_predial";
+/* Espelho de PERFIS_SOB_APROVACAO (aprovacoes.js), que por sua vez espelha
+   perfis_sob_aprovacao() no banco — repetido aqui porque permissoes.js é
+   importado pelo backend, que não carrega aquele módulo.
+   VAZIO desde 02/11/2026: a fila de aprovação está congelada. Devolver
+   perfis aqui, em aprovacoes.js e na função SQL (os TRÊS juntos) re-arma o
+   mecanismo inteiro; mexer em um só faz a tela mentir. */
+export const PERFIS_SOB_APROVACAO = [];
 
-/* Vedadas ao ADMINISTRADOR (não ao síndico): não por mecânica — a fila
-   alcança as duas desde que as RPCs passaram a enfileirar a ação inteira —,
-   mas por ESCOPO do perfil. O administrador predial é contratado para
-   operar o cadastro; mexer no dinheiro que já entrou é do síndico, com o
-   diretor confirmando. `licenca.gerir` continua fora dos dois por mecânica:
-   /api/stripe roda com service role e o gatilho nem dispara. */
+/* Vedadas ao ADMINISTRADOR, mesmo que o diretor marque na tela: a 4ª
+   exceção. Não é mecânica nem escopo de dinheiro — é PROPRIEDADE. Contratar,
+   trocar e cancelar a licença é do dono do condomínio, não de quem o
+   administra. As duas andam juntas porque são a mesma tela por dois ângulos:
+   `tela.planos` libera o item do menu, `licenca.gerir` é o que o Paywall lê
+   para mostrar valores e botão de pagar (e o que /api/stripe/* exige).
+   Saíram daqui em 02/11/2026: `financeiro.baixar` e `cobranca.cancelar` —
+   sem fila, não havia mais o que segurar, e agora estão no padrão dele.
+   Deixá-las aqui teria sido pior que inútil: qualquer override salvo pelo
+   diretor as teria descartado em silêncio. */
 export const PERMS_VEDADAS_AO_ADMIN = [
-  "financeiro.baixar",   // escopo: baixa é do síndico
-  "cobranca.cancelar",   // escopo: cancelamento é do síndico
-  "licenca.gerir",       // mecânica: /api/stripe/* (service role)
+  "licenca.gerir",   // propriedade: licença é do dono (e /api/stripe/* exige)
+  "tela.planos",     // propriedade: a tela que mostra e troca o plano
 ];
 
-/* Ninguém decide a própria pendência — vale para TODO perfil sob aprovação,
-   e está cravado também dentro das RPCs aprovar/rejeitar_alteracao. */
-export const PERM_DE_APROVAR = "alteracao.aprovar";
+/* ── Quem cria acesso de quem ──
+   Ordem de autoridade; o endpoint (api/auth/acessos.js) valida contra esta
+   lista — `perfis` do banco tem outros nomes (conselho_fiscal, prestador…)
+   que não têm caminho de login.
 
-/* `acesso.gerir` SAIU da lista acima, mas com coleira curta: o administrador
-   cria login de MORADOR e nada mais. O limite é cravado em api/auth/acessos.js
-   (que roda com service role e por isso é inalcançável pelo gatilho), não
-   aqui — se ele pudesse criar um síndico, entraria com esse login e
-   escreveria direto, furando a fila inteira. Remover acesso e trocar cargo
-   continuam sendo do diretor pelo mesmo motivo: são alteração e exclusão,
-   que a regra geral manda esperar, e ali não há como fazer esperar. */
-export const PERFIS_QUE_O_ADMIN_CRIA = ["morador"];
+   DIRETOR só é criado por DIRETOR — a 1ª exceção —, e isso é cravado pelo
+   PERFIL, não pela matriz: um diretor novo decide a matriz de permissões,
+   mexe na licença e pode remover quem o criou. Não existe código de
+   permissão para "criar um par com poder total" justamente porque ele não
+   deve ser delegável. A 2ª exceção é o espelho disso na saída: a conta de
+   diretor só outro diretor remove, e quem não é diretor nem a vê na lista
+   (api/auth/acessos.js).
+
+   O ADMINISTRADOR (e o síndico) cria e remove o resto, valendo na hora. */
+export const PERFIS_CRIAVEIS = ["diretor", "administrador_predial", "sindico", "tesouraria", "morador"];
+export const PERFIL_SO_DIRETOR_CRIA = "diretor";
+export const PERFIS_QUE_O_ADMIN_CRIA = PERFIS_CRIAVEIS.filter((p) => p !== PERFIL_SO_DIRETOR_CRIA);
+/* `criador` é o perfil de quem está pedindo (claims.perfil) */
+export const podeCriarPerfil = (criador, alvo) =>
+  String(alvo) === PERFIL_SO_DIRETOR_CRIA
+    ? String(criador) === PERFIL_TUDO
+    : PERFIS_CRIAVEIS.includes(String(alvo));
 
 /* ── Padrão do SaaS — ESPELHA o comportamento anterior à matriz ──
    Conferido contra NAV.roles (telas), supabase-rls.sql (escrita) e os
@@ -149,16 +170,25 @@ export const MATRIZ_PADRAO = {
     "dados.escrever", "financeiro.lancar", "financeiro.aprovar", "financeiro.baixar",
     "cobranca.emitir", "cobranca.cancelar", "documento.emitir",
   ],
-  /* mesmas telas e escritas do diretor, menos o que a fila não alcança
-     (ver PERMS_VEDADAS_AO_ADMIN) — espelha a view _padrao_administrador */
+  /* 26 dos 33 códigos do catálogo: todas as telas de operação e todas as
+     escritas. Fora, de propósito: `tela.planos` + `licenca.gerir` (a 4ª
+     exceção, ver PERMS_VEDADAS_AO_ADMIN), `alteracao.aprovar`,
+     `permissao.gerir` e `saas.gerir` (indelegáveis) e `tela.portal` +
+     `pagamento.informar` (são do morador).
+     Espelha a view _padrao_administrador do supabase-aprovacoes.sql — a
+     sonda compara os dois lados e falha se divergirem. */
   administrador_predial: [
     "tela.dashboard", "tela.condominio", "tela.unidades", "tela.pessoas", "tela.financeiro",
     "tela.cobrancas", "tela.multas", "tela.comunicados", "tela.documentos", "tela.chamados",
     "tela.portaria", "tela.acessos",
     "condominio.editar", "unidade.criar", "financeiro.lancar", "financeiro.aprovar",
-    "cobranca.emitir", "multa.registrar", "multa.aprovar", "comunicado.publicar",
+    /* baixa e cancelamento entraram em 02/11/2026: sem fila de aprovação não
+       havia mais o que segurar. `pagamento.rejeitar` não tem código próprio —
+       a RPC dela exige financeiro.baixar. */
+    "financeiro.baixar", "cobranca.emitir", "cobranca.cancelar",
+    "multa.registrar", "multa.aprovar", "comunicado.publicar",
     "documento.emitir", "chamado.abrir", "dados.escrever",
-    /* só serve para criar login de MORADOR — ver PERFIS_QUE_O_ADMIN_CRIA */
+    /* cria e remove todo acesso menos o de DIRETOR — ver podeCriarPerfil */
     "acesso.gerir",
   ],
   morador: ["tela.portal", "chamado.abrir", "pagamento.informar"],
@@ -219,13 +249,11 @@ export function sanearPerms(perfil, lista) {
   const p = String(perfil);
   const permitidas = p === "morador" ? PERMS_DO_MORADOR : CODIGOS;
   const fora = new Set(PERMISSOES_FIXAS);
-  /* o administrador predial não recebe o que está fora do escopo dele —
-     nem que o diretor marque na tela */
-  if (p === PERFIL_SOB_APROVACAO) for (const c of PERMS_VEDADAS_AO_ADMIN) fora.add(c);
-  /* nenhum perfil sob aprovação decide pendência — nem a própria, nem a do
-     outro. O veto também está cravado dentro das RPCs, para o caso de
-     alguém marcar isto direto no banco. */
-  if (PERFIS_SOB_APROVACAO.includes(p)) fora.add(PERM_DE_APROVAR);
+  /* o administrador não recebe licença/Planos — nem que o diretor marque na
+     tela. `alteracao.aprovar` não aparece aqui porque virou FIXA: sai para
+     todo perfil pelo PERMISSOES_FIXAS acima, e o veto de verdade está dentro
+     de aprovar/rejeitar_alteracao, que exigem o perfil diretor. */
+  if (p === PERFIL_ADMINISTRADOR) for (const c of PERMS_VEDADAS_AO_ADMIN) fora.add(c);
   return [...new Set((Array.isArray(lista) ? lista : []).map(String))]
     .filter((c) => ehCodigo(c) && !fora.has(c) && permitidas.includes(c))
     .sort();

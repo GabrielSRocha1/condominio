@@ -1,4 +1,4 @@
-/* POST /api/auth/acessos  (Authorization: Bearer — SÓ diretor do condomínio)
+/* POST /api/auth/acessos  (Authorization: Bearer — quem tem `acesso.gerir`)
    Gerenciar Acessos do condomínio, agora 100% no servidor:
      { acao: "criar",   perfil, nome?, email?, senha, unidadeId? }
      { acao: "listar" }
@@ -12,8 +12,16 @@
    Por que saiu do navegador: com escrita client-side em usuarios e
    usuario_perfis, qualquer perfil de gestão conseguia se promover a diretor
    e ler hashes de senha via supabase-js. Aqui a service role executa, mas a
-   AUTORIZAÇÃO é conferida no topo (diretor do próprio condomínio), o perfil
-   criável é whitelist (nunca "diretor") e a senha nasce em scrypt+salt. */
+   AUTORIZAÇÃO é conferida no topo (permissão `acesso.gerir` no próprio
+   condomínio), o perfil criável é whitelist — e o de DIRETOR só o diretor
+   cria, remove ou enxerga — e a senha nasce em scrypt+salt.
+
+   Este arquivo é onde moram duas das quatro exceções do Administrador
+   (criar e remover acesso de diretor), e é aqui porque ele roda com service
+   role: nenhum gatilho de banco alcança o que passa por aqui, e o navegador
+   não tem outro caminho para `usuarios`/`usuario_perfis`. A terceira
+   exceção (não excluir a pessoa do diretor) é gatilho, porque esse caminho
+   sai direto do navegador — seção E do supabase-aprovacoes.sql. */
 import { createClient } from "@supabase/supabase-js";
 import { corpoValidado } from "../_lib/validar.js";
 import {
@@ -21,9 +29,11 @@ import {
   origemBloqueada, prepararIdempotencia, logSeguro, auditar, ipDoRequest,
 } from "../_lib/seguranca.js";
 import { carregarPerms, doClaims } from "../_lib/permissoes.js";
+import {
+  PERFIS_CRIAVEIS, PERFIL_SO_DIRETOR_CRIA, PERFIL_TUDO, podeCriarPerfil,
+} from "../../src/lib/permissoes.js";
 
 const envVal = (k) => { const v = (process.env[k] || "").trim(); return v && !v.startsWith("COLE_AQUI") ? v : undefined; };
-const PERFIS_CRIAVEIS = ["administrador_predial", "sindico", "tesouraria", "morador"];
 /* papel do morador NA UNIDADE (pessoa_vinculos.papel) — eixo diferente do
    perfil de acesso: todo mundo aqui entra como "morador", e é o papel que
    diz se a conta é do dono. O enum vinculo_papel do schema aceita mais
@@ -79,21 +89,21 @@ export default async function handler(req, res) {
     });
     if (!f) return;
 
-    /* ── administrador predial: SÓ cria login de morador ──
-       Este endpoint roda com service role, então o gatilho de aprovação não
-       o alcança — nada daqui pode virar pendência. Por isso o limite é
-       cravado aqui, e não na matriz: se ele pudesse criar um síndico,
-       entraria com esse login e escreveria direto, furando a fila inteira.
-       Morador não escreve nada de gestão, então é o único seguro.
-       Remover acesso e trocar cargo também ficam de fora: são alteração e
-       exclusão, que pela regra geral esperam o diretor — e aqui não há
-       como fazer esperar. */
-    if (claims.perfil === "administrador_predial") {
-      if (f.acao !== "criar" && f.acao !== "listar")
-        return res.status(403).json({ error: "Remover acessos ou trocar cargos é do diretor." });
-      if (f.acao === "criar" && f.perfil !== "morador")
-        return res.status(403).json({ error: "O Administrador só pode criar acesso de morador." });
-    }
+    /* ── acesso de DIRETOR: só outro diretor cria ──
+       A 1ª das quatro exceções do Administrador, e é cravada pelo PERFIL de
+       quem pede, não pela matriz: um diretor novo decide a matriz de
+       permissões, mexe na licença e pode remover quem o criou. Não existe
+       código de permissão para "criar um par com poder total" justamente
+       porque ele não deve ser delegável.
+       Todo o resto deste endpoint vale NA HORA para quem tem `acesso.gerir`
+       — criar, remover, trocar o papel na unidade e gerar código de
+       recuperação (02/11/2026; antes disso o Administrador e o síndico
+       operavam sob aprovação e a remoção virava pendência). O limite mora
+       aqui, e não no banco, porque este arquivo roda com service role: é o
+       único caminho para `usuarios`/`usuario_perfis`, que o navegador não
+       escreve. */
+    if (f.acao === "criar" && f.perfil && !podeCriarPerfil(claims.perfil, f.perfil))
+      return res.status(403).json({ error: `Somente um diretor cria acesso de ${PERFIL_SO_DIRETOR_CRIA}.` });
 
     /* mutações (criar/remover) com retry de rede não podem duplicar.
        "codigo" fica de fora: o replay gravaria o código PURO no corpo da
@@ -115,8 +125,13 @@ export default async function handler(req, res) {
       let { data: rows, error } = await selecionar("preferencias, ");
       if (error && /preferencias/i.test(error.message || "")) ({ data: rows, error } = await selecionar(""));
       if (error) throw new Error(error.message);
+      /* conta de DIRETOR aparece só para DIRETOR: desde que ele pode criar
+         outro, esconder deixaria um acesso invisível e não removível na
+         tela. Para os demais a lista segue sem elas — eles não mexem nessas
+         contas (ver o 403 em "remover"), e o que não aparece não tenta. */
       const acessos = (rows || [])
-        .filter((r) => r.perfis?.nome && r.perfis.nome !== "diretor" && r.usuarios)
+        .filter((r) => r.perfis?.nome && r.usuarios
+          && (r.perfis.nome !== "diretor" || claims.perfil === PERFIL_TUDO))
         .map((r) => {
           const u = r.usuarios, p = u.pessoas;
           const vinc = vinculoDaUnidade(p?.pessoa_vinculos);
@@ -134,19 +149,39 @@ export default async function handler(req, res) {
     /* ── remover ── */
     if (f.acao === "remover") {
       if (!f.usuarioId) return res.status(400).json({ error: "Informe usuarioId." });
-      /* o alvo precisa pertencer AO MEU condomínio e nunca ser um diretor */
+      /* ninguém tira o próprio acesso: no caso do diretor, seria o
+         condomínio ficando sem o único perfil que não pode ser trancado */
+      if (f.usuarioId === claims.sub)
+        return res.status(403).json({ error: "Você não pode remover o seu próprio acesso." });
+      /* o alvo precisa pertencer AO MEU condomínio */
       const { data: alvo } = await supabase.from("usuario_perfis")
         .select("id, perfis(nome)").eq("usuario_id", f.usuarioId).eq("condominio_id", condominioId);
       if (!alvo?.length) return res.status(404).json({ error: "Acesso não encontrado." });
-      if (alvo.some((a) => a.perfis?.nome === "diretor"))
-        return res.status(403).json({ error: "A conta do diretor não pode ser removida por aqui." });
+      /* ── 2ª exceção: conta de DIRETOR só outro diretor remove ──
+         Quem não é diretor nem a enxerga na listagem acima, e aqui também
+         não a alcança. Junto com a 1ª (criar), é o que mantém o diretor
+         como único dono do próprio nível. */
+      if (alvo.some((a) => a.perfis?.nome === "diretor") && claims.perfil !== PERFIL_TUDO)
+        return res.status(403).json({ error: "A conta do diretor só é removida por outro diretor." });
 
-      const { data: u } = await supabase.from("usuarios").select("pessoa_id").eq("id", f.usuarioId).maybeSingle();
+      const { data: u } = await supabase.from("usuarios")
+        .select("pessoa_id, email, pessoas(nome)").eq("id", f.usuarioId).maybeSingle();
+
       await supabase.from("auth_sessoes").update({ revogada: true }).eq("usuario_id", f.usuarioId)
         .then(() => {}, () => {}); // derruba sessões vivas do removido
       await supabase.from("usuario_perfis").delete().eq("usuario_id", f.usuarioId).eq("condominio_id", condominioId);
       const { error: eDel } = await supabase.from("usuarios").delete().eq("id", f.usuarioId);
-      if (eDel) throw new Error(eDel.message);
+      /* a conta assinou operações do condomínio (cobranças, multas,
+         comunicados, portaria): apagá-la apagaria esse histórico, e o
+         "Erro ao gerenciar os acessos" genérico do catch não diz nada a
+         quem está olhando a tela */
+      if (eDel) {
+        if (/foreign key|violates/i.test(eDel.message || "")) {
+          logSeguro("acessos remover fk", eDel);
+          return res.status(409).json({ error: "Esta conta assinou operações do condomínio (cobranças, multas, comunicados ou portaria) e apagá-la apagaria esse histórico. Troque a senha dela, em vez de remover." });
+        }
+        throw new Error(eDel.message);
+      }
       if (u?.pessoa_id) {
         await supabase.from("pessoa_vinculos").delete().eq("pessoa_id", u.pessoa_id).eq("condominio_id", condominioId);
         await supabase.from("pessoas").delete().eq("id", u.pessoa_id).then(() => {}, () => {}); // falha se referenciada — ok

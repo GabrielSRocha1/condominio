@@ -1,65 +1,76 @@
 -- ═══════════════════════════════════════════════════════════════
--- OPERA QUEM EXECUTA, CONFIRMA O DIRETOR
+-- O ADMINISTRADOR OPERA COMO O DIRETOR — MENOS O QUE É DO DIRETOR
 -- Rode no SQL Editor do Supabase (um único RUN, idempotente).
 --
--- Dois perfis operam sob aprovação (perfis_sob_aprovacao):
---   · `administrador_predial` (rótulo "Administrador") — perfil novo;
---   · `sindico` — já existia e PASSOU a operar assim.
--- Os dois enxergam e operam como o diretor, mas o que eles fazem não vale
--- sozinho: a operação é DESVIADA para `alteracoes_pendentes` e cancelada —
--- a linha não existe até o diretor aprovar, e na aprovação ele pode
--- CORRIGIR o conteúdo antes de aplicar.
+-- `administrador_predial` (rótulo "Administrador") é o perfil de quem
+-- administra o prédio por contrato. Ele enxerga e escreve como o diretor, e
+-- o que ele faz VALE NA HORA — criar, alterar e excluir, sem segunda
+-- assinatura. O síndico opera do mesmo jeito.
 --
--- Por que no banco e não na tela: ~29 pontos de escrita do app saem direto
--- do navegador com o JWT do usuário. Checar na interface seria teatro — o
--- síndico abriria o console e escreveria igual, porque o RLS libera (o
--- perfil dele TEM a permissão). O gatilho é o único lugar onde a regra não
--- tem como ser contornada.
+-- São quatro as exceções, e nenhuma delas é um código de permissão
+-- (02/11/2026, decisão do usuário):
+--   1. não CRIA acesso de Diretor — api/auth/acessos.js, por PERFIL de quem
+--      pede (um diretor novo decidiria a matriz e removeria quem o criou);
+--   2. não EXCLUI acesso de Diretor — mesmo arquivo, e a conta de diretor
+--      nem aparece na listagem dele;
+--   3. não EXCLUI a pessoa ligada ao Diretor — seção E deste arquivo, por
+--      gatilho, porque esse caminho sai direto do navegador;
+--   4. não vê a tela PLANOS — `tela.planos` e `licenca.gerir` ficam fora do
+--      conjunto dele e são vedadas em src/lib/permissoes.js. As duas são
+--      uma exceção só: sem a segunda o Paywall ainda mostraria o botão de
+--      pagar. Licença e plano são do dono do condomínio.
 --
--- Três coisas NÃO são uma escrita só, e sim uma RPC que mexe em várias
--- tabelas (baixar pagamento, cancelar cobrança, rejeitar pagamento
--- informado). Essas viram UMA pendência do tipo ACAO antes de qualquer
--- escrita — ver a seção C2 para o porquê de deixá-las correr corromper o
--- estado em vez de deixá-lo pendente.
+-- ── A FILA DE APROVAÇÃO ESTÁ INSTALADA E INERTE ──
+-- Até 02/11/2026 este arquivo fazia outra coisa: um gatilho CANCELAVA cada
+-- escrita do administrador (e do síndico) e a guardava em
+-- `alteracoes_pendentes` até o diretor aprovar na tela Aprovações. A
+-- mecânica inteira continua aqui — tabela, 18 gatilhos, embrulhos de RPC,
+-- aprovar/rejeitar — porque:
+--   · os dados já enfileirados são PRESERVADOS (nenhuma linha é apagada);
+--   · voltar atrás é uma linha: devolva perfis a `perfis_sob_aprovacao()`
+--     (seção A0) e o desvio re-arma por inteiro, no banco e no app.
+-- O que desliga tudo é aquela lista estar VAZIA. A tela Aprovações saiu do
+-- menu (CondoMasterPro.jsx) e as pendências abertas ficam congeladas: não
+-- aprove nada por SQL sem ler a seção D.
 --
--- FORA da fila, de propósito:
---   · CRIAR unidade (e o bloco que vem junto), CRIAR pessoa e o vínculo
---     dela — montar o prédio e o cadastro é trabalho operacional; o diretor
---     quer ver o resultado pronto, não aprovar apartamento por apartamento.
---     ALTERAR e EXCLUIR continuam esperando SEMPRE, em toda tabela;
---   · CRIAR cobrança — mas ela nasce RASCUNHO e só vira "emitida" (= visível
---     e pagável pelo morador) quando o diretor emitir. O portão mudou de
---     lugar, não sumiu: quem define QUEM PAGA a unidade segue na fila;
---   · `acessos_portaria` e `pre_autorizacoes` — o visitante está no portão
---     agora; travar isso esperando o diretor para a portaria;
---   · o que roda com SERVICE ROLE (endpoints /api/auth/acessos e /api/stripe)
---     — aí o gatilho nem dispara. `licenca.gerir` nenhum dos dois recebe.
---     Criar acesso é exceção com coleira: eles RECEBEM acesso.gerir, mas
---     api/auth/acessos.js só os deixa criar login de MORADOR. Se criassem
---     um síndico ou um diretor, entrariam com ele e escreveriam fora da
---     fila. Remover acesso e trocar cargo continuam do diretor.
+-- Por que as três exceções de código vivem fora do banco, e a terceira
+-- dentro: ~29 pontos de escrita do app saem direto do navegador com o JWT
+-- do usuário. Onde o caminho é um endpoint com service role (acessos,
+-- stripe), a guarda fica no endpoint, que é o único caminho. Onde o caminho
+-- é o supabase-js do navegador — excluir pessoa —, checar na tela seria
+-- teatro: o administrador abriria o console e escreveria igual, porque o
+-- RLS libera (ele TEM `dados.escrever`). Aí só gatilho resolve.
 --
 -- Depende de supabase-permissoes.sql (usa jwt_pode/jwt_perfil). Rode DEPOIS
 -- dele. Sem este arquivo nada muda: o perfil não existe e o app segue igual.
 -- ═══════════════════════════════════════════════════════════════
 
 -- ─────────────────────────────────────────────────────────────────
--- A0) QUEM opera sob aprovação
---     Lista única, consultada pelo gatilho, pelos embrulhos de RPC e pelas
---     RPCs de decisão. Espelhada em PERFIS_SOB_APROVACAO (src/lib/
---     aprovacoes.js) — a sonda compara as duas.
---     O SÍNDICO entrou aqui: ele opera o dia a dia (cadastra, lança, emite)
---     e o diretor confirma. Mesmo mecanismo, mesma política.
+-- A0) O INTERRUPTOR — quem opera sob aprovação
+--     Lista única, consultada pelo gatilho (seção C), pelos três embrulhos
+--     de RPC (C4) e pelas RPCs de decisão (D). Espelhada em
+--     PERFIS_SOB_APROVACAO de src/lib/aprovacoes.js E de
+--     src/lib/permissoes.js (o backend não carrega o primeiro módulo) — a
+--     sonda compara os três e falha se divergirem.
+--
+--     VAZIA desde 02/11/2026: ninguém opera sob aprovação. Acrescentar um
+--     perfil aqui re-arma o desvio inteiro — mas aí os dois espelhos JS têm
+--     de voltar junto, senão a tela promete o que o banco não faz (ou o
+--     contrário, que é pior: a escrita é cancelada e a tela diz "salvo").
+--     Era: array['administrador_predial', 'sindico'].
+--
+--     O cast é obrigatório: `array[]` puro não compila (o Postgres não tem
+--     como saber o tipo de um array vazio).
 -- ─────────────────────────────────────────────────────────────────
 create or replace function public.perfis_sob_aprovacao() returns text[]
-language sql immutable as $$ select array['administrador_predial', 'sindico'] $$;
+language sql immutable as $$ select array[]::text[] $$;
 grant execute on function public.perfis_sob_aprovacao() to anon, authenticated;
 
 -- ─────────────────────────────────────────────────────────────────
 -- A) Perfil e permissões
 -- ─────────────────────────────────────────────────────────────────
 insert into public.perfis (nome, descricao, sistema) values
-  ('administrador_predial', 'Opera como o diretor; toda alteração espera aprovação dele', true)
+  ('administrador_predial', 'Administra o prédio: opera como o diretor, menos licença e acesso de diretor', true)
 on conflict (nome) do update set descricao = excluded.descricao, atualizado_em = now();
 
 insert into public.permissoes (codigo, descricao) values
@@ -82,19 +93,30 @@ begin
   end if;
 end $$;
 
-/* conjunto do administrador = todas as telas + as escritas que a fila
-   consegue cobrir. Fora: financeiro.baixar, cobranca.cancelar e
-   licenca.gerir (não passam por escrita direta, logo a fila não as
-   alcança) e alteracao.aprovar (ninguém aprova a si mesmo).
-   `acesso.gerir` ENTRA, mas api/auth/acessos.js o limita a criar login de
-   MORADOR: criar um síndico seria entrar por fora da fila. */
+/* Conjunto do administrador: 26 dos 33 códigos do catálogo — todas as telas
+   de operação e todas as escritas, inclusive `financeiro.baixar` e
+   `cobranca.cancelar`, que entraram em 02/11/2026 (sem fila, não havia mais
+   motivo para segurá-las; `pagamento.rejeitar` não tem código próprio, a RPC
+   dela exige financeiro.baixar).
+   FORA, de propósito:
+     · `tela.planos` + `licenca.gerir` — a 4ª exceção. Licença e plano são do
+       dono do condomínio, e as duas andam juntas: o Paywall decide por
+       `licenca.gerir`, o menu por `tela.planos`;
+     · `alteracao.aprovar` — a fila está congelada e esse código passou a ser
+       indelegável (`fixo: true` em src/lib/permissoes.js, e o veto por perfil
+       dentro de aprovar/rejeitar_alteracao, seção D);
+     · `permissao.gerir` e `saas.gerir` — indelegáveis por catálogo;
+     · `tela.portal` e `pagamento.informar` — são do morador.
+   Espelho exato de MATRIZ_PADRAO.administrador_predial (src/lib/permissoes.js);
+   scripts/testar-permissoes.mjs compara os dois lados. */
 create or replace view public._padrao_administrador as
 select c as codigo from unnest(array[
   'tela.dashboard','tela.condominio','tela.unidades','tela.pessoas','tela.financeiro',
   'tela.cobrancas','tela.multas','tela.comunicados','tela.documentos','tela.chamados',
   'tela.portaria','tela.acessos',
   'condominio.editar','unidade.criar','financeiro.lancar','financeiro.aprovar',
-  'cobranca.emitir','multa.registrar','multa.aprovar','comunicado.publicar',
+  'financeiro.baixar','cobranca.emitir','cobranca.cancelar',
+  'multa.registrar','multa.aprovar','comunicado.publicar',
   'documento.emitir','chamado.abrir','dados.escrever','acesso.gerir']) c;
 revoke all on public._padrao_administrador from anon, authenticated;
 
@@ -111,8 +133,19 @@ where pp.condominio_id is null and pf.id = pp.perfil_id and pm.id = pp.permissao
   and pf.nome = 'administrador_predial'
   and not exists (select 1 from public._padrao_administrador d where d.codigo = pm.codigo);
 
-/* aprovar é do diretor: jwt_pode já devolve tudo para ele, então basta não
-   dar a ninguém mais. Fica registrado aqui para a tela listar o código. */
+/* `alteracao.aprovar` é INDELEGÁVEL, não só "não dada por padrão": com a
+   fila congelada, deixar alguém decidir pendência é dar a ele o poder de
+   aplicar escritas antigas sem ninguém olhando. O código continua no
+   catálogo porque as RPCs da seção D o exigem, mas:
+     · `fixo: true` em src/lib/permissoes.js tira do editor de permissões e
+       faz sanearPerms descartá-lo para todo perfil;
+     · aprovar/rejeitar_alteracao vetam por PERFIL (seção D);
+     · e as concessões que já existirem no banco saem aqui — inclusive
+       override de condomínio, porque a linha vive na mesma tabela.
+   O diretor não depende de linha nenhuma: jwt_pode devolve tudo para ele. */
+delete from public.perfil_permissoes pp
+using public.permissoes pm
+where pm.id = pp.permissao_id and pm.codigo = 'alteracao.aprovar';
 
 -- ─────────────────────────────────────────────────────────────────
 -- B) A fila
@@ -175,6 +208,10 @@ create policy alteracoes_leitura on public.alteracoes_pendentes for select to au
 
 -- ─────────────────────────────────────────────────────────────────
 -- C) O gatilho que desvia
+--    INERTE desde 02/11/2026: a segunda checagem do corpo consulta
+--    perfis_sob_aprovacao(), que está vazia (seção A0), então toda escrita
+--    passa direto. Continua instalado nas 18 tabelas de propósito — é o que
+--    faz a volta atrás ser uma linha, sem re-rodar DDL em tabela nenhuma.
 -- ─────────────────────────────────────────────────────────────────
 create or replace function public.desviar_para_aprovacao() returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -296,7 +333,11 @@ begin
 end $$;
 
 -- ─────────────────────────────────────────────────────────────────
--- C2) AÇÕES DE RPC na fila
+-- C2) AÇÕES DE RPC na fila — também INERTE (ver A0)
+--
+-- Os três embrulhos consultam perfis_sob_aprovacao(), hoje vazia, então as
+-- RPCs vão direto ao corpo real. O desenho fica documentado porque é o que
+-- volta a valer se a lista voltar a ter gente.
 --
 -- Baixar pagamento, cancelar cobrança e rejeitar pagamento informado NÃO
 -- são uma escrita só: cada uma mexe em pagamentos, cobranças, lançamentos
@@ -332,6 +373,92 @@ begin
 end $$;
 grant execute on function public.enfileirar_acao(text, jsonb, text) to authenticated;
 
+-- ─────────────────────────────────────────────────────────────────
+-- C3) REMOVER ACESSO — hoje sem uso corrente, mantida pelo passivo
+--
+-- Enquanto a fila valia, o endpoint /api/auth/acessos (que roda com SERVICE
+-- ROLE, onde o gatilho nem dispara) enfileirava a remoção por conta própria
+-- — operacao = 'ACAO', tabela = 'acesso.remover' — e não removia nada; quem
+-- removia era esta função, chamada por executar_acao na aprovação, com o
+-- token do diretor e na mesma transação, para que "aprovada" e "removida"
+-- nunca divergissem.
+--
+-- Desde 02/11/2026 o endpoint remove na hora e não enfileira mais nada.
+-- A função fica por duas razões: pendências 'acesso.remover' que já estavam
+-- abertas continuam no banco (congeladas), e sem ela aprovar uma delas por
+-- SQL falharia com erro cru em vez de executar; e porque re-armar a fila é
+-- uma linha na seção A0, que traria este caminho de volta inteiro.
+--
+-- Não tem guarda de permissão própria: ela é inalcançável de fora (revoke
+-- abaixo, e executar_acao também revogada). Quem confere quem pode é
+-- aprovar_alteracao, um nível acima — hoje só o diretor.
+-- ─────────────────────────────────────────────────────────────────
+create or replace function public.remover_acesso__base(p_usuario_id uuid)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_cond   uuid := public.jwt_condominio();
+  v_perfis text[];
+  v_pessoa uuid;
+begin
+  if v_cond is null or p_usuario_id is null then
+    return jsonb_build_object('ok', false, 'erro', 'sem_condominio');
+  end if;
+  /* o alvo tem de ser acesso DESTE condomínio — a pendência pode ter sido
+     criada muito antes, e nada garante que a conta ainda esteja lá */
+  select array_agg(pf.nome) into v_perfis
+    from public.usuario_perfis up
+    join public.perfis pf on pf.id = up.perfil_id
+   where up.usuario_id = p_usuario_id and up.condominio_id = v_cond;
+  if v_perfis is null then
+    return jsonb_build_object('ok', false, 'erro', 'acesso_inexistente');
+  end if;
+  /* a conta do diretor não sai por aqui: é ela que aprova. E ninguém se
+     remove a si mesmo — seria o condomínio ficando sem quem aprova. */
+  if 'diretor' = any(v_perfis) then
+    return jsonb_build_object('ok', false, 'erro', 'diretor_nao_removivel');
+  end if;
+  if p_usuario_id = public.jwt_usuario() then
+    return jsonb_build_object('ok', false, 'erro', 'nao_remove_a_si_mesmo');
+  end if;
+
+  select pessoa_id into v_pessoa from public.usuarios where id = p_usuario_id;
+
+  /* derruba as sessões vivas: sem isto o JWT de 1h continua valendo depois
+     de a conta sumir. A tabela vem do supabase-seguranca.sql — instalação
+     sem ela não tem sessão para derrubar. */
+  if to_regclass('public.auth_sessoes') is not null then
+    execute 'update public.auth_sessoes set revogada = true where usuario_id = $1'
+      using p_usuario_id;
+  end if;
+
+  delete from public.usuario_perfis where usuario_id = p_usuario_id and condominio_id = v_cond;
+  /* RAISE (não return) de propósito: o erro sobe para aprovar_alteracao,
+     que desfaz o que já foi apagado e deixa a pendência aberta com o
+     motivo à vista. Devolver ok:false aqui deixaria a conta sem perfil —
+     viva, sem conseguir entrar e sem ninguém ter decidido isso. */
+  begin
+    delete from public.usuarios where id = p_usuario_id;
+  exception when foreign_key_violation then
+    raise exception 'Esta conta assinou operações do condomínio (cobranças, multas, comunicados ou portaria) e apagá-la apagaria esse histórico. Troque a senha dela em Gerenciar Acessos.'
+      using errcode = '23503';
+  end;
+
+  if v_pessoa is not null then
+    delete from public.pessoa_vinculos where pessoa_id = v_pessoa and condominio_id = v_cond;
+    /* a PESSOA é outro eixo: ela pode ser responsável de unidade, ter
+       cobrança ou multa. Sai só se nada mais a referenciar — o que o
+       diretor aprovou foi tirar o acesso, não apagar o histórico. */
+    begin
+      delete from public.pessoas where id = v_pessoa;
+    exception when foreign_key_violation then null;
+    end;
+  end if;
+
+  return jsonb_build_object('ok', true, 'usuario_id', p_usuario_id);
+end $$;
+revoke all on function public.remover_acesso__base(uuid) from public, anon, authenticated;
+
 /* Executa a ação aprovada. Allowlist EXPLÍCITA: `tabela` vem de uma linha
    do banco e nunca pode virar nome de função executável — por isso um
    `case` fechado, e não `execute format(...)`. */
@@ -339,7 +466,9 @@ create or replace function public.executar_acao(p_acao text, p_args jsonb)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 begin
-  if p_acao = 'financeiro.baixar' then
+  if p_acao = 'acesso.remover' then
+    return public.remover_acesso__base((p_args ->> 'usuario_id')::uuid);
+  elsif p_acao = 'financeiro.baixar' then
     return public.registrar_pagamento_manual__base(
       (p_args ->> 'cobranca_id')::uuid,
       (p_args ->> 'forma')::forma_pagamento,
@@ -357,6 +486,14 @@ begin
   end if;
   raise exception 'Ação desconhecida na fila: %', p_acao using errcode = '22023';
 end $$;
+
+/* REVOKE obrigatório, não higiene: o Supabase concede execute em função
+   nova a anon/authenticated por default privilege. Sem isto, qualquer
+   logado chama executar_acao('financeiro.baixar', …) direto do navegador e
+   o SECURITY DEFINER roda o corpo real — a fila inteira viraria enfeite, e
+   com 'acesso.remover' na allowlist ele apagaria contas sem aprovação
+   nenhuma. Só aprovar_alteracao (definer, um nível acima) a alcança. */
+revoke all on function public.executar_acao(text, jsonb) from public, anon, authenticated;
 
 /* Embrulhos: mantêm a checagem de permissão de supabase-permissoes.sql
    (marcador __permissoes_embrulho__, que impede o rename para __base lá) e
@@ -461,10 +598,13 @@ declare
   v_cols   text;
   v_cols_r text;
 begin
-  /* ninguém aprova a si mesmo: o veto ao administrador é CRAVADO aqui, e
-     não só na tela de permissões — se um dia alguém marcar
-     `alteracao.aprovar` para ele por engano, continua valendo */
-  if public.jwt_perfil() = any(public.perfis_sob_aprovacao())
+  /* SÓ O DIRETOR decide pendência, e isto é cravado por PERFIL, não pela
+     matriz. Era `jwt_perfil() = any(perfis_sob_aprovacao())` — com a lista
+     vazia (seção A0) essa metade virou inerte e sobraria só o jwt_pode, que
+     uma linha inserida à mão em perfil_permissoes derrubaria. Com a fila
+     congelada, aprovar pendência antiga é aplicar escrita sem ninguém
+     olhando: o poder fica com quem já tem tudo. */
+  if public.jwt_perfil() <> 'diretor'
      or not public.jwt_pode('alteracao.aprovar') then
     return jsonb_build_object('ok', false, 'erro', 'nao_autorizado');
   end if;
@@ -549,10 +689,13 @@ create or replace function public.rejeitar_alteracao(
 language plpgsql security definer set search_path = public as $$
 declare a public.alteracoes_pendentes%rowtype;
 begin
-  /* ninguém aprova a si mesmo: o veto ao administrador é CRAVADO aqui, e
-     não só na tela de permissões — se um dia alguém marcar
-     `alteracao.aprovar` para ele por engano, continua valendo */
-  if public.jwt_perfil() = any(public.perfis_sob_aprovacao())
+  /* SÓ O DIRETOR decide pendência, e isto é cravado por PERFIL, não pela
+     matriz. Era `jwt_perfil() = any(perfis_sob_aprovacao())` — com a lista
+     vazia (seção A0) essa metade virou inerte e sobraria só o jwt_pode, que
+     uma linha inserida à mão em perfil_permissoes derrubaria. Com a fila
+     congelada, aprovar pendência antiga é aplicar escrita sem ninguém
+     olhando: o poder fica com quem já tem tudo. */
+  if public.jwt_perfil() <> 'diretor'
      or not public.jwt_pode('alteracao.aprovar') then
     return jsonb_build_object('ok', false, 'erro', 'nao_autorizado');
   end if;
@@ -574,9 +717,147 @@ end $$;
 grant execute on function public.aprovar_alteracao(uuid, jsonb, text) to authenticated;
 grant execute on function public.rejeitar_alteracao(uuid, text)       to authenticated;
 
+-- ─────────────────────────────────────────────────────────────────
+-- E) A PESSOA DO DIRETOR não sai pela mão de quem não é diretor
+--
+-- Esta é a 3ª exceção, e a única que precisa de gatilho. As outras duas de
+-- acesso (não cria, não exclui conta de diretor) vivem em
+-- api/auth/acessos.js, que roda com service role e é o ÚNICO caminho para
+-- `usuarios`/`usuario_perfis` — o navegador não escreve nessas duas tabelas
+-- (supabase-seguranca.sql revoga a escrita; usuario_perfis só tem policy de
+-- leitura). Já `pessoas` e `pessoa_vinculos` o navegador escreve direto:
+-- caem no coringa `dados.escrever` pelo laço de supabase-permissoes.sql, e o
+-- administrador TEM essa permissão. Enquanto a fila existia, quem segurava
+-- era o desvio cancelar o DELETE. Com a fila inerte, o freio volta aqui.
+--
+-- Protege pelas DUAS ligações (escolha do usuário, 02/11/2026):
+--   · o PAPEL no prédio   — pessoa_vinculos.papel = 'diretor';
+--   · o PERFIL de acesso  — pessoas → usuarios.pessoa_id → usuario_perfis
+--                           → perfis.nome = 'diretor'.
+--
+-- Cobre `pessoa_vinculos` no UPDATE e no DELETE, não só `pessoas`, por dois
+-- motivos independentes: rebaixar o papel e excluir em seguida seria a rota
+-- de fuga óbvia; e removerPessoa (src/lib/api.js) apaga os VÍNCULOS antes da
+-- pessoa, em duas chamadas sem transação — proteger só `pessoas` deixaria o
+-- vínculo do diretor morrer e só então a exclusão falhar.
+--
+-- O que este gatilho NÃO faz, de propósito: impedir EDIÇÃO. Alterar os dados
+-- da pessoa do diretor (nome, telefone, unidade) continua valendo na hora —
+-- a exceção que o usuário pediu é sobre excluir. No UPDATE do vínculo só o
+-- rebaixamento do papel é barrado; a ligação B só vale no DELETE.
+-- ─────────────────────────────────────────────────────────────────
+create or replace function public.proteger_pessoa_de_diretor() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare v_pessoa uuid;
+begin
+  /* SQL Editor/psql (sem claim nenhum) e backend passam. O bypass de service
+     role NÃO é higiene: api/auth/acessos.js apaga pessoa_vinculos e pessoas
+     com service role quando um DIRETOR remove o acesso de OUTRO diretor —
+     é a única forma legítima de apagar a pessoa de um diretor, e barrá-la
+     aqui a mataria. A autorização ali já foi conferida no endpoint. */
+  if nullif(current_setting('request.jwt.claims', true), '') is null
+     or public.jwt_role() = 'service_role' then return coalesce(new, old); end if;
+  /* o diretor é o dono: a regra é "quem NÃO é diretor não mexe no diretor".
+     Critério por PERFIL, como em podeCriarPerfil — não existe código de
+     permissão para isto justamente porque não deve ser delegável. Isentar o
+     diretor é a mesma regra anti-trava do resto do produto: o dono nunca
+     pode ficar sem conseguir corrigir o próprio cadastro. */
+  if public.jwt_perfil() = 'diretor' then return coalesce(new, old); end if;
+
+  /* ── ligação A, o PAPEL ──
+     Os ramos são ANINHADOS, não uma condição só com `and`/`case`: OLD é um
+     record e o campo é resolvido na execução da expressão — `old.papel` num
+     gatilho de `pessoas` estouraria com "record old has no field papel"
+     mesmo que o lado esquerdo do `and` fosse falso. */
+  if tg_table_name = 'pessoa_vinculos' then
+    /* o próprio OLD responde, sem consulta. Os ramos de tg_op também são
+       aninhados: em DELETE o NEW não está atribuído, e tocá-lo estouraria
+       com "record new is not assigned yet". */
+    if old.papel::text = 'diretor' then
+      /* DELETE entra porque removerPessoa apaga o vínculo ANTES da pessoa
+         (ver cabeçalho): sem isto, o diretor perderia o papel e só então a
+         exclusão falharia. */
+      if tg_op = 'DELETE' then
+        raise exception 'O vínculo de diretor do condomínio só o próprio diretor remove.'
+          using errcode = '42501';
+      /* no UPDATE só o REBAIXAMENTO é barrado — seria a fuga óbvia (tiro o
+         papel, depois excluo). Editar a pessoa do diretor continua valendo
+         na hora: atualizarPessoa reescreve `papel` em toda gravação, e
+         barrar o UPDATE inteiro impediria até corrigir o telefone dele. */
+      elsif new.papel::text <> 'diretor' then
+        raise exception 'Tirar o papel de diretor do condomínio é do próprio diretor.'
+          using errcode = '42501';
+      end if;
+    end if;
+    v_pessoa := old.pessoa_id;
+  else
+    v_pessoa := old.id;
+    if exists (select 1 from public.pessoa_vinculos v
+                where v.pessoa_id = v_pessoa and v.papel::text = 'diretor') then
+      raise exception 'Esta pessoa é diretor do condomínio — só um diretor pode excluí-la.'
+        using errcode = '42501';
+    end if;
+  end if;
+
+  /* ── ligação B, a CONTA com perfil diretor ──
+     Só na EXCLUSÃO, de propósito: a exceção que o usuário pediu é sobre
+     excluir, e editar continua valendo na hora — barrar UPDATE aqui
+     impediria o administrador de corrigir até a unidade do diretor. A rota
+     de fuga "rebaixo o papel e depois excluo" segue fechada pela ligação A,
+     que cobre o UPDATE do vínculo de diretor.
+     Dois passos de propósito: o primeiro toca o índice único de
+     usuarios.pessoa_id e descarta quase todos os casos; o join em
+     usuario_perfis/perfis só roda para pessoa que TEM conta.
+     SECURITY DEFINER é indispensável: supabase-seguranca.sql revoga select
+     de `usuarios` para authenticated e a policy restante só atende diretor
+     e síndico — sem definer este exists veria nada exatamente para o perfil
+     que se quer barrar. (A chave estrangeira usuarios.pessoa_id → pessoas
+     já recusa o delete da PESSOA com 23503; esta cláusula serve para dar a
+     mensagem certa e para alcançar o VÍNCULO, que a FK não protege.)
+     A mensagem não pode conter "foreign key" nem "violates": removerPessoa
+     reescreve qualquer erro que case com isso por um texto genérico. */
+  if tg_op = 'DELETE'
+     and exists (select 1 from public.usuarios u where u.pessoa_id = v_pessoa)
+     and exists (
+       select 1 from public.usuarios u
+         join public.usuario_perfis up on up.usuario_id = u.id
+         join public.perfis pf         on pf.id = up.perfil_id
+        where u.pessoa_id = v_pessoa and pf.nome = 'diretor') then
+    raise exception 'Esta pessoa tem a conta de diretor do condomínio — só um diretor pode removê-la, em Gerenciar Acessos.'
+      using errcode = '42501';
+  end if;
+
+  return coalesce(new, old);
+end $$;
+
+/* O "_a_" no nome é funcional, não estético: gatilho BEFORE dispara em ordem
+   ALFABÉTICA, e 'trg_a_protege_diretor' < 'trg_aprovacao'. Se um dia a lista
+   da seção A0 voltar a ter gente, o desvio devolve null e CANCELA a operação
+   antes de qualquer gatilho posterior — rodando depois deste guarda, a
+   exclusão do diretor é recusada; rodando antes, viraria pendência na fila e
+   seria aprovada pelo diretor, que é justamente quem o guarda isenta. */
+drop trigger if exists trg_a_protege_diretor on public.pessoas;
+create trigger trg_a_protege_diretor before delete on public.pessoas
+  for each row execute function public.proteger_pessoa_de_diretor();
+
+drop trigger if exists trg_a_protege_diretor on public.pessoa_vinculos;
+create trigger trg_a_protege_diretor before update or delete on public.pessoa_vinculos
+  for each row execute function public.proteger_pessoa_de_diretor();
+
 -- ═══════════════════════ FIM ═══════════════════════
 -- Confira com:
 --   select nome from perfis where nome = 'administrador_predial';
+--   -- a fila tem de estar DESARMADA (vazio) e os dados intactos:
+--   select public.perfis_sob_aprovacao();                      -- esperado: {}
+--   select status, count(*) from alteracoes_pendentes group by status;
 --   select count(*) from perfil_permissoes pp join perfis pf on pf.id = pp.perfil_id
---    where pf.nome = 'administrador_predial' and pp.condominio_id is null;  -- esperado: 23
+--    where pf.nome = 'administrador_predial' and pp.condominio_id is null;  -- esperado: 26
+--   -- ninguém, em nenhum condomínio, tem alteracao.aprovar por linha:
+--   select count(*) from perfil_permissoes pp join permissoes pm on pm.id = pp.permissao_id
+--    where pm.codigo = 'alteracao.aprovar';                    -- esperado: 0
+--   -- o mecanismo segue instalado (18 tabelas) e a guarda nova, nas duas:
 --   select tgrelid::regclass from pg_trigger where tgname = 'trg_aprovacao' order by 1;
+--   select tgrelid::regclass from pg_trigger where tgname = 'trg_a_protege_diretor' order by 1;
+--   -- nenhuma das duas pode ter anon/authenticated na ACL:
+--   select proname, proacl from pg_proc
+--    where proname in ('executar_acao', 'remover_acesso__base');

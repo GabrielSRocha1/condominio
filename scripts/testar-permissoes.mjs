@@ -80,7 +80,8 @@ ok("todo código tem rótulo e grupo",
   const bloco = jsx.slice(jsx.indexOf("const NAV = ["), jsx.indexOf("const PermsCtx"));
   const itens = [...bloco.matchAll(/\{\s*id:\s*"([a-z]+)".*?perm:\s*"([a-z.]+)"/gs)]
     .map(([, id, perm]) => ({ id, perm }));
-  ok("NAV declara perm em todas as telas", itens.length === 14, `${itens.length} itens`);
+  /* 13 desde 02/11/2026: "Aprovações" saiu do menu com a fila congelada */
+  ok("NAV declara perm em todas as telas", itens.length === 13, `${itens.length} itens`);
   const semCatalogo = itens.filter((i) => !CODIGOS.includes(i.perm));
   ok("toda perm do NAV existe no catálogo", semCatalogo.length === 0,
     semCatalogo.map((i) => i.perm).join(", "));
@@ -133,34 +134,40 @@ ok("diretor ignora override", mesmoConjunto(permsEfetivas({ perfil: "diretor", o
   const m = sanearPerms("morador", ["tela.financeiro", "chamado.abrir", "financeiro.baixar"]);
   ok("sanear fecha o conjunto do morador", mesmoConjunto(m, ["chamado.abrir"]), m.join(","));
   ok("fixas não são delegáveis", PERMISSOES_FIXAS.includes("permissao.gerir"));
+  /* `alteracao.aprovar` entrou nas fixas em 02/11/2026, com a fila
+     congelada: aplicar uma pendência antiga é escrita sem segunda vista, e
+     o veto por perfil está cravado dentro das RPCs de decisão */
+  ok("decidir pendência também não é delegável",
+    PERMISSOES_FIXAS.includes("alteracao.aprovar"));
 
-  /* o que a fila de aprovação não alcança não pode ser dado ao
-     administrador NEM pelo diretor: são ações por RPC security definer ou
-     endpoint com service role, onde o gatilho não chega */
+  /* o que é do DONO do condomínio não vai para quem administra o prédio,
+     nem que o diretor marque na tela */
   const adm = sanearPerms("administrador_predial",
     ["tela.financeiro", ...PERMS_VEDADAS_AO_ADMIN]);
-  ok("sanear veta ao administrador o que a fila não alcança",
+  ok("sanear veta ao administrador o que é do dono",
     mesmoConjunto(adm, ["tela.financeiro"]), adm.join(","));
-  /* `acesso.gerir` SAIU das vedadas por decisão de produto: ele cria login
-     de MORADOR. A coleira passou a ser o endpoint (api/auth/acessos.js),
-     que é quem recusa síndico/tesouraria e recusa remover. Se um dia a
-     coleira cair, criar um síndico vira caminho fora da fila. */
-  ok("acesso.gerir não é mais vedada (coleira está no endpoint)",
+  /* `acesso.gerir` SAIU das vedadas por decisão de produto: ele cria e
+     remove acessos. A coleira é o endpoint (api/auth/acessos.js), que
+     recusa criar e remover a conta de DIRETOR — ver testar-aprovacoes. */
+  ok("acesso.gerir não é vedada (a coleira está no endpoint)",
     !PERMS_VEDADAS_AO_ADMIN.includes("acesso.gerir"));
-  /* `financeiro.baixar` e `cobranca.cancelar` saíram de "a fila não alcança"
-     (as RPCs passaram a enfileirar a ação inteira) e viraram ESCOPO: mexer
-     no dinheiro que já entrou é do síndico. `licenca.gerir` segue fora por
-     mecânica — /api/stripe roda com service role e o gatilho nem dispara.
-     `alteracao.aprovar` saiu daqui: é vetada a TODO perfil sob aprovação,
-     não só ao administrador (ver sanearPerms e as RPCs de decisão). */
-  ok("vedadas ao administrador: escopo + a de mecânica",
-    mesmoConjunto(PERMS_VEDADAS_AO_ADMIN,
-      ["financeiro.baixar", "cobranca.cancelar", "licenca.gerir"]),
+  /* `financeiro.baixar` e `cobranca.cancelar` saíram daqui em 02/11/2026:
+     sem fila de aprovação não havia mais o que segurar, e hoje estão no
+     padrão dele. `tela.planos` entrou junto com `licenca.gerir` — são a
+     mesma tela por dois ângulos (o menu e o Paywall), e licença é do dono.
+     `alteracao.aprovar` não está aqui porque virou FIXA: vale para todo
+     perfil, não só para o administrador. */
+  ok("vedadas ao administrador: licença e Planos (propriedade)",
+    mesmoConjunto(PERMS_VEDADAS_AO_ADMIN, ["licenca.gerir", "tela.planos"]),
     PERMS_VEDADAS_AO_ADMIN.join(","));
-  ok("alteracao.aprovar é vetada ao síndico também",
-    !sanearPerms("sindico", ["alteracao.aprovar", "financeiro.baixar"]).includes("alteracao.aprovar"));
-  ok("mas o síndico mantém a baixa (agora pela fila)",
+  ok("alteracao.aprovar é vetada a todos os perfis editáveis",
+    PERFIS_EDITAVEIS.every((pf) => !sanearPerms(pf, ["alteracao.aprovar", "chamado.abrir"]).includes("alteracao.aprovar")));
+  ok("o síndico mantém a baixa",
     sanearPerms("sindico", ["financeiro.baixar"]).includes("financeiro.baixar"));
+  /* e o administrador passou a mantê-la também */
+  ok("o administrador agora também dá baixa e cancela",
+    ["financeiro.baixar", "cobranca.cancelar"].every((c) =>
+      sanearPerms("administrador_predial", [c]).includes(c)));
 }
 
 /* ── PARIDADE com o SQL (o arquivo é a fonte do banco) ── */
@@ -226,6 +233,17 @@ ok("diretor ignora override", mesmoConjunto(permsEfetivas({ perfil: "diretor", o
   const porPerfil = [...s.matchAll(/jwt_perfil\(\)\s*(?:not )?in \(/g)].length;
   ok("nenhuma policy nova decide por nome de perfil", porPerfil === 0,
     porPerfil ? `${porPerfil} ocorrência(s) de jwt_perfil() in (...)` : "só jwt_pode()");
+
+  /* `condominios` fica FORA do laço (a chave é `id`, não `condominio_id`),
+     então a policy de supabase-rls.sql — que decide por NOME — sobrevivia.
+     Em 02/11/2026 isso passou a divergir da matriz: `condominio.editar` está
+     no conjunto do administrador predial, a tela abre editável e o UPDATE
+     casava ZERO linha sem erro ("Salvo!" mentiroso em todas as abas). */
+  ok("condominios é escrito por PERMISSÃO, não por perfil",
+    /create policy cond_update on public\.condominios[\s\S]{0,200}jwt_pode\('condominio\.editar'\)/.test(s));
+  const rls = readFileSync(new URL("../supabase-rls.sql", import.meta.url), "utf8");
+  ok("e o rls.sql avisa que esta policy é refeita aqui",
+    /jwt_pode\(\) só existe a partir do[\s\S]{0,500}create policy cond_update/.test(rls));
 
   /* as duas exceções que ficam FORA do loop por não terem condominio_id /
      por viverem no storage — fáceis de esquecer numa mudança futura */
