@@ -10,7 +10,7 @@
 
    Uso: node scripts/testar-combo.mjs */
 import { readFileSync } from "node:fs";
-import { filtrarOpcoes, ehListaLonga, semAcento, LISTA_LONGA } from "../src/lib/combo.js";
+import { filtrarOpcoes, ehListaLonga, semAcento, LISTA_LONGA, casaPorPrefixo } from "../src/lib/combo.js";
 
 let falhas = 0;
 const ok = (nome, passou, extra = "") => {
@@ -53,6 +53,28 @@ ok("devolve CÓPIA, não a lista original", filtrarOpcoes(UNIS, "") !== UNIS);
 /* o rótulo pode passar por L() antes de comparar (a opção vazia é traduzida) */
 ok("aceita tradutor de rótulo",
   vals(filtrarOpcoes([["", "todas"], ["u1", "x"]], "TODAS", (l) => (l === "todas" ? "Todas as unidades" : l))) === "");
+
+/* ── casaPorPrefixo — o filtro da lista de cobranças ──
+   O alvo real é "rótulo + chave antiga + responsável", e a chave antiga
+   ("801-A") termina em "…1-A": substring fazia "1-a" casar com TUDO. */
+const ALVOS = {
+  "1-A": "1-A 101-A Responsável 1-A",
+  "8-A": "8-A 801-A Responsável 8-A",
+  "11-A": "11-A 1101-A Responsável 11-A",
+  "12-A": "12-A 1201-A Responsável 12-A",
+  "3-D": "3-D 301-D Deise Souza",
+};
+const casam = (q) => Object.keys(ALVOS).filter((k) => casaPorPrefixo(ALVOS[k], q)).join(",");
+ok("prefixo: '1' mostra todo mundo que começa com 1", casam("1") === "1-A,11-A,12-A");
+ok("prefixo: '1-a' respeita a escrita — SÓ a 1-A (a chave antiga '…01-A' não vaza)", casam("1-a") === "1-A");
+ok("prefixo: '12-a' só a 12-A", casam("12-a") === "12-A");
+ok("prefixo: '8' só a 8-A", casam("8") === "8-A");
+ok("a chave antiga decorada continua achável ('801')", casam("801") === "8-A");
+ok("responsável por começo de palavra, sem acento ('sou', 'deise')",
+  casam("sou") === "3-D" && casam("Deise") === "3-D");
+ok("dois termos, qualquer ordem, todos exigidos",
+  casam("deise 3-d") === "3-D" && casam("deise 12") === "");
+ok("busca vazia deixa tudo passar", casam("") === "1-A,8-A,11-A,12-A,3-D" && casaPorPrefixo("x", "   "));
 
 ok("semAcento normaliza", semAcento("José Antônio") === "jose antonio");
 ok(`lista curta (<= ${LISTA_LONGA}) não vira busca`, !ehListaLonga(LISTA_LONGA) && !ehListaLonga(3));
@@ -97,7 +119,11 @@ console.log("\n━━ o campo montado na tela (fonte) ━━");
      sondas de cima param de provar o que a tela faz */
   ok("a tela usa a regra do módulo puro",
     /filtrarOpcoes\(todas, q, L\)/.test(combo)
-    && /import \{ filtrarOpcoes, ehListaLonga \} from "\.\/src\/lib\/combo\.js"/.test(tela));
+    && /import \{ filtrarOpcoes, ehListaLonga, casaPorPrefixo \} from "\.\/src\/lib\/combo\.js"/.test(tela));
+  /* o filtro das cobranças também: se voltar ao includes na string inteira,
+     "1-a" volta a casar com toda unidade pela chave antiga */
+  ok("a lista de cobranças filtra por casaPorPrefixo, não por includes",
+    /casaPorPrefixo\(`\$\{c\.unidadeExib\} \$\{c\.unidade\} \$\{c\.resp\}`, q\)/.test(tela));
 
   /* nenhuma lista de unidade pode ter voltado a ser <select> cru: é o que
      esta mudança veio resolver */

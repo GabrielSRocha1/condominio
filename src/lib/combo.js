@@ -35,3 +35,19 @@ export function filtrarOpcoes(opcoes, q, rotulo = (l) => l) {
 
 /* a lista é longa o bastante para pagar o campo de busca? */
 export const ehListaLonga = (n) => Number(n) > LISTA_LONGA;
+
+/* FILTRO DA LISTA DE COBRANÇAS — prefixo por PALAVRA, não substring.
+
+   Substring no alvo inteiro fazia "1-a" achar TODAS as unidades: a chave
+   antiga ("801-A", "1201-A") termina em "…1-A", então toda linha casava.
+   A regra aqui é a que a pessoa espera do que escreveu: cada termo digitado
+   precisa ser o COMEÇO de alguma palavra do alvo — "1" acha 1-A, 10-A e
+   12-A; "1-a" acha só a 1-A; "12-a" só a 12-A; "801" continua achando a
+   chave antiga decorada; "dei" acha "Deise". Termos em qualquer ordem,
+   todos exigidos, sem acento e sem caixa — como em filtrarOpcoes. */
+export function casaPorPrefixo(alvo, q) {
+  const termos = semAcento(q).split(/\s+/).filter(Boolean);
+  if (!termos.length) return true;
+  const palavras = semAcento(alvo).split(/\s+/).filter(Boolean);
+  return termos.every((termo) => palavras.some((p) => p.startsWith(termo)));
+}

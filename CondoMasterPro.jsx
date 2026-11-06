@@ -35,7 +35,7 @@ import {
   listarNotificacoes,
 } from "./src/lib/api.js";
 import { casaUnidade } from "./src/lib/unidades.js";
-import { filtrarOpcoes, ehListaLonga } from "./src/lib/combo.js";
+import { filtrarOpcoes, ehListaLonga, casaPorPrefixo } from "./src/lib/combo.js";
 import { calcularLote, elegivelLote, chaveLote, ordenarLote } from "./src/lib/receber-lote.js";
 import { formatarNotificacao, contarNaoVistas, ehNova, horaCurta, chaveVisto, maisRecente } from "./src/lib/notificacoes.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
@@ -2891,10 +2891,12 @@ function Cobrancas({ t }) {
     if (f.unidade) f.moradorNome = moradorDa(db.ctx.unidades.find((x) => x.id === f.unidade)?.label) || "";
     await gerarCobrancas(db.ctx, f); await reload(); setNova(false); setDestino("");
   }, async () => { await reload(); setNova(false); setDestino(""); });
-  /* busca pelo rótulo que a tela mostra ("10-A") E pela chave antiga
-     ("1001-A-A"), para quem já tinha o número decorado continuar achando */
+  /* busca pelo rótulo que a tela mostra ("10-A"), pela chave antiga
+     ("1001-A-A", para quem a tinha decorada) e pelo responsável — por
+     PREFIXO de palavra (combo.js): substring fazia "1-a" casar com toda
+     unidade, porque a chave antiga termina em "…1-A" */
   const rows = db.cobr.filter((c) => (st === "todos" || c.status === st)
-    && `${c.unidadeExib} ${c.unidade} ${c.resp}`.toLowerCase().includes(q.toLowerCase()));
+    && casaPorPrefixo(`${c.unidadeExib} ${c.unidade} ${c.resp}`, q));
   /* envio por WhatsApp: usa o telefone do responsável (ou de alguém vinculado à unidade);
      o DDI vem do próprio número (+…) ou do país do condomínio para valores legados */
   const telDe = (c) => telDoResp(db, c);
