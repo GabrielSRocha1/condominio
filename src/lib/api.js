@@ -5,6 +5,7 @@ import { saldoComAncora } from "./caixa.js";
 import { expandirUnidades, mapaRotulos } from "./unidades.js";
 import { telExibicao } from "./telefone.js";
 import { exigeAprovacao, ehPerfilSobAprovacao } from "./aprovacoes.js";
+import { dedupeLinhasPlanilha } from "./planilha.js";
 import { jsPDF } from "jspdf";
 
 /* POST com Idempotency-Key + retry único de rede: cada chamada ganha uma
@@ -2324,7 +2325,10 @@ export async function salvarPlanilhaCobrancas(ctx, { nome, colunas, linhas }) {
   }
 
   const base = atual.linhas.reduce((m, l) => Math.max(m, l.ordem || 0), 0);
-  const rows = linhas.map((l, i) => ({
+  /* duas linhas do arquivo na MESMA unidade+competência dentro de um lote
+     derrubam o upsert ("cannot affect row a second time") — colapsa antes */
+  const { linhas: unicas } = dedupeLinhasPlanilha(linhas);
+  const rows = unicas.map((l, i) => ({
     condominio_id: ctx.condominioId, planilha_id: planilha.id, dados: l.dados,
     unidade_id: l.unidadeId || null, competencia: l.competencia || null,
     origem: "planilha", ordem: base + i + 1,

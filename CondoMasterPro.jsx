@@ -39,7 +39,7 @@ import { filtrarOpcoes, ehListaLonga } from "./src/lib/combo.js";
 import { calcularLote, elegivelLote, chaveLote, ordenarLote } from "./src/lib/receber-lote.js";
 import { formatarNotificacao, contarNaoVistas, ehNova, horaCurta, chaveVisto, maisRecente } from "./src/lib/notificacoes.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
-import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado, valorDaColuna, valorExibido, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
+import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, dedupeLinhasPlanilha, valorCalculado, valorDaColuna, valorExibido, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
 import { familiaCarteira, uriVerumPay, redesDaFamilia } from "./src/lib/qr-pagamento.js";
 import { pode, permsEfetivas, PERMISSOES, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, PERFIS_CRIAVEIS, PERFIL_SO_DIRETOR_CRIA, podeCriarPerfil, mesmoConjunto } from "./src/lib/permissoes.js";
@@ -3725,7 +3725,7 @@ function ImportarPlanilha({ t, planilha, onClose, onPronto }) {
     setErro(""); setLendo(true);
     try {
       const r = await lerPlanilhaLivre(file, opts);
-      if (!r.linhas.length) { setErro(r.errosGerais.join(" ") || L("Nenhuma linha preenchida encontrada na planilha.")); return; }
+      if (!r.linhas.length) { setErro(r.errosGerais.map(L).join(" ") || L("Nenhuma linha preenchida encontrada na planilha.")); return; }
       /* 2ª carga: colunas já conhecidas mantêm papel, tipo, formato e
          fórmula definidos antes — correção da pessoa vence a inferência */
       const antes = new Map((planilha?.colunas || []).map((c) => [c.chave, c]));
@@ -3739,7 +3739,7 @@ function ImportarPlanilha({ t, planilha, onClose, onPronto }) {
       setArquivo(file); setOpcoes(opts);
       setLido({ ...r, colunas, nome: file.name.replace(/\.[^.]+$/, "").slice(0, 120) });
       setPasso("mapa");
-    } catch (e) { setErro(e?.message || String(e)); }
+    } catch (e) { setErro(L(e?.message || String(e))); }
     finally { setLendo(false); }
   };
 
@@ -3750,6 +3750,8 @@ function ImportarPlanilha({ t, planilha, onClose, onPronto }) {
   const resolvidas = useMemo(() => (lido ? lido.linhas.map((l) => ({ ...l, ...resolverLinha(lido.colunas, l.dados, db.ctx) })) : []), [lido, db.ctx]);
   const conc = useMemo(() => conciliarPlanilha(resolvidas, db.cobr), [resolvidas, db.cobr]);
   const conta = (s) => conc.linhas.filter((l) => l.situacao === s).length;
+  /* o unique do banco colapsa unidade+competência repetidas — avisa antes */
+  const repetidas = useMemo(() => dedupeLinhasPlanilha(conc.linhas).repetidas, [conc]);
   const temChave = lido?.colunas.some((c) => c.papel === "unidade") && lido?.colunas.some((c) => c.papel === "competencia");
 
   const gravar = async () => {
@@ -3758,7 +3760,7 @@ function ImportarPlanilha({ t, planilha, onClose, onPronto }) {
       const r = await salvarPlanilhaCobrancas(db.ctx, { nome: lido.nome, colunas: lido.colunas, linhas: conc.linhas });
       await onPronto();
       setFeito(r); setPasso("fim");
-    } catch (e) { setErro(e?.message || String(e)); }
+    } catch (e) { setErro(L(e?.message || String(e))); }
     finally { setGravando(false); }
   };
 
@@ -3792,7 +3794,7 @@ function ImportarPlanilha({ t, planilha, onClose, onPronto }) {
             {lido.colunas.length} {L("coluna(s) e")} {lido.linhas.length} {L("linha(s) lidas.")}{" "}
             {L("Confira o que cada coluna significa — é isso que permite cruzar com as cobranças do sistema.")}
           </div>
-          {lido.errosGerais.map((e, i) => <div key={i} className="text-xs" style={{ color: t.warn }}>{e}</div>)}
+          {lido.errosGerais.map((e, i) => <div key={i} className="text-xs" style={{ color: t.warn }}>{L(e)}</div>)}
 
           {lido.layout === "mora" && (
             <div className="space-y-2 rounded-xl border px-3 py-2.5 text-xs" style={{ borderColor: t.border, background: t.goldSoft }}>
@@ -3844,6 +3846,7 @@ function ImportarPlanilha({ t, planilha, onClose, onPronto }) {
               <b style={{ color: t.ok }}>{conta("confere")}</b> {L("conferem")} · <b style={{ color: t.warn }}>{conta("difere")}</b> {L("com valor diferente")} ·{" "}
               <b style={{ color: t.info }}>{conta("so_planilha")}</b> {L("só na planilha")} · <b>{conta("sem_chave")}</b> {L("sem unidade/competência")}
               {conta("paga") > 0 && <> · <b style={{ color: t.ok }}>{conta("paga")}</b> {L("já pagas no app")}</>}
+              {repetidas > 0 && <> · <b style={{ color: t.warn }}>{repetidas}</b> {L("linha(s) repetem unidade + competência — prevalece a última")}</>}
             </>) : L("Marque uma coluna como Unidade e outra como Competência para cruzar com as cobranças do sistema. Sem isso, a planilha é importada mesmo assim, só não concilia.")}
           </div>
           {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}

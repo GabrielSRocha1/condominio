@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import {
   lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado,
   carregarExcelJS, normalizarCompetencia, paraNumero, inferirPapel, mesesAteHoje, resolverUnidade,
+  dedupeLinhasPlanilha,
 } from "../src/lib/planilha.js";
 
 const env = Object.fromEntries(
@@ -303,6 +304,32 @@ ok("A8 'ene/dic' e ano de 2 dígitos com mês textual",
   normalizarCompetencia("ene/2024") === "2024-01" && normalizarCompetencia("dic-2023") === "2023-12"
   && normalizarCompetencia("ene/24") === "2024-01" && normalizarCompetencia("setiembre 2026") === "2026-09",
   ["ene/2024", "dic-2023", "ene/24", "setiembre 2026"].map((s) => `${s}→${normalizarCompetencia(s) || "—"}`).join(" "));
+
+/* ══ A10 · dedupe pré-upsert: unidade+competência repetidas no MESMO
+   arquivo derrubavam o lote inteiro no Postgres ("ON CONFLICT DO UPDATE
+   cannot affect row a second time") — era o erro do import da planilla
+   de facturaciones. Prevalece a última, na posição da primeira; linha
+   sem chave (NULL não conflita no unique) passa intacta. ══ */
+{
+  const linhas = [
+    { unidadeId: "u1", competencia: "2024-01", dados: { v: 1 } },
+    { unidadeId: null, competencia: "2024-01", dados: { v: 2 } },  // sem unidade: fica
+    { unidadeId: "u2", competencia: "2024-01", dados: { v: 3 } },
+    { unidadeId: "u1", competencia: "2024-01", dados: { v: 4 } },  // repete u1 — vence
+    { unidadeId: "u1", competencia: "", dados: { v: 5 } },         // sem competência: fica
+    { unidadeId: "u1", competencia: "2024-01", dados: { v: 6 } },  // repete de novo — vence
+  ];
+  const d = dedupeLinhasPlanilha(linhas);
+  ok("A10 duplicata de unidade+competência colapsa (vence a ÚLTIMA, posição da primeira)",
+    d.linhas.length === 4 && d.repetidas === 2
+    && d.linhas[0].dados.v === 6 && d.linhas[1].dados.v === 2
+    && d.linhas[2].dados.v === 3 && d.linhas[3].dados.v === 5,
+    `${d.linhas.length} linha(s) · ${d.repetidas} repetida(s) · ordem ${d.linhas.map((l) => l.dados.v).join(",")}`);
+  const semDup = dedupeLinhasPlanilha([{ unidadeId: "u1", competencia: "2024-02", dados: {} }]);
+  ok("A10b sem duplicata, nada muda (e lista vazia/ausente não quebra)",
+    semDup.linhas.length === 1 && semDup.repetidas === 0
+    && dedupeLinhasPlanilha([]).linhas.length === 0 && dedupeLinhasPlanilha(undefined).linhas.length === 0);
+}
 
 /* ══ B · banco, pelo caminho do navegador (anon + JWT, com RLS) ══ */
 console.log("\n━━ B · gravação e conciliação no banco ━━");

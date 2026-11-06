@@ -813,6 +813,26 @@ export function conciliarPlanilha(linhas, cobrancas) {
   return { linhas: comSituacao, soSistema };
 }
 
+/* O unique do banco é (planilha_id, unidade_id, competencia): duas linhas
+   do MESMO arquivo caindo na mesma unidade+competência derrubam o upsert
+   inteiro ("ON CONFLICT DO UPDATE cannot affect row a second time").
+   Colapsa antes de gravar: prevalece a ÚLTIMA ocorrência, na posição da
+   primeira — o mesmo resultado que o upsert produziria se elas chegassem
+   em lotes separados. Linha sem unidade OU sem competência não participa
+   (NULL é distinto de NULL no unique) e passa intacta. */
+export function dedupeLinhasPlanilha(linhas) {
+  const pos = new Map();
+  const unicas = [];
+  let repetidas = 0;
+  for (const l of linhas || []) {
+    const k = l.unidadeId && l.competencia ? `${l.unidadeId}|${l.competencia}` : null;
+    if (k === null) { unicas.push(l); continue; }
+    if (pos.has(k)) { unicas[pos.get(k)] = l; repetidas++; }
+    else { pos.set(k, unicas.length); unicas.push(l); }
+  }
+  return { linhas: unicas, repetidas };
+}
+
 /* meses corridos da competência (mês devido) até hoje — a contagem que a
    coluna CANT. da planilla faz à mão e desatualiza. Nunca negativa. */
 export function mesesAteHoje(competencia, hoje = new Date()) {
