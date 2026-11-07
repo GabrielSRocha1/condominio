@@ -212,8 +212,15 @@ export function mesDeTexto(v) {
 export function normalizarCompetencia(v) {
   if (v == null || v === "") return "";
   if (v instanceof Date || typeof v === "number") {
+    /* 2020 solto é um ANO, não o serial do Excel (o serial 2020 cairia em
+       1905) — e ano sem mês não é competência. Serial de data real é
+       sempre ≥ ~36500 (anos 2000), então o intervalo não colide. */
+    if (typeof v === "number" && Number.isInteger(v) && v >= 1900 && v <= 2100) return "";
     const r = paraISO(v);
-    return r.iso ? r.iso.slice(0, 7) : "";
+    /* número de lixo (206, 1018, 20152…) vira serial de 1900–1955: nenhuma
+       expensa é anterior a 1970 — competência dessas não existe */
+    if (!r.iso || r.iso < "1970") return "";
+    return r.iso.slice(0, 7);
   }
   const s = String(v).trim();
   let m = s.match(/^(\d{4})[-/.](\d{1,2})$/);
@@ -223,11 +230,14 @@ export function normalizarCompetencia(v) {
   const completa = paraISO(s);
   if (completa.iso) return completa.iso.slice(0, 7);
   /* "set/2026", "setembro de 2026", "Sep 2026" */
+  /* o mês pode vir colado num prefixo por hífen ("corresponde-julio 2012"),
+     além de espaço e barra — o separador não pode esconder o mês */
+  const temMes = (n, f) => n.startsWith(f) || n.includes(` ${f}`) || n.includes(`/${f}`) || n.includes(`-${f}`);
   const n = norm(s);
   const ano = n.match(/(19|20)\d{2}/);
   if (ano) {
     for (const [mes, formas] of Object.entries(MESES_TXT)) {
-      if (formas.some((f) => n.startsWith(f) || n.includes(` ${f}`) || n.includes(`/${f}`)))
+      if (formas.some((f) => temMes(n, f)))
         return `${ano[0]}-${pad2(+mes)}`;
     }
   }
@@ -236,7 +246,7 @@ export function normalizarCompetencia(v) {
   const m2 = !ano && n.match(/\b(\d{2})\b/);
   if (m2) {
     for (const [mes, formas] of Object.entries(MESES_TXT)) {
-      if (formas.some((f) => n.startsWith(f) || n.includes(` ${f}`) || n.includes(`/${f}`)))
+      if (formas.some((f) => temMes(n, f)))
         return `20${m2[1]}-${pad2(+mes)}`;
     }
   }
@@ -283,6 +293,13 @@ const PAPEIS = {
   pago: ["Pago", "Valor pago", "Recebido", "Paid", "Received", "Pagado", "Recibido"],
   vencimento: ["Vencimento", "Data de vencimento", "Vence", "Due date", "Due", "Vencimiento"],
   status: ["Status", "Situação", "Situacao", "Estado", "Condição", "Condicion"],
+  /* o NOME do pagador na planilha ("Datos" na planilla de facturaciones):
+     é o que vira a pessoa cadastrada quando a unidade ainda não tem
+     responsável — sem ele nascia "Responsável 1-A" de mentira */
+  nome: ["Proprietário", "Propietario", "Proprietario", "Owner", "Pagador", "Titular", "Nome", "Nombre", "Name", "Datos", "Responsável", "Responsavel", "Responsable", "Cliente"],
+  /* e o documento dele (RUC/CI/CPF) — preenche o cadastro e permite CASAR
+     com alguém que o diretor já registrou à mão, em vez de duplicar */
+  documento: ["Documento", "RUC", "CI", "CPF", "CNPJ", "DNI", "Cédula", "Cedula", "RG"],
 };
 const FORMAS = Object.fromEntries(Object.entries(PAPEIS).map(([papel, termos]) => [
   papel, new Set(termos.flatMap((t) => traducoesDe(t)).map(norm)),
@@ -766,10 +783,23 @@ export function resolverLinha(colunas, dados, ctx) {
   else { pagoValor = paraNumero(vPago); pago = pagoValor != null ? pagoValor > 0 : PAGO_SIM.test(norm(texto(vPago))); }
   if (!pago) pago = PAGO_SIM.test(norm(texto(bruto("status"))));
 
+  /* quem paga, como a planilha escreve: nome e documento alimentam o
+     cadastro da pessoa quando a unidade ainda não tem responsável */
+  const nomeResp = texto(bruto("nome")).trim().slice(0, 160);
+  const docResp = texto(bruto("documento")).trim().slice(0, 18);
+
   return {
     unidadeId: u.id || null, unidadeErro: !!u.erro, competencia, valor,
-    vencimento, pago, pagoEm, pagoValor,
+    vencimento, pago, pagoEm, pagoValor, nomeResp, docResp,
   };
+}
+
+/* Documento aproveitável para cpf_cnpj: 5–18 caracteres com pelo menos
+   4 dígitos — barra "ILEGIBLE", traços soltos e célula vazia. O formato é
+   o mesmo que a tela Pessoas aceita (letras, números, ponto, traço, barra). */
+export function docUtil(s) {
+  const d = String(s ?? "").trim();
+  return /^[A-Za-z0-9.\-\/ ]{5,18}$/.test(d) && (d.match(/\d/g) || []).length >= 4 ? d : null;
 }
 
 /* Conciliação com as cobranças do app — função pura, por unidade +

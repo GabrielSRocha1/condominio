@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import {
   lerPlanilhaLivre, resolverLinha, conciliarPlanilha, valorCalculado,
   carregarExcelJS, normalizarCompetencia, paraNumero, inferirPapel, mesesAteHoje, resolverUnidade,
-  dedupeLinhasPlanilha,
+  dedupeLinhasPlanilha, docUtil,
 } from "../src/lib/planilha.js";
 
 const env = Object.fromEntries(
@@ -258,6 +258,12 @@ ok("A6 papéis ES (e 'Morador'/'Cantina' NÃO viram papel por substring)",
   && inferirPapel("% F.R.") === "percentual_fr" && inferirPapel("MONTO") === "valor"
   && inferirPapel("Cuota") === "valor_base" && inferirPapel("Morador") === null && inferirPapel("Cantina") === null,
   ["EXPENSAS", "AÑO EXPENSAS", "INTERESES MORATORIO", "CANT.", "Morador", "Cantina"].map((s) => `${s}→${inferirPapel(s) || "—"}`).join(" "));
+/* o pagador da planilla de facturaciones: "Datos" é o nome, "RUC" o documento */
+ok("A6b nome e documento do pagador ('Datos', 'Propietario', 'RUC', 'CI')",
+  inferirPapel("Datos") === "nome" && inferirPapel("PROPIETARIO") === "nome"
+  && inferirPapel("Nombre") === "nome" && inferirPapel("RUC") === "documento"
+  && inferirPapel("CI") === "documento" && inferirPapel("Documento") === "documento",
+  ["Datos", "PROPIETARIO", "RUC", "CI"].map((s) => `${s}→${inferirPapel(s) || "—"}`).join(" "));
 
 /* ══ A7 · calculada: recursão, ciclo e constante ══ */
 const colsRec = [
@@ -304,6 +310,41 @@ ok("A8 'ene/dic' e ano de 2 dígitos com mês textual",
   normalizarCompetencia("ene/2024") === "2024-01" && normalizarCompetencia("dic-2023") === "2023-12"
   && normalizarCompetencia("ene/24") === "2024-01" && normalizarCompetencia("setiembre 2026") === "2026-09",
   ["ene/2024", "dic-2023", "ene/24", "setiembre 2026"].map((s) => `${s}→${normalizarCompetencia(s) || "—"}`).join(" "));
+/* o caso "07/1905" da planilla de facturaciones: a célula traz só o ano
+   (número 2020) e o parser lia como serial do Excel → 1905-07. Ano solto
+   NÃO é competência; serial de verdade e mês colado por hífen continuam. */
+ok("A8b ano solto em número não vira 1905 (e serial real segue valendo)",
+  normalizarCompetencia(2020) === "" && normalizarCompetencia(1999) === "" && normalizarCompetencia(2100) === ""
+  && normalizarCompetencia(45061) === "2023-05" && normalizarCompetencia("2020") === "",
+  `2020→${normalizarCompetencia(2020) || "—"} · 45061→${normalizarCompetencia(45061) || "—"}`);
+ok("A8b2 número de lixo (serial pré-1970: 206, 1018, 20152) também não é competência",
+  normalizarCompetencia(206) === "" && normalizarCompetencia(1018) === "" && normalizarCompetencia(20152) === "",
+  `206→${normalizarCompetencia(206) || "—"} · 20152→${normalizarCompetencia(20152) || "—"}`);
+ok("A8c mês colado por hífen ('corresponde-julio 2012') resolve",
+  normalizarCompetencia("corresponde-julio 2012") === "2012-07"
+  && normalizarCompetencia("corresponde - junio 2012") === "2012-06"
+  && normalizarCompetencia("corresponde agosto 2020") === "2020-08",
+  ["corresponde-julio 2012", "corresponde - junio 2012"].map((s) => `${s}→${normalizarCompetencia(s) || "—"}`).join(" · "));
+
+/* ══ A11 · o pagador sai da linha: nome + documento resolvidos ══ */
+{
+  const cols = [
+    { chave: "ubi", titulo: "Ubi.", tipo: "texto", papel: "unidade" },
+    { chave: "datos", titulo: "Datos", tipo: "texto", papel: "nome" },
+    { chave: "ruc", titulo: "RUC", tipo: "texto", papel: "documento" },
+    { chave: "mes", titulo: "Mes", tipo: "texto", papel: "competencia" },
+    { chave: "monto", titulo: "Monto", tipo: "numero", papel: "valor" },
+  ];
+  const ctx11 = { unidades: [{ id: "u1a", label: "1-A" }] };
+  const r = resolverLinha(cols, { ubi: "1-A", datos: "  Dominico Orue ", ruc: "848004-4", mes: "06/2012", monto: 358771.6 }, ctx11);
+  ok("A11 nomeResp/docResp saem da linha (com espaços aparados)",
+    r.nomeResp === "Dominico Orue" && r.docResp === "848004-4" && r.unidadeId === "u1a",
+    JSON.stringify({ n: r.nomeResp, d: r.docResp }));
+  ok("A11b docUtil barra o lixo e aceita documentos reais",
+    docUtil("848004-4") === "848004-4" && docUtil("3694547") === "3694547"
+    && docUtil("ILEGIBLE") === null && docUtil(" ") === null && docUtil("1-2") === null,
+    ["848004-4", "ILEGIBLE", "1-2"].map((s) => `${s}→${docUtil(s) || "—"}`).join(" "));
+}
 
 /* ══ A10 · dedupe pré-upsert: unidade+competência repetidas no MESMO
    arquivo derrubavam o lote inteiro no Postgres ("ON CONFLICT DO UPDATE

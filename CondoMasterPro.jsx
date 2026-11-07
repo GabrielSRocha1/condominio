@@ -3195,7 +3195,8 @@ const SITUACOES = {
 const PAPEIS_COLUNA = [["", "— nenhum —"], ["unidade", "Unidade"], ["competencia", "Competência"],
   ["valor", "Valor"], ["valor_base", "Valor base (expensas)"], ["percentual_fr", "% fundo de reserva"],
   ["taxa_mora", "Taxa de mora (%)"], ["meses", "Meses (qtde.)"], ["ano", "Ano"],
-  ["pago", "Pago"], ["vencimento", "Vencimento"], ["status", "Status"]];
+  ["pago", "Pago"], ["vencimento", "Vencimento"], ["status", "Status"],
+  ["nome", "Pagador (nome)"], ["documento", "Documento (RUC/CI)"]];
 const OPS_CALC = [["-", "−"], ["+", "+"], ["*", "×"], ["/", "÷"]];
 const FORMATOS_COLUNA = [["", "Automático"], ["percent", "Percentual (%)"], ["moeda", "Moeda"]];
 

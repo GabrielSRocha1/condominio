@@ -5,7 +5,7 @@ import { saldoComAncora } from "./caixa.js";
 import { expandirUnidades, mapaRotulos } from "./unidades.js";
 import { telExibicao } from "./telefone.js";
 import { exigeAprovacao, ehPerfilSobAprovacao } from "./aprovacoes.js";
-import { dedupeLinhasPlanilha } from "./planilha.js";
+import { dedupeLinhasPlanilha, docUtil } from "./planilha.js";
 import { jsPDF } from "jspdf";
 
 /* POST com Idempotency-Key + retry único de rede: cada chamada ganha uma
@@ -2396,25 +2396,55 @@ export async function criarCobrancasDaPlanilha(ctx, linhas) {
   const recusadas = [];
   const aCriar = [];
   const provisorios = new Map(); // unidadeId → pessoaId criada nesta chamada
+
+  /* o pagador como a planilha escreve (papel "nome"/"documento" das
+     colunas), por unidade — a linha mais RECENTE vence, porque o
+     proprietário pode ter mudado ao longo do histórico */
+  const pagadorDe = new Map();
+  for (const l of linhas) {
+    const nome = (l.nomeResp || "").trim();
+    if (!l.unidadeId || nome.length < 2) continue;
+    const quando = `${l.vencimento || ""}|${l.competencia || ""}`;
+    const atual = pagadorDe.get(l.unidadeId);
+    if (!atual || quando > atual.quando)
+      pagadorDe.set(l.unidadeId, { quando, nome, doc: docUtil(l.docResp) });
+  }
+
   for (const l of linhas) {
     const u = ctx.unidades.find((x) => x.id === l.unidadeId);
     if (!u) { recusadas.push({ linha: l, motivo: "Unidade não reconhecida." }); continue; }
     if (!u.responsavelId) {
-      /* unidade sem responsável financeiro: cria UMA pessoa provisória por
-         unidade (decisão de produto — o diretor troca pelo nome real depois,
-         na tela Unidades), no mesmo padrão do gerar-cobranças manual */
+      /* unidade sem responsável financeiro: usa o pagador da planilha
+         (nome + documento). Documento já cadastrado = a MESMA pessoa que o
+         diretor adiantou à mão — reusa em vez de duplicar. Sem nome na
+         planilha, cai no provisório "Responsável X" de antes (o diretor
+         troca depois, na tela Unidades). */
       try {
         let pid = provisorios.get(u.id);
+        const pagador = pagadorDe.get(u.id);
+        if (!pid && pagador?.doc) {
+          const { data: jaExiste } = await supabase.from("pessoas").select("id")
+            .eq("condominio_id", ctx.condominioId).eq("cpf_cnpj", pagador.doc).maybeSingle();
+          if (jaExiste?.id) {
+            await q(supabase.from("unidades").update({ responsavel_financeiro_id: jaExiste.id }).eq("id", u.id).select(), "unidades");
+            pid = jaExiste.id;
+            provisorios.set(u.id, pid);
+          }
+        }
         if (!pid) {
           const idPessoa = idDaFila(); // mãe do vínculo e do responsável da unidade
           const pessoa = linhaOuFila(await q(supabase.from("pessoas").insert({
             ...comId(idPessoa),
-            condominio_id: ctx.condominioId, nome: `Responsável ${u.rotulo || u.label}`, tipo_pessoa: "fisica",
-            cpf_cnpj: `P-${crypto.randomUUID().slice(0, 12)}`, // placeholder até completar o cadastro
+            condominio_id: ctx.condominioId,
+            nome: pagador?.nome || `Responsável ${u.rotulo || u.label}`, tipo_pessoa: "fisica",
+            /* placeholder P-… só quando a planilha não traz o documento */
+            cpf_cnpj: pagador?.doc || `P-${crypto.randomUUID().slice(0, 12)}`,
           }).select(), "pessoas"), idPessoa, "pessoas");
           await q(supabase.from("pessoa_vinculos").insert({
             condominio_id: ctx.condominioId, pessoa_id: pessoa.id, unidade_id: u.id,
-            papel: "morador", inicio: hoje,
+            /* nome vindo da planilha de cobrança = quem paga = proprietário;
+               sem nome, segue "morador" provisório como antes */
+            papel: pagador?.nome ? "proprietario" : "morador", inicio: hoje,
           }).select(), "pessoa_vinculos");
           await q(supabase.from("unidades").update({ responsavel_financeiro_id: pessoa.id }).eq("id", u.id).select(), "unidades");
           pid = pessoa.id;
