@@ -11,7 +11,7 @@
 
    Uso: node scripts/testar-pessoas-doc.mjs */
 import { readFileSync } from "node:fs";
-import { chaveDoc, pessoaComMesmoDoc, camposQueFaltam } from "../src/lib/pessoas.js";
+import { chaveDoc, pessoaComMesmoDoc, camposQueFaltam, docProvisorio, planoDeDuplicados } from "../src/lib/pessoas.js";
 
 let falhas = 0;
 const ok = (nome, passou, extra = "") => {
@@ -55,6 +55,29 @@ ok("nada a preencher devolve objeto vazio (e nulos não quebram)",
   Object.keys(camposQueFaltam({ telefone: "a", email: "b", documento_url: "c" }, form)).length === 0
   && Object.keys(camposQueFaltam(null, null)).length === 0);
 
+/* plano de fusão dos duplicados de mesmo nome (reparo da planilha) */
+ok("docProvisorio reconhece P-/M- e deixa documento real em paz",
+  docProvisorio("P-abc123") && docProvisorio("m-999") && !docProvisorio("848004-4") && !docProvisorio(""));
+const DUP = [
+  { id: "a1", nome: "Cynthia Nathaly Orue Martinez", doc: "5827111-2", criadoEm: "2026-11-06T10:00" },
+  { id: "a2", nome: "CYNTHIA NATHALY ORUE MARTINEZ", doc: "P-x1", criadoEm: "2026-11-06T11:00" },
+  { id: "b1", nome: "Wener Bartholds", doc: "P-y1", criadoEm: "2026-11-05T09:00" },
+  { id: "b2", nome: "WENER BARTHOLDS", doc: "P-y2", criadoEm: "2026-11-06T09:00" },
+  { id: "c1", nome: "João Silva", doc: "111111", criadoEm: "2026-01-01" },
+  { id: "c2", nome: "Joao Silva", doc: "222222", criadoEm: "2026-01-02" }, // dois docs REAIS: não decide
+  { id: "d1", nome: "Único", doc: "P-z", criadoEm: "2026-01-01" },
+];
+const plano = planoDeDuplicados(DUP);
+const fus = Object.fromEntries(plano.fusoes.map((f) => [f.destino, f.origens.join(",")]));
+ok("mesmo nome (sem caixa/acento): provisório funde no documento real",
+  fus.a1 === "a2", JSON.stringify(fus));
+ok("todos provisórios: funde no mais antigo",
+  fus.b1 === "b2");
+ok("dois documentos reais com o mesmo nome: NÃO decide, reporta ambíguo",
+  plano.ambiguas.length === 1 && plano.ambiguas[0].includes("c1") && plano.ambiguas[0].includes("c2"));
+ok("quem não tem duplicata fica fora do plano",
+  plano.fusoes.length === 2 && !JSON.stringify(plano.fusoes).includes("d1"));
+
 /* ══════════ FONTE — o fluxo montado ══════════ */
 console.log("\n━━ o fluxo nas telas (fonte) ━━");
 {
@@ -81,6 +104,13 @@ console.log("\n━━ o fluxo nas telas (fonte) ━━");
     /\["funcionario", "prestador"\]\.includes\(v\.papel\)/.test(unificar));
   ok("o unique estourando vira mensagem de gente (rede de proteção)",
     /ERRO_DOC_DUPLICADO/.test(api) && /docJaExiste\(e\)/.test(api));
+  /* "permission denied for table usuarios" derrubava a unificação no meio:
+     o navegador não tem GRANT nessa tabela — o update é melhor-esforço */
+  ok("o update de usuarios na unificação é melhor-esforço (try/catch)",
+    /try \{\s*await q\(supabase\.from\("usuarios"\)\.update\(\{ pessoa_id: destinoId \}\)[\s\S]{0,160}\} catch/.test(api));
+  ok("o modal mostra o card com TODAS as unidades da pessoa acima do dropdown",
+    /edit\?\.unidades\?\.length \|\| 0\) > 1/.test(tela) && /unidades vinculadas:/.test(tela)
+    && /unidades: unidadesTodas/.test(api));
 }
 
 console.log(falhas ? `\n❌ pessoas-doc: ${falhas} falha(s)` : "\n🪪 DOCUMENTO ÚNICO DE PESSOA OK");

@@ -2065,9 +2065,17 @@ function Pessoas({ t, role }) {
               <Field t={t} label="Nome completo"><input name="nome" required defaultValue={edit?.nome || ""} style={inputStyle(t)} /></Field>
               <Field t={t} label="Carteira de identificação (CI)"><input name="doc" required defaultValue={edit?.docRaw || ""} placeholder={L("RG, CPF ou CI")} style={inputStyle(t)} /></Field>
               <Field t={t} label="Papel no condomínio"><select name="papel" defaultValue={papeis.includes(edit?.papel) ? edit.papel : "Morador"} style={inputStyle(t)}>{(edit?.papel === "Diretor" ? papeis : papeisAtribuiveis).map((p)=><option key={p}>{p}</option>)}</select></Field>
-              <Field t={t} label="Unidade vinculada"><ComboBusca t={t} name="unidade" vazio="—"
-                defaultValue={edit?.unidadeId || ""}
-                opcoes={db.ctx.unidades.map((u) => [u.id, u.labelResp])} /></Field>
+              <Field t={t} label="Unidade vinculada">
+                {/* dona de mais de um apartamento: o card mostra TODAS as
+                    unidades — o dropdown abaixo só altera o vínculo principal */}
+                {(edit?.unidades?.length || 0) > 1 && (
+                  <div className="mb-1.5 rounded-xl border px-2.5 py-1.5 text-[11px]" style={{ borderColor: t.border, background: t.goldSoft, color: t.dim }}>
+                    <b style={{ color: t.gold }}>{edit.unidades.length}</b> {L("unidades vinculadas:")}{" "}
+                    <b style={{ color: t.text }}>{edit.unidades.join(" · ")}</b> — {L("o campo abaixo altera só o vínculo principal.")}
+                  </div>)}
+                <ComboBusca t={t} name="unidade" vazio="—"
+                  defaultValue={edit?.unidadeId || ""}
+                  opcoes={db.ctx.unidades.map((u) => [u.id, u.labelResp])} /></Field>
               <Field t={t} label="Telefone"><PhoneInput t={t} name="tel" defaultValue={edit?.telRaw || ""} paisPadrao={db.cond?.pais || geoCache()?.pais || "BR"} /></Field>
               <Field t={t} label="E-mail"><input name="email" type="email" defaultValue={edit?.email || ""} style={inputStyle(t)} /></Field>
               <Field t={t} label="Data de entrada"><input name="inicio" type="date" defaultValue={edit?.inicio || ""} style={inputStyle(t)} /></Field>

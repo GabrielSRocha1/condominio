@@ -391,7 +391,8 @@ export async function loadAll(condominioId) {
       .map((x) => uExib(unidadeById[x.unidade_id])))];
     return {
       id: p.id, nome: p.nome, papel: v ? PAPEL_LABEL[v.papel] : "—",
-      unidade: unidadesTodas.length ? unidadesTodas.join(" · ") : "—", unidadeId: v?.unidade_id || null,
+      unidade: unidadesTodas.length ? unidadesTodas.join(" · ") : "—", unidades: unidadesTodas,
+      unidadeId: v?.unidade_id || null,
       doc: maskDoc(p.cpf_cnpj), tel: telExibicao(p.telefone, cond.pais), status: "ativo",
       documentoUrl: p.documento_url || null,
       /* valores crus para o formulário de edição */
@@ -1436,8 +1437,15 @@ export async function unificarPessoas(ctx, origem, destinoId, f) {
     .eq("responsavel_id", origem.id).select("id"), "cobrancas");
   await q(supabase.from("penalidades").update({ infrator_id: destinoId })
     .eq("infrator_id", origem.id).select("id"), "penalidades");
-  await q(supabase.from("usuarios").update({ pessoa_id: destinoId })
-    .eq("pessoa_id", origem.id).select("id"), "usuarios");
+  /* usuarios é do servidor de auth: no navegador este UPDATE nem tem GRANT
+     ("permission denied") e derrubava a unificação no meio. Melhor esforço:
+     quem tem CONTA é gente real, nunca o placeholder sendo unificado — se
+     existir uma e o update falhar, o delete da origem trava no FK e a tela
+     avisa ("ficou sem vínculos"), em vez de abortar tudo. */
+  try {
+    await q(supabase.from("usuarios").update({ pessoa_id: destinoId })
+      .eq("pessoa_id", origem.id).select("id"), "usuarios");
+  } catch { /* sem permissão aqui — o FK do delete decide */ }
 
   /* o papel escolhido no formulário vale para a unidade escolhida */
   if (f.unidade)

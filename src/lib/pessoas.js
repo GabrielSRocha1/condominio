@@ -30,3 +30,38 @@ export function camposQueFaltam(destino, form) {
   }
   return out;
 }
+
+/* documento provisório: "P-…" (responsável criado pela planilha/acessos) e
+   "M-…" (morador provisório) — cadastros que ainda esperam o documento real */
+export const docProvisorio = (d) => /^[MP]-/i.test(String(d ?? ""));
+
+const chaveNome = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "")
+  .toLowerCase().replace(/\s+/g, " ").trim();
+
+/* Plano de fusão dos cadastros duplicados que o reparo da planilha deixou:
+   o dono de VÁRIOS apartamentos virou várias pessoas de mesmo nome, uma com
+   o documento real e as demais presas no provisório ("doc já usado").
+   Regras: mesmo nome + no máximo UM documento real → funde os provisórios
+   nele (ou no mais antigo, se todos provisórios). Mesmo nome com DOIS
+   documentos reais pode ser gente diferente — não decide, reporta.
+   Entrada: [{ id, nome, doc, criadoEm }]; saída: { fusoes: [{ destino,
+   origens }], ambiguas: [[ids]] }. Pura — quem grava é o chamador. */
+export function planoDeDuplicados(pessoas) {
+  const grupos = new Map();
+  for (const p of pessoas || []) {
+    const k = chaveNome(p.nome);
+    if (!k) continue;
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k).push(p);
+  }
+  const fusoes = [], ambiguas = [];
+  for (const g of grupos.values()) {
+    if (g.length < 2) continue;
+    const ordem = [...g].sort((a, b) => String(a.criadoEm ?? "").localeCompare(String(b.criadoEm ?? "")));
+    const reais = ordem.filter((p) => !docProvisorio(p.doc));
+    if (reais.length > 1) { ambiguas.push(ordem.map((p) => p.id)); continue; }
+    const destino = reais[0] || ordem[0];
+    fusoes.push({ destino: destino.id, origens: ordem.filter((p) => p.id !== destino.id).map((p) => p.id) });
+  }
+  return { fusoes, ambiguas };
+}
