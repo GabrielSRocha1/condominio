@@ -6,6 +6,7 @@ import { expandirUnidades, mapaRotulos } from "./unidades.js";
 import { telExibicao } from "./telefone.js";
 import { exigeAprovacao, ehPerfilSobAprovacao } from "./aprovacoes.js";
 import { dedupeLinhasPlanilha, docUtil } from "./planilha.js";
+import { pessoaComMesmoDoc, camposQueFaltam } from "./pessoas.js";
 import { jsPDF } from "jspdf";
 
 /* POST com Idempotency-Key + retry único de rede: cada chamada ganha uma
@@ -383,9 +384,14 @@ export async function loadAll(condominioId) {
     const vs = vinculos.filter((v) => v.pessoa_id === p.id)
       .sort((a, b) => PAPEL_PRIORIDADE.indexOf(a.papel) - PAPEL_PRIORIDADE.indexOf(b.papel));
     const v = vs[0];
+    /* a pessoa pode ter VÁRIOS apartamentos (um vínculo por unidade) — a
+       coluna mostra todos; unidadeId/vinculoId seguem sendo os do vínculo
+       prioritário (são os defaults do formulário de edição) */
+    const unidadesTodas = [...new Set(vs.filter((x) => x.unidade_id)
+      .map((x) => uExib(unidadeById[x.unidade_id])))];
     return {
       id: p.id, nome: p.nome, papel: v ? PAPEL_LABEL[v.papel] : "—",
-      unidade: v?.unidade_id ? uExib(unidadeById[v.unidade_id]) : "—", unidadeId: v?.unidade_id || null,
+      unidade: unidadesTodas.length ? unidadesTodas.join(" · ") : "—", unidadeId: v?.unidade_id || null,
       doc: maskDoc(p.cpf_cnpj), tel: telExibicao(p.telefone, cond.pais), status: "ativo",
       documentoUrl: p.documento_url || null,
       /* valores crus para o formulário de edição */
@@ -1254,17 +1260,57 @@ async function uploadArquivos(ctx, valor, pasta) {
   return out;
 }
 
+/* o unique pessoas(condominio_id, cpf_cnpj) falando — vira mensagem de
+   gente em vez do texto cru do Postgres */
+const docJaExiste = (e) => /duplicate key/i.test(e?.message || "") && /cpf_cnpj/i.test(e?.message || "");
+const ERRO_DOC_DUPLICADO = "Este documento já pertence a outra pessoa deste condomínio — recarregue a tela e tente de novo.";
+
 export async function criarPessoa(ctx, f) {
   const [doc] = await uploadArquivos(ctx, f.arquivo, "pessoas");
   const documentoUrl = doc?.url || null;
+
+  /* o documento é a identidade: se já existe alguém com ele, não é OUTRA
+     pessoa — é a mesma com mais um apartamento. Vira vínculo novo no
+     cadastro existente (que manda no nome), nunca um cadastro duplicado. */
+  const todas = await q(supabase.from("pessoas")
+    .select("id, nome, telefone, email, documento_url, cpf_cnpj")
+    .eq("condominio_id", ctx.condominioId), "pessoas");
+  const existente = pessoaComMesmoDoc(todas, f.doc);
+  if (existente) {
+    const papel = PAPEL_ENUM[f.papel] || "morador";
+    const vigentes = await q(supabase.from("pessoa_vinculos").select("id, unidade_id, papel")
+      .eq("pessoa_id", existente.id).is("fim", null), "pessoa_vinculos");
+    const ja = vigentes.some((v) => (v.unidade_id || null) === (f.unidade || null) && v.papel === papel);
+    if (!ja) await q(supabase.from("pessoa_vinculos").insert({
+      condominio_id: ctx.condominioId, pessoa_id: existente.id,
+      unidade_id: f.unidade || null, papel,
+      inicio: f.inicio || new Date().toISOString().slice(0, 10),
+    }).select(), "pessoa_vinculos");
+    const falta = camposQueFaltam(existente, {
+      telefone: String(f.tel || "").slice(0, 20) || null, email: f.email || null, documento_url: documentoUrl,
+    });
+    if (Object.keys(falta).length)
+      await q(supabase.from("pessoas").update(falta).eq("id", existente.id).select(), "pessoas");
+    if (f.unidade) await salvarResponsavelUnidade(ctx, f.unidade, existente.id, false);
+    if (f.unidade && escritaVaiParaFila("unidades", "UPDATE"))
+      throw erroFila("Unidade vinculada à pessoa já cadastrada. Torná-la responsável financeiro da unidade depende do diretor — está em Aprovações.");
+    return;
+  }
+
   const idPessoa = idDaFila();
-  const dados = await q(supabase.from("pessoas").insert({
-    ...comId(idPessoa),
-    condominio_id: ctx.condominioId, nome: f.nome,
-    tipo_pessoa: String(f.doc || "").replace(/\D/g, "").length > 11 ? "juridica" : "fisica",
-    cpf_cnpj: f.doc, telefone: String(f.tel || "").slice(0, 20) || null, email: f.email || null,
-    documento_url: documentoUrl,
-  }).select(), "pessoas");
+  let dados;
+  try {
+    dados = await q(supabase.from("pessoas").insert({
+      ...comId(idPessoa),
+      condominio_id: ctx.condominioId, nome: f.nome,
+      tipo_pessoa: String(f.doc || "").replace(/\D/g, "").length > 11 ? "juridica" : "fisica",
+      cpf_cnpj: f.doc, telefone: String(f.tel || "").slice(0, 20) || null, email: f.email || null,
+      documento_url: documentoUrl,
+    }).select(), "pessoas");
+  } catch (e) {
+    /* corrida com outra sessão: a pré-checagem acima não viu, o unique viu */
+    throw docJaExiste(e) ? new Error(ERRO_DOC_DUPLICADO) : e;
+  }
   const p = linhaOuFila(dados, idPessoa, "pessoas");
   await q(supabase.from("pessoa_vinculos").insert({
     condominio_id: ctx.condominioId, pessoa_id: p.id,
@@ -1353,7 +1399,12 @@ export async function atualizarPessoa(ctx, pessoa, f) {
     cpf_cnpj: f.doc, telefone: String(f.tel || "").slice(0, 20) || null, email: f.email || null,
   };
   if (doc) upd.documento_url = doc.url;
-  await q1(supabase.from("pessoas").update(upd).eq("id", pessoa.id).select(), "pessoas", "Salvar a pessoa");
+  try {
+    await q1(supabase.from("pessoas").update(upd).eq("id", pessoa.id).select(), "pessoas", "Salvar a pessoa");
+  } catch (e) {
+    /* a tela pré-checa e oferece unificar; aqui é só a corrida restante */
+    throw docJaExiste(e) ? new Error(ERRO_DOC_DUPLICADO) : e;
+  }
   const dados = { unidade_id: f.unidade || null, papel: PAPEL_ENUM[f.papel] || "morador" };
   if (f.inicio) dados.inicio = f.inicio;
   if (pessoa.vinculoId)
@@ -1367,6 +1418,59 @@ export async function atualizarPessoa(ctx, pessoa, f) {
   if (f.unidade && f.unidade !== pessoa.unidadeId)
     await salvarResponsavelUnidade(ctx, f.unidade, pessoa.id, false);
   if (escritaVaiParaFila()) throw erroFila();
+}
+
+/* Unificação de cadastros: editar uma pessoa colocando o documento de OUTRA
+   é dizer "são a mesma" (ex.: o placeholder "Responsável 1-A" é o Dominico,
+   que já existe e tem outro apartamento). Tudo que aponta a ORIGEM passa a
+   apontar o DESTINO — os vínculos por UPDATE (preserva seus ids, que
+   chamados.responsavel_vinculo_id referencia) — e a origem é removida.
+   A tela SEMPRE confirma antes de chamar. O destino manda nos dados; do
+   formulário só entra o que ele tiver vazio. */
+export async function unificarPessoas(ctx, origem, destinoId, f) {
+  await q(supabase.from("pessoa_vinculos").update({ pessoa_id: destinoId })
+    .eq("pessoa_id", origem.id).select("id"), "pessoa_vinculos");
+  await q(supabase.from("unidades").update({ responsavel_financeiro_id: destinoId })
+    .eq("responsavel_financeiro_id", origem.id).select("id"), "unidades");
+  await q(supabase.from("cobrancas").update({ responsavel_id: destinoId })
+    .eq("responsavel_id", origem.id).select("id"), "cobrancas");
+  await q(supabase.from("penalidades").update({ infrator_id: destinoId })
+    .eq("infrator_id", origem.id).select("id"), "penalidades");
+  await q(supabase.from("usuarios").update({ pessoa_id: destinoId })
+    .eq("pessoa_id", origem.id).select("id"), "usuarios");
+
+  /* o papel escolhido no formulário vale para a unidade escolhida */
+  if (f.unidade)
+    await q(supabase.from("pessoa_vinculos").update({ papel: PAPEL_ENUM[f.papel] || "morador" })
+      .eq("pessoa_id", destinoId).eq("unidade_id", f.unidade).is("fim", null).select("id"), "pessoa_vinculos");
+
+  /* a repontagem pode ter deixado dois vínculos vigentes idênticos (mesma
+     unidade + papel) — fica o mais antigo. Funcionário/prestador nunca são
+     apagados aqui: chamados apontam para esses ids. */
+  const vig = await q(supabase.from("pessoa_vinculos").select("id, unidade_id, papel, criado_em")
+    .eq("pessoa_id", destinoId).is("fim", null), "pessoa_vinculos");
+  const vistos = new Set();
+  for (const v of [...vig].sort((a, b) => String(a.criado_em).localeCompare(String(b.criado_em)))) {
+    const k = `${v.unidade_id || ""}|${v.papel}`;
+    if (vistos.has(k) && !["funcionario", "prestador"].includes(v.papel))
+      await supabase.from("pessoa_vinculos").delete().eq("id", v.id);
+    else vistos.add(k);
+  }
+
+  const [docUp] = await uploadArquivos(ctx, f.arquivo, "pessoas");
+  const [dest] = await q(supabase.from("pessoas")
+    .select("id, telefone, email, documento_url").eq("id", destinoId), "pessoas");
+  const falta = camposQueFaltam(dest, {
+    telefone: String(f.tel || "").slice(0, 20) || null, email: f.email || null, documento_url: docUp?.url || null,
+  });
+  if (Object.keys(falta).length)
+    await q(supabase.from("pessoas").update(falta).eq("id", destinoId).select(), "pessoas");
+
+  /* um FK imprevisto (tabela nova apontando pessoas) não desfaz a
+     unificação: a origem fica, sem vínculos, e a tela avisa */
+  const { error: eDel } = await supabase.from("pessoas").delete().eq("id", origem.id);
+  if (escritaVaiParaFila()) throw erroFila();
+  return { origemRemovida: !eDel };
 }
 
 /* Exclusão: antes de apagar, confere onde a pessoa é referenciada e explica

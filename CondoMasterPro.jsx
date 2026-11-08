@@ -24,7 +24,7 @@ import {
   solicitarLinkRecuperacao, redefinirSenhaPorLink,
   salvarLogoCondominio, removerLogoCondominio, salvarLogoMenuCondominio, removerLogoMenuCondominio,
   obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade, recalcularFracoes,
-  atualizarPessoa, removerPessoa, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
+  atualizarPessoa, removerPessoa, unificarPessoas, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
   listarPermissoes, salvarPermissoes, restaurarPermissoes,
   listarAlteracoesPendentes, aprovarAlteracao, rejeitarAlteracao,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
@@ -35,6 +35,7 @@ import {
   listarNotificacoes,
 } from "./src/lib/api.js";
 import { casaUnidade } from "./src/lib/unidades.js";
+import { pessoaComMesmoDoc } from "./src/lib/pessoas.js";
 import { filtrarOpcoes, ehListaLonga, casaPorPrefixo } from "./src/lib/combo.js";
 import { calcularLote, elegivelLote, chaveLote, ordenarLote } from "./src/lib/receber-lote.js";
 import { formatarNotificacao, contarNaoVistas, ehNova, horaCurta, chaveVisto, maisRecente } from "./src/lib/notificacoes.js";
@@ -280,7 +281,9 @@ const useSubmit = (action, aoFila = null) => {
          espera). `aoFila` deixa a tela recarregar e fechar nesse caso —
          sem ele a lista ficaria mostrando o estado velho. */
       if (err?.fila && aoFila) { try { await aoFila(); } catch { /* a lista tenta de novo no próximo reload */ } }
-      alert(err?.fila ? (err.message || "") : "Não foi possível salvar: " + (err?.message || err));
+      /* L() traduz a mensagem quando ela é uma frase conhecida do app
+         (match exato no dicionário) e passa intacto o resto (erros crus) */
+      alert(err?.fila ? L(err.message || "") : `${L("Não foi possível salvar:")} ${L(err?.message || String(err))}`);
     }
     finally { setSaving(false); }
   };
@@ -1998,7 +2001,16 @@ function Pessoas({ t, role }) {
   const [importar, setImportar] = useState(false); // modal de importação em massa (planilha)
   const fechar = () => { setNovo(false); setEdit(null); };
   const [salvar, saving] = useSubmit(async (f) => {
-    if (edit) await atualizarPessoa(db.ctx, edit, f); else await criarPessoa(db.ctx, f);
+    /* mesmo documento de outra pessoa = a MESMA pessoa com mais um
+       apartamento. Editando, vira unificação (confirmada); criando,
+       criarPessoa acrescenta o vínculo ao cadastro existente sozinho. */
+    const outra = edit ? pessoaComMesmoDoc(db.pessoas, f.doc, edit.id) : null;
+    if (outra) {
+      if (!confirm(`${L("Este documento já é de")} ${outra.nome}. ${L("Unificar os cadastros? Unidades, cobranças e acesso deste cadastro passam para a pessoa existente, e este cadastro é removido.")}`)) return;
+      const r = await unificarPessoas(db.ctx, edit, outra.id, f);
+      if (!r.origemRemovida) alert(L("Cadastros unificados — mas o cadastro antigo não pôde ser removido e ficou sem vínculos."));
+    } else if (edit) await atualizarPessoa(db.ctx, edit, f);
+    else await criarPessoa(db.ctx, f);
     await reload(); fechar();
   }, async () => { await reload(); fechar(); });
   const [excluindo, setExcluindo] = useState(false);
