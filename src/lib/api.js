@@ -639,7 +639,9 @@ export async function loadAll(condominioId) {
     saldo: pagoTotal, receitaMes: fluxoAtual.receita, despesaMes: fluxoAtual.despesa,
     inadimplencia: Math.round((totVencido / (totCobr || 1)) * 1000) / 10,
     aReceber: emAbertoCobr.reduce((s, x) => s + (x.valorTotal ?? x.valor), 0),
-    aPagar: soma(lancRaw, (l) => l.tipo === "despesa" && l.status === "aberto"),
+    /* lancRaw é a linha CRUA do banco: o enum é 'aprovado' — "aberto" só
+       existe no mapa de UI, e o card "A pagar" ficava eternamente em 0 */
+    aPagar: soma(lancRaw, (l) => l.tipo === "despesa" && l.status === "aprovado"),
     fundoReserva: fundoDe("reserva"), fundoObras: fundoDe("obra"),
     cobrEmitidas: cobrValidas.length,
     cobrPagas: cobrValidas.filter((x) => x.status === "pago").length,
@@ -1542,6 +1544,92 @@ export async function criarLancamento(ctx, f) {
     status: "aguardando_aprovacao", lancado_por: uid, nota_fiscal_url: nf?.url || null,
   }).select(), "lancamentos");
   if (escritaVaiParaFila()) throw erroFila();
+}
+
+/* Importação em massa de CONTAS A PAGAR (planilha da tela Finanças).
+   Entrada: linhas já resolvidas por resolverLinhaDespesa (puro). Segue o
+   molde de importarPessoas: valida, resolve as categorias distintas (cria
+   as que faltam, como criarLancamento), DEDUPLICA contra o banco e dentro
+   do arquivo (lancamentos não tem unique — reimportar duplicaria), e
+   insere em lotes com origem_tipo 'planilha'.
+   Status pelo PODER de quem importa (flags vêm da tela, de usePerms):
+   aprovar=true → nasce conta a pagar ('aprovado'); linha paga + baixar=true
+   → 'pago' (entra no caixa; a âncora protege datas antigas); sem poder →
+   'aguardando_aprovacao', como o lançamento manual. */
+export async function importarLancamentos(ctx, linhas, { aprovar = false, baixar = false } = {}) {
+  const uid = precisaUsuario(ctx);
+  if (!linhas.length) return { criadas: 0, puladas: 0, recusadas: [] };
+  if (linhas.length > 2000) throw new Error("Máximo de 2.000 lançamentos por importação.");
+
+  const hoje = new Date().toISOString().slice(0, 10);
+  const recusadas = [];
+  const validas = [];
+  for (const l of linhas) {
+    if (!(Number(l.valor) > 0)) { recusadas.push({ linha: l, motivo: "Valor ausente ou igual a zero." }); continue; }
+    const competencia = /^\d{4}-\d{2}$/.test(l.competencia || "") ? l.competencia : "";
+    if (!competencia) { recusadas.push({ linha: l, motivo: "Sem competência nem data que diga o mês." }); continue; }
+    const categoria = (l.categoria || "Outros").slice(0, 80);
+    validas.push({
+      ...l, competencia, categoria,
+      desc: (l.desc || categoria).slice(0, 240),
+      data: l.data || `${competencia}-01`,
+    });
+  }
+  if (!validas.length) return { criadas: 0, puladas: 0, recusadas };
+
+  /* categorias distintas: acha ou cria, como criarLancamento faz uma a uma */
+  const catPorNome = new Map();
+  for (const v of validas) {
+    const k = v.categoria.toLowerCase();
+    if (catPorNome.has(k)) continue;
+    let cat = ctx.categorias.find((c) => c.tipo === "despesa" && c.nome.toLowerCase() === k);
+    if (!cat) {
+      const idCat = idDaFila();
+      cat = linhaOuFila(await q(supabase.from("categorias_financeiras")
+        .insert({ ...comId(idCat), condominio_id: ctx.condominioId, nome: v.categoria, tipo: "despesa" }).select(), "categorias"),
+        idCat, "categorias");
+      ctx.categorias.push({ id: cat.id, nome: v.categoria, tipo: "despesa" }); // o ctx em memória acompanha
+    }
+    catPorNome.set(k, cat.id);
+  }
+
+  /* dedupe: competência + valor + descrição — contra o que JÁ existe e
+     entre as linhas do próprio arquivo (reimportar o mesmo mês não duplica) */
+  const comps = [...new Set(validas.map((v) => v.competencia))];
+  const existentes = await q(supabase.from("lancamentos").select("competencia, valor, descricao")
+    .eq("condominio_id", ctx.condominioId).eq("tipo", "despesa").in("competencia", comps), "lancamentos");
+  const chaveDe = (comp, valor, desc) => `${comp}|${Number(valor)}|${String(desc || "").trim().toLowerCase()}`;
+  const vistas = new Set(existentes.map((e) => chaveDe(e.competencia, e.valor, e.descricao)));
+  const aCriar = [];
+  let puladas = 0;
+  for (const v of validas) {
+    const k = chaveDe(v.competencia, v.valor, v.desc);
+    if (vistas.has(k)) { puladas++; continue; }
+    vistas.add(k);
+    aCriar.push(v);
+  }
+
+  let criadas = 0, pagas = 0, abertas = 0, aguardando = 0;
+  for (let i = 0; i < aCriar.length; i += 200) {
+    const lote = aCriar.slice(i, i + 200);
+    const rows = lote.map((v) => {
+      const status = v.pago && baixar ? "pago" : aprovar ? "aprovado" : "aguardando_aprovacao";
+      if (status === "pago") pagas++; else if (status === "aprovado") abertas++; else aguardando++;
+      return {
+        condominio_id: ctx.condominioId, tipo: "despesa",
+        categoria_id: catPorNome.get(v.categoria.toLowerCase()),
+        descricao: v.desc, valor: Number(v.valor),
+        data: v.data || hoje, competencia: v.competencia,
+        centro_custo: v.centro || null, forma_pagamento: v.forma || null,
+        status, lancado_por: uid,
+        ...(status !== "aguardando_aprovacao" ? { aprovado_por: uid } : {}),
+        origem_tipo: "planilha",
+      };
+    });
+    const criadasLote = await q(supabase.from("lancamentos").insert(rows).select("id"), "lancamentos");
+    criadas += criadasLote.length || rows.length;
+  }
+  return { criadas, puladas, recusadas, pagas, abertas, aguardando };
 }
 
 /* Aprovação do lançamento (aba Aprovação do Financeiro) — igual às multas:

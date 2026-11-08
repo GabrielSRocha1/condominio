@@ -24,7 +24,7 @@ import {
   solicitarLinkRecuperacao, redefinirSenhaPorLink,
   salvarLogoCondominio, removerLogoCondominio, salvarLogoMenuCondominio, removerLogoMenuCondominio,
   obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade, recalcularFracoes,
-  atualizarPessoa, removerPessoa, unificarPessoas, marcarLancamentoPago, enviarPenalidade, criarDocumento, atualizarChamado,
+  atualizarPessoa, removerPessoa, unificarPessoas, marcarLancamentoPago, importarLancamentos, enviarPenalidade, criarDocumento, atualizarChamado,
   listarPermissoes, salvarPermissoes, restaurarPermissoes,
   listarAlteracoesPendentes, aprovarAlteracao, rejeitarAlteracao,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
@@ -40,7 +40,7 @@ import { filtrarOpcoes, ehListaLonga, casaPorPrefixo } from "./src/lib/combo.js"
 import { calcularLote, elegivelLote, chaveLote, ordenarLote } from "./src/lib/receber-lote.js";
 import { formatarNotificacao, contarNaoVistas, ehNova, horaCurta, chaveVisto, maisRecente } from "./src/lib/notificacoes.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
-import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, dedupeLinhasPlanilha, valorCalculado, valorDaColuna, valorExibido, normalizarValor, paraNumero, carregarExcelJS } from "./src/lib/planilha.js";
+import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, dedupeLinhasPlanilha, valorCalculado, valorDaColuna, valorExibido, normalizarValor, paraNumero, carregarExcelJS, inferirPapelDespesa, resolverLinhaDespesa } from "./src/lib/planilha.js";
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
 import { familiaCarteira, uriVerumPay, redesDaFamilia } from "./src/lib/qr-pagamento.js";
 import { pode, permsEfetivas, PERMISSOES, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, PERFIS_CRIAVEIS, PERFIL_SO_DIRETOR_CRIA, podeCriarPerfil, mesmoConjunto } from "./src/lib/permissoes.js";
@@ -2586,6 +2586,7 @@ function Financeiro({ t }) {
     return "lanc";
   });
   const [q, setQ] = useState(""); const [novo, setNovo] = useState(false);
+  const [importar, setImportar] = useState(false); // planilha de contas a pagar
   const [tipoNovo, setTipoNovo] = useState("Despesa");
   const CATS_DESPESA = ["Água","Luz","Gás","Limpeza","Portaria","Vigilância","Administração","Manutenção","Obras","Jardinagem","Seguro","Internet","Elevadores","Impostos","Honorários","Emergência","Outros"];
   const CATS_RECEITA = ["Parcela condomínio","Fundo de reserva","Fundo de obras","Taxa extra","Multas e advertências","Aluguel de espaço comum","Rendimentos financeiros","Outros"];
@@ -2673,6 +2674,7 @@ function Financeiro({ t }) {
       {tab === "lanc" ? (<>
         <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar lançamento…"
           action={<><Btn t={t} onClick={exportarLanc}><Download size={14} /> Exportar</Btn>
+            {podeLancar && <Btn t={t} onClick={() => setImportar(true)}><Upload size={15} /> Importar</Btn>}
             {podeLancar && <Btn t={t} kind="primary" onClick={() => setNovo(true)} data-tour="fin-novo"><Plus size={15} /> Lançamento</Btn>}</>} />
         <Tbl t={t} cols={[{k:"data",l:"Data"},{k:"tipo",l:"Tipo"},{k:"cat",l:"Categoria"},{k:"desc",l:"Descrição"},{k:"valor",l:"Valor"},{k:"nf",l:"NF"},{k:"status",l:"Status"}]}
           rows={rows}
@@ -2863,7 +2865,155 @@ function Financeiro({ t }) {
               <Btn t={t} kind="primary" type="submit" disabled={saving}><Check size={14} /> {saving ? "Salvando…" : "Lançar e enviar para aprovação"}</Btn></div>
           </form>
         </Modal>)}
+      {importar && <ImportarLancamentos t={t} onClose={() => setImportar(false)} onPronto={reload}
+        podeAprovar={podeAprovar} podeBaixar={podeBaixar} />}
     </div>
+  );
+}
+
+/* Importação de CONTAS A PAGAR por planilha — mesma UX do histórico de
+   cobranças (arquivo → conferir o papel de cada coluna → importar), mas SEM
+   tabela-espelho: o destino são lançamentos reais de despesa, direto nas
+   abas Contas a pagar/Contas pagas. Quem pode aprovar importa já aprovado;
+   linha paga vira "pago" para quem pode dar baixa (e aí entra no caixa). */
+const PAPEIS_LANC = [["", "— nenhum —"], ["valor", "Valor"], ["categoria", "Categoria"],
+  ["descricao", "Descrição"], ["data", "Data"], ["competencia", "Competência"],
+  ["centro", "Centro de custo"], ["forma", "Forma de pagamento"], ["pago", "Pago"]];
+function ImportarLancamentos({ t, onClose, onPronto, podeAprovar, podeBaixar }) {
+  const { db } = useData();
+  const [passo, setPasso] = useState("arquivo");
+  const [erro, setErro] = useState("");
+  const [lendo, setLendo] = useState(false);
+  const [drag, setDrag] = useState(false);
+  const [lido, setLido] = useState(null);
+  const [arquivo, setArquivo] = useState(null);
+  const [opcoes, setOpcoes] = useState({});
+  const [gravando, setGravando] = useState(false);
+  const [feito, setFeito] = useState(null);
+
+  const receber = async (file, extra) => {
+    if (!file || lendo) return;
+    const opts = { ...opcoes, ...(extra || {}), layout: "plano" };
+    setErro(""); setLendo(true);
+    try {
+      const r = await lerPlanilhaLivre(file, opts);
+      if (!r.linhas.length) { setErro(r.errosGerais.map(L).join(" ") || L("Nenhuma linha preenchida encontrada na planilha.")); return; }
+      /* o palpite de papel aqui é o vocabulário de DESPESA, não o de cobrança */
+      const colunas = r.colunas.map((c) => ({ ...c, papel: inferirPapelDespesa(c.titulo) }));
+      setArquivo(file); setOpcoes(opts);
+      setLido({ ...r, colunas });
+      setPasso("mapa");
+    } catch (e) { setErro(L(e?.message || String(e))); }
+    finally { setLendo(false); }
+  };
+  const trocarPapel = (chave, papel) => setLido((l) => ({
+    ...l, colunas: l.colunas.map((c) => (c.chave === chave ? { ...c, papel: papel || null } : (c.papel === papel && papel ? { ...c, papel: null } : c))),
+  }));
+
+  const resolvidas = useMemo(() => (lido ? lido.linhas.map((l) => resolverLinhaDespesa(lido.colunas, l.dados)) : []), [lido]);
+  const validas = resolvidas.filter((l) => Number(l.valor) > 0 && /^\d{4}-\d{2}$/.test(l.competencia || ""));
+  const nPagas = validas.filter((l) => l.pago).length;
+  const foraN = resolvidas.length - validas.length;
+  const catsNovas = useMemo(() => {
+    const doBanco = new Set(db.ctx.categorias.filter((c) => c.tipo === "despesa").map((c) => c.nome.toLowerCase()));
+    return [...new Set(validas.map((l) => (l.categoria || "Outros").toLowerCase()))].filter((n) => !doBanco.has(n)).length;
+  }, [validas, db.ctx.categorias]);
+  const temValor = lido?.colunas.some((c) => c.papel === "valor");
+
+  const gravar = async () => {
+    setGravando(true); setErro("");
+    try {
+      const r = await importarLancamentos(db.ctx, resolvidas, { aprovar: podeAprovar, baixar: podeAprovar && podeBaixar });
+      await onPronto();
+      setFeito(r); setPasso("fim");
+    } catch (e) { setErro(L(e?.message || String(e))); }
+    finally { setGravando(false); }
+  };
+
+  return (
+    <Modal t={t} onClose={onClose} wide>
+      <ModalHeader t={t} title="Importar contas a pagar" onClose={onClose} />
+
+      {passo === "arquivo" && (
+        <div className="space-y-3">
+          <div onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
+            onDrop={(e) => { e.preventDefault(); setDrag(false); receber(e.dataTransfer.files?.[0]); }}
+            className="rounded-2xl border border-dashed p-6 text-center"
+            style={{ borderColor: drag ? t.gold : t.borderSoft, background: drag ? t.goldSoft : "transparent" }}>
+            <Upload size={22} color={t.dim} className="mx-auto mb-2" />
+            <div className="text-sm font-semibold">{L("Arraste a planilha aqui")}</div>
+            <div className="mt-1 text-xs" style={{ color: t.dim }}>
+              {L(".xlsx ou .csv, com as colunas que você já usa — categoria, descrição, valor, mês…")}</div>
+            <label className="mt-3 inline-block cursor-pointer rounded-xl px-3 py-2 text-xs font-medium"
+              style={{ background: t.gold, color: "#131313" }}>
+              {lendo ? L("Lendo…") : L("Escolher arquivo")}
+              <input type="file" accept=".xlsx,.csv" className="hidden" disabled={lendo}
+                onChange={(e) => receber(e.target.files?.[0])} />
+            </label>
+          </div>
+          {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
+        </div>)}
+
+      {passo === "mapa" && lido && (
+        <div className="space-y-3">
+          <div className="text-xs" style={{ color: t.dim }}>
+            {lido.colunas.length} {L("coluna(s) e")} {lido.linhas.length} {L("linha(s) lidas.")}{" "}
+            {L("Confira o que cada coluna significa — valor e mês (ou data) são o que torna a linha importável.")}
+          </div>
+          {lido.errosGerais.map((e, i) => <div key={i} className="text-xs" style={{ color: t.warn }}>{L(e)}</div>)}
+          {(lido.previa?.length || 0) > 1 && (
+            <Field t={t} label="Linha do cabeçalho">
+              <select value={lido.cabecalhoNa} style={inputStyle(t)}
+                onChange={(e) => receber(arquivo, { linhaCabecalho: +e.target.value })}>
+                {lido.previa.map((p) => (
+                  <option key={p.n} value={p.n}>{p.n}: {(p.cels.filter(Boolean).slice(0, 4).join(" · ") || "—").slice(0, 70)}</option>))}
+              </select></Field>)}
+          <div className="max-h-56 space-y-1.5 overflow-y-auto">
+            {lido.colunas.map((c) => (
+              <div key={c.chave} className="flex items-center gap-2 rounded-xl border px-2.5 py-1.5" style={{ borderColor: t.borderSoft }}>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-semibold">{c.titulo}</div>
+                  <div className="text-[11px]" style={{ color: t.dim }}>{L({ texto: "Texto", numero: "Número", data: "Data" }[c.tipo])}</div>
+                </div>
+                <select value={c.papel || ""} onChange={(e) => trocarPapel(c.chave, e.target.value)}
+                  style={{ ...inputStyle(t), width: "auto", padding: "4px 8px", fontSize: 12 }}>
+                  {PAPEIS_LANC.map(([v, l]) => <option key={v} value={v}>{L(l)}</option>)}
+                </select>
+              </div>))}
+          </div>
+          <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.border, background: t.goldSoft, color: t.dim }}>
+            {temValor ? (<>
+              <b style={{ color: t.ok }}>{validas.length}</b> {L("linha(s) importáveis")}
+              {nPagas > 0 && <> · <b style={{ color: t.ok }}>{nPagas}</b> {L("pagas — entram no caixa")}</>}
+              {foraN > 0 && <> · <b style={{ color: t.warn }}>{foraN}</b> {L("sem valor ou sem mês — ficarão de fora")}</>}
+              {catsNovas > 0 && <> · <b>{catsNovas}</b> {L("categoria(s) nova(s) serão criadas")}</>}
+              {" — "}{podeAprovar
+                ? L("as contas entram direto na aba Contas a pagar; linhas repetidas (mesmo mês, valor e descrição) são puladas.")
+                : L("sem permissão de aprovar, tudo entra na aba Aprovação.")}
+            </>) : L("Marque uma coluna como Valor — sem ela nada pode ser importado.")}
+          </div>
+          {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
+          <div className="flex justify-end gap-2">
+            <Btn t={t} onClick={() => { setPasso("arquivo"); setLido(null); setArquivo(null); setOpcoes({}); }}>Voltar</Btn>
+            <Btn t={t} kind="primary" disabled={gravando || !validas.length} onClick={gravar}>
+              <Check size={14} /> {gravando ? L("Importando…") : `${L("Importar")} ${validas.length} ${L("linha(s)")}`}</Btn>
+          </div>
+        </div>)}
+
+      {passo === "fim" && feito && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm"><CheckCircle2 size={18} color={t.ok} />
+            <b>{feito.criadas}</b> {L("lançamento(s) importados.")}</div>
+          <div className="text-xs" style={{ color: t.dim }}>
+            {feito.abertas > 0 && <>{feito.abertas} {L("na aba Contas a pagar")} · </>}
+            {feito.pagas > 0 && <>{feito.pagas} {L("já pagas (no caixa)")} · </>}
+            {feito.aguardando > 0 && <>{feito.aguardando} {L("aguardando aprovação")} · </>}
+            {feito.puladas > 0 && <>{feito.puladas} {L("pulada(s) — já existiam")} · </>}
+            {feito.recusadas.length > 0 && <>{feito.recusadas.length} {L("recusada(s):")} {[...new Set(feito.recusadas.map((x) => x.motivo))].slice(0, 2).join(" ")}</>}
+          </div>
+          <div className="flex justify-end"><Btn t={t} kind="primary" onClick={onClose}>Fechar</Btn></div>
+        </div>)}
+    </Modal>
   );
 }
 

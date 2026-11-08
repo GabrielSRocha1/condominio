@@ -308,13 +308,50 @@ const FORMAS = Object.fromEntries(Object.entries(PAPEIS).map(([papel, termos]) =
    taxa_mora e "Cantina" viraria meses */
 const SUBSTRING_NAO = new Set(["mora", "cant", "cant."]);
 
-export function inferirPapel(titulo) {
+/* miolo compartilhado dos dois vocabulários (cobranças e despesas):
+   igualdade primeiro ("Pago" não pode casar com "Valor pago" por conter),
+   substring depois, na ORDEM dos papéis */
+const inferirDe = (formas) => (titulo) => {
   const n = norm(titulo);
   if (!n) return null;
-  /* igualdade primeiro: "Pago" não pode casar com "Valor pago" por conter */
-  for (const [papel, formas] of Object.entries(FORMAS)) if (formas.has(n)) return papel;
-  for (const [papel, formas] of Object.entries(FORMAS))
-    for (const f of formas) if (f.length >= 4 && !SUBSTRING_NAO.has(f) && n.includes(f)) return papel;
+  for (const [papel, fs] of Object.entries(formas)) if (fs.has(n)) return papel;
+  for (const [papel, fs] of Object.entries(formas))
+    for (const f of fs) if (f.length >= 4 && !SUBSTRING_NAO.has(f) && n.includes(f)) return papel;
+  return null;
+};
+export const inferirPapel = inferirDe(FORMAS);
+
+/* ─────────── vocabulário do IMPORT DE DESPESAS (contas a pagar) ───────────
+   Separado do de cobranças porque os mesmos títulos significam OUTRA coisa
+   aqui: "Período" é a competência da despesa, "Pago" é a baixa, e aparecem
+   papéis que cobrança não tem (Rubro/Categoria, Concepto/Descrição, centro
+   de custo, forma de pagamento). A ordem é a prioridade do passe de
+   substring — "Data de pagamento" tem de cair em data, não em pago. */
+const PAPEIS_DESP = {
+  valor: ["Valor", "Importe", "Monto", "Total", "Amount", "Valor total", "Monto total"],
+  categoria: ["Categoria", "Categoría", "Rubro", "Tipo de gasto", "Tipo de despesa", "Category"],
+  descricao: ["Descrição", "Descricao", "Descripción", "Descripcion", "Concepto", "Detalle", "Detalhe", "Description", "Histórico", "Historico", "Proveedor", "Fornecedor"],
+  data: ["Data", "Fecha", "Vencimento", "Vencimiento", "Data de pagamento", "Fecha de pago", "Due date", "Date"],
+  competencia: ["Competência", "Competencia", "Mês", "Mes", "Mês/Ano", "Mes/Año", "Período", "Periodo", "Month", "Period", "Referência", "Referencia"],
+  centro: ["Centro de custo", "Centro de custos", "Centro de costos", "Subcategoria", "Subcategoría", "Cost center"],
+  forma: ["Forma de pagamento", "Forma de pago", "Medio de pago", "Método de pago", "Metodo de pago", "Payment method", "Forma"],
+  pago: ["Pago", "Pagado", "Paid", "Status", "Estado", "Situação", "Situacao"],
+};
+const FORMAS_DESP = Object.fromEntries(Object.entries(PAPEIS_DESP).map(([papel, termos]) => [
+  papel, new Set(termos.flatMap((t) => traducoesDe(t)).map(norm)),
+]));
+export const inferirPapelDespesa = inferirDe(FORMAS_DESP);
+
+/* texto livre da planilha → enum forma_pagamento do banco (norm já tira
+   os acentos: "depósito" chega como "deposito") */
+export function formaEnumDe(s) {
+  const n = norm(s);
+  if (!n) return null;
+  if (/debito/.test(n)) return "debito_automatico";
+  if (/transfer|deposito|\bpix\b|\bted\b|\bdoc\b/.test(n)) return "transferencia";
+  if (/\bqr\b|verum/.test(n)) return "verum_pay";
+  if (/stripe|tarjeta|cartao|\bcard\b/.test(n)) return "stripe";
+  if (/efectivo|dinheiro|dinero|\bcash\b|especie/.test(n)) return "dinheiro";
   return null;
 }
 
@@ -791,6 +828,34 @@ export function resolverLinha(colunas, dados, ctx) {
   return {
     unidadeId: u.id || null, unidadeErro: !!u.erro, competencia, valor,
     vencimento, pago, pagoEm, pagoValor, nomeResp, docResp,
+  };
+}
+
+/* Linha do import de CONTAS A PAGAR → campos do lançamento, pelo PAPEL das
+   colunas (inferirPapelDespesa). Pura: quem valida e grava é o chamador.
+   Sem competência na planilha, o mês sai da data; a coluna de pagamento
+   segue a regra das cobranças (data, valor ou texto "pago"). */
+export function resolverLinhaDespesa(colunas, dados) {
+  const col = (papel) => colunas.find((c) => c.papel === papel);
+  const bruto = (papel) => { const c = col(papel); return c ? dados?.[c.chave] : undefined; };
+
+  const valor = paraNumero(bruto("valor"));
+  const data = paraISO(bruto("data")).iso || "";
+  let competencia = normalizarCompetencia(bruto("competencia"));
+  if (!competencia && data) competencia = data.slice(0, 7);
+
+  const colPago = col("pago");
+  const vPago = bruto("pago");
+  let pago = false, pagoEm = "";
+  if (colPago?.tipo === "data") { pagoEm = paraISO(vPago).iso || ""; pago = !!pagoEm; }
+  else { const n = paraNumero(vPago); pago = n != null ? n > 0 : PAGO_SIM.test(norm(texto(vPago))); }
+
+  return {
+    valor, data, competencia, pago, pagoEm,
+    categoria: texto(bruto("categoria")).trim().slice(0, 80),
+    desc: texto(bruto("descricao")).trim().slice(0, 240),
+    centro: texto(bruto("centro")).trim().slice(0, 80),
+    forma: formaEnumDe(texto(bruto("forma"))),
   };
 }
 
