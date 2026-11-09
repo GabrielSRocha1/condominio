@@ -272,9 +272,11 @@ begin
       -- só pelo backend (/api/auth/permissoes e /api/auth/acessos, service
       -- role). No loop, um síndico com dados.escrever editaria o próprio
       -- override e se promoveria a tudo.
+      -- auditoria: trilha append-only do Histórico (supabase-historico.sql) —
+      -- leitura só com tela.historico, escrita só por gatilho definer
       and table_name not in ('condominios', 'integracoes_pagamento',
                              'saas_assinaturas', 'pagamentos_informados',
-                             'auth_sessoes', 'auditoria_eventos',
+                             'auth_sessoes', 'auditoria_eventos', 'auditoria',
                              'perfil_permissoes', 'perfil_overrides', 'usuario_perfis')
   loop
     execute format('drop policy if exists tenant_escrita on public.%I', t.table_name);

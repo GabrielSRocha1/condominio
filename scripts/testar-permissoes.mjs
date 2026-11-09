@@ -80,8 +80,9 @@ ok("todo código tem rótulo e grupo",
   const bloco = jsx.slice(jsx.indexOf("const NAV = ["), jsx.indexOf("const PermsCtx"));
   const itens = [...bloco.matchAll(/\{\s*id:\s*"([a-z]+)".*?perm:\s*"([a-z.]+)"/gs)]
     .map(([, id, perm]) => ({ id, perm }));
-  /* 13 desde 02/11/2026: "Aprovações" saiu do menu com a fila congelada */
-  ok("NAV declara perm em todas as telas", itens.length === 13, `${itens.length} itens`);
+  /* 14 desde 09/11/2026: entrou "Histórico de alterações" (tela.historico);
+     13 desde 02/11/2026, quando "Aprovações" saiu com a fila congelada */
+  ok("NAV declara perm em todas as telas", itens.length === 14, `${itens.length} itens`);
   const semCatalogo = itens.filter((i) => !CODIGOS.includes(i.perm));
   ok("toda perm do NAV existe no catálogo", semCatalogo.length === 0,
     semCatalogo.map((i) => i.perm).join(", "));
@@ -157,8 +158,11 @@ ok("diretor ignora override", mesmoConjunto(permsEfetivas({ perfil: "diretor", o
      mesma tela por dois ângulos (o menu e o Paywall), e licença é do dono.
      `alteracao.aprovar` não está aqui porque virou FIXA: vale para todo
      perfil, não só para o administrador. */
-  ok("vedadas ao administrador: licença e Planos (propriedade)",
-    mesmoConjunto(PERMS_VEDADAS_AO_ADMIN, ["licenca.gerir", "tela.planos"]),
+  /* tela.historico + historico.desfazer entraram em 09/11/2026: a trilha de
+     alterações fiscaliza justamente quem administra o prédio */
+  ok("vedadas ao administrador: licença, Planos e Histórico (propriedade)",
+    mesmoConjunto(PERMS_VEDADAS_AO_ADMIN,
+      ["licenca.gerir", "tela.planos", "tela.historico", "historico.desfazer"]),
     PERMS_VEDADAS_AO_ADMIN.join(","));
   ok("alteracao.aprovar é vetada a todos os perfis editáveis",
     PERFIS_EDITAVEIS.every((pf) => !sanearPerms(pf, ["alteracao.aprovar", "chamado.abrir"]).includes("alteracao.aprovar")));
@@ -179,11 +183,13 @@ ok("diretor ignora override", mesmoConjunto(permsEfetivas({ perfil: "diretor", o
      aprovações acrescenta o `alteracao.aprovar` junto do perfil que ele
      cria. Ler só um daria falso alarme de divergência. */
   const sAprov = sql("supabase-aprovacoes.sql");
+  /* ...e o do Histórico acrescenta tela.historico + historico.desfazer (09/11/2026) */
+  const sHist = sql("supabase-historico.sql");
   const trechoCatalogo = (txt) => {
     const i = txt.indexOf("insert into public.permissoes");
     return i < 0 ? "" : txt.slice(i, txt.indexOf("on conflict (codigo)", i));
   };
-  const ins = trechoCatalogo(s) + trechoCatalogo(sAprov);
+  const ins = trechoCatalogo(s) + trechoCatalogo(sAprov) + trechoCatalogo(sHist);
   const doSql = [...ins.matchAll(/\('([a-z][a-z._]+)',/g)].map(([, c]) => c);
   const faltamNoSql = CODIGOS.filter((c) => !doSql.includes(c));
   const faltamNoJs = doSql.filter((c) => !CODIGOS.includes(c));

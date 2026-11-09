@@ -8,7 +8,7 @@ import {
   TrendingDown, CircleDot, User, KeyRound, Car, Package, DoorOpen, Star,
   ListChecks, Ban,
   Mail, EyeOff, Trash2, UserPlus, Upload, Copy, MapPin, Banknote, CreditCard,
-  ChevronDown, Rocket, Circle, Receipt, ClipboardCheck,
+  ChevronDown, Rocket, Circle, Receipt, ClipboardCheck, History, Undo2,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -32,7 +32,7 @@ import {
   carregarPlanilhaCobrancas, salvarPlanilhaCobrancas, salvarColunasPlanilha, atualizarCelulaPlanilha,
   criarLinhaPlanilha, removerLinhaPlanilha, criarCobrancasDaPlanilha, excluirPlanilhaCobrancas,
   obterReciboLote, baixarPdfRecibo, baixarPdfReciboLote, FORMA_ROTULO,
-  listarNotificacoes,
+  listarNotificacoes, listarHistorico, desfazerAlteracao,
 } from "./src/lib/api.js";
 import { casaUnidade } from "./src/lib/unidades.js";
 import { pessoaComMesmoDoc } from "./src/lib/pessoas.js";
@@ -45,6 +45,7 @@ import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, se
 import { familiaCarteira, uriVerumPay, redesDaFamilia } from "./src/lib/qr-pagamento.js";
 import { pode, permsEfetivas, PERMISSOES, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, PERFIS_CRIAVEIS, PERFIL_SO_DIRETOR_CRIA, podeCriarPerfil, mesmoConjunto } from "./src/lib/permissoes.js";
 import { rotuloTabela, rotuloOperacao, rotuloCampo, valorTexto, diff, resumir, agrupar, resumirGrupo, camposDoGrupo, ehPerfilSobAprovacao, ehAcao } from "./src/lib/aprovacoes.js";
+import { CATEGORIAS, entidadesDaCategoria, rotuloEntidade, verboAcao, diffLinha, descrever, resumoLinha, rotuloAutor, filtrarBusca, podeDesfazer, fraseEvento } from "./src/lib/historico.js";
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
 import { geoCache } from "./src/lib/geo.js";
@@ -181,6 +182,10 @@ const NAV = [
   { id: "documentos", label: "Documentos",       icon: FileText,        perm: "tela.documentos" },
   { id: "chamados",   label: "Manutenção",       icon: Wrench,          perm: "tela.chamados" },
   { id: "portaria",   label: "Portaria",         icon: DoorOpen,        perm: "tela.portaria" },
+  /* tela.historico fica fora da MATRIZ_PADRAO de todos os perfis e é vedada
+     ao administrador predial: por padrão só o DIRETOR a vê (anti-trava do
+     jwt_pode), delegável a síndico/tesouraria pela matriz. */
+  { id: "historico",  label: "Histórico de alterações", icon: History,  perm: "tela.historico" },
   { id: "emails",     label: "Gerenciar Acessos",icon: Mail,            perm: "tela.acessos" },
   { id: "planos",     label: "Planos",           icon: Star,            perm: "tela.planos" },
   /* "Aprovações" saiu daqui em 02/11/2026, com a fila congelada. Tirar só a
@@ -4981,6 +4986,174 @@ function AcessosDoCondominio({ t, role }) {
    precisa ser aprovada antes da filha, senão a chave estrangeira recusa.
    Aprovar fora de ordem não corrompe nada — a alteração fica pendente com
    o erro à vista —, mas é atrito evitável. */
+/* ══════════════ HISTÓRICO DE ALTERAÇÕES (padrão: só o diretor) ══════════════ */
+/* Lê a view historico_unificado (auditoria CRUD + auditoria_eventos de
+   segurança — supabase-historico.sql), paginada no SERVIDOR: a trilha cresce
+   sem teto e nunca entra no loadAll. Filtros de chip/ação/período vão na
+   consulta; a busca de texto é local, na página carregada. Degrada aberto:
+   SQL não rodado → aviso e nada mais. */
+function Historico({ t }) {
+  const { db, reload } = useData();
+  const perms = usePerms();
+  const podeDesf = pode(perms, "historico.desfazer");
+  const [linhas, setLinhas] = useState(null);          // null = carregando
+  const [indisponivel, setIndisponivel] = useState(false);
+  const [temMais, setTemMais] = useState(false);
+  const [pagina, setPagina] = useState(0);
+  const [cat, setCat] = useState("todas");
+  const [acao, setAcao] = useState("todas");
+  const [de, setDe] = useState("");
+  const [ate, setAte] = useState("");
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(null);                // linha aberta no modal
+  const [desfazendo, setDesfazendo] = useState(false);
+  const [versao, setVersao] = useState(0);             // recarrega após desfazer
+
+  useEffect(() => { setPagina(0); }, [cat, acao, de, ate]);
+  useEffect(() => {
+    let vivo = true;
+    setLinhas(null);
+    (async () => {
+      const r = await listarHistorico(db.ctx.condominioId, {
+        entidades: entidadesDaCategoria(cat),
+        acao: acao === "todas" ? null : acao,
+        de: de || null, ate: ate || null,
+      }, pagina);
+      if (!vivo) return;
+      if (r === null) { setIndisponivel(true); setLinhas([]); return; }
+      setIndisponivel(false); setLinhas(r.linhas); setTemMais(r.temMais);
+    })();
+    return () => { vivo = false; };
+  }, [db.ctx.condominioId, cat, acao, de, ate, pagina, versao]);
+
+  const rows = filtrarBusca(linhas || [], q);
+  const quando = (iso) => (iso ? new Date(iso).toLocaleString() : "—");
+  const VerboBadge = ({ r }) => {
+    const vb = verboAcao(r);
+    const cor = t[vb.tom] || t.dim;
+    return <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium"
+      style={{ background: cor + "1E", color: cor }}>{L(vb.rotulo)}</span>;
+  };
+
+  const desfazer = async (linha) => {
+    if (!window.confirm(L("Desfazer esta alteração? O registro volta ao estado anterior e a reversão fica gravada no histórico.")))
+      return;
+    setDesfazendo(true);
+    try {
+      await desfazerAlteracao(linha.ref);
+      setSel(null);
+      setVersao((v) => v + 1);  // a página do histórico ganhou a entrada DESFAZ
+      reload();                 // e os dados do app mudaram de verdade
+    } catch (e) { alert(L(e?.message || String(e))); }
+    finally { setDesfazendo(false); }
+  };
+
+  if (indisponivel) return (
+    <EmptyState t={t} icon={History} title="O Histórico ainda não está instalado no banco"
+      hint="Rode o supabase-historico.sql no SQL Editor do Supabase (passo 12 do README). Até lá o resto do app segue normal — nada depende desta aba." />);
+
+  return (
+    <div className="space-y-4">
+      {/* chips de categoria — mesmo padrão de pílulas do Financeiro */}
+      <div className="flex gap-1 overflow-x-auto">
+        {[["todas", "Todas"], ...CATEGORIAS.map((c) => [c.id, c.rotulo])].map(([k, l]) => (
+          <button key={k} onClick={() => setCat(k)} className="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium"
+            style={{ background: cat === k ? t.goldSoft : "transparent", color: cat === k ? t.gold : t.dim, border: `1px solid ${cat === k ? t.border : "transparent"}` }}>
+            {L(l)}</button>))}
+      </div>
+
+      <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar nesta página do histórico…">
+        <Sel t={t} value={acao} onChange={setAcao}
+          opts={[["todas", "Todas as ações"], ["INSERT", "Criou"], ["UPDATE", "Editou"], ["DELETE", "Excluiu"], ["DESFAZ", "Desfez"], ["EVENTO", "Eventos"]]} />
+        <input type="date" value={de} onChange={(e) => setDe(e.target.value)} title={L("De")}
+          style={{ ...inputStyle(t), width: "auto", fontSize: 12, padding: "6px 8px" }} />
+        <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} title={L("Até")}
+          style={{ ...inputStyle(t), width: "auto", fontSize: 12, padding: "6px 8px" }} />
+      </Toolbar>
+
+      {linhas === null ? <Skeleton t={t} /> : (<>
+        <Tbl t={t}
+          cols={[{ k: "quando", l: "Data e hora" }, { k: "quem", l: "Quem" }, { k: "acao", l: "Ação" },
+                 { k: "onde", l: "Onde" }, { k: "oque", l: "O que mudou" }, { k: "desfazer", l: "" }]}
+          rows={rows}
+          empty={<EmptyState t={t} icon={History} title="Nenhuma movimentação encontrada"
+            hint="A trilha grava tudo a partir da instalação do SQL. Ajuste os filtros ou o período — ou volte depois da primeira alteração." />}
+          onRowClick={(r) => setSel(r)}
+          renderCell={(r, k) => {
+            if (k === "quando") return <span className="whitespace-nowrap text-xs">{quando(r.ts)}</span>;
+            if (k === "quem") return (
+              <div className="min-w-0">
+                <div className="truncate text-xs font-medium">{L(rotuloAutor(r))}</div>
+                <div className="text-[10px]" style={{ color: t.dim }}>
+                  {r.perfil && r.perfil !== "sistema" ? (L(PROFILES[r.perfil]?.label || r.perfil)) : ""}</div>
+              </div>);
+            if (k === "acao") return <VerboBadge r={r} />;
+            if (k === "onde") return (
+              <span className="text-xs" style={{ color: r.severidade === "alta" ? t.danger : t.text }}>
+                {r.acao === "EVENTO" ? L("Sistema") : L(rotuloEntidade(r.entidade))}</span>);
+            if (k === "oque") return (
+              <span className="block max-w-[340px] truncate text-xs" title={descrever(r, 99)}>
+                {r.acao === "EVENTO" ? L(fraseEvento(r.entidade)) : (descrever(r) || "—")}</span>);
+            if (k === "desfazer") return podeDesf && podeDesfazer(r) ? (
+              <Btn t={t} className="!px-2 !py-1 text-xs" disabled={desfazendo}
+                onClick={(e) => { e.stopPropagation(); desfazer(r); }}>
+                <Undo2 size={12} /> Desfazer</Btn>) : null;
+            return null;
+          }} />
+
+        {(pagina > 0 || temMais) && (
+          <div className="flex items-center justify-center gap-3 text-xs" style={{ color: t.dim }}>
+            <Btn t={t} className="!px-2 !py-1" disabled={pagina === 0} onClick={() => setPagina(pagina - 1)}><ChevronLeft size={13} /></Btn>
+            <span>{L("página")} {pagina + 1}</span>
+            <Btn t={t} className="!px-2 !py-1" disabled={!temMais} onClick={() => setPagina(pagina + 1)}><ChevronRight size={13} /></Btn>
+          </div>)}
+      </>)}
+
+      {sel && (
+        <Modal t={t} wide onClose={() => setSel(null)}>
+          <ModalHeader t={t} title="Detalhe da alteração" onClose={() => setSel(null)} />
+          <div className="space-y-3 text-sm">
+            <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs" style={{ color: t.dim }}>
+              <span><b style={{ color: t.text }}>{L(rotuloAutor(sel))}</b>
+                {sel.perfil && sel.perfil !== "sistema" ? ` · ${L(PROFILES[sel.perfil]?.label || sel.perfil)}` : ""}</span>
+              <span>{quando(sel.ts)}</span>
+              {sel.autor_email && <span>{sel.autor_email}</span>}
+            </div>
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <VerboBadge r={sel} />
+              <span>{sel.acao === "EVENTO" ? L(fraseEvento(sel.entidade)) : L(rotuloEntidade(sel.entidade))}</span>
+              {resumoLinha(sel) && <span className="font-normal" style={{ color: t.dim }}>· {resumoLinha(sel)}</span>}
+              {sel.desfaz_de != null && <span className="font-normal" style={{ color: t.dim }}>· {L("reversão de uma alteração anterior")}</span>}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr style={{ color: t.dim }}>
+                  <th className="px-2 py-1 text-left">{L("Campo")}</th>
+                  <th className="px-2 py-1 text-left">{L("Antes")}</th>
+                  <th className="px-2 py-1 text-left">{L("Depois")}</th>
+                </tr></thead>
+                <tbody>
+                  {diffLinha(sel).map(({ campo, de: d0, para }) => (
+                    <tr key={campo} style={{ borderTop: `1px solid ${t.borderSoft}` }}>
+                      <td className="px-2 py-1.5 font-medium">{rotuloCampo(campo)}</td>
+                      <td className="px-2 py-1.5" style={{ color: t.dim }}>{valorTexto(d0)}</td>
+                      <td className="px-2 py-1.5" style={{ color: sel.acao === "DELETE" ? t.danger : t.text }}>{valorTexto(para)}</td>
+                    </tr>))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <Btn t={t} onClick={() => setSel(null)}>{L("Fechar")}</Btn>
+            {podeDesf && podeDesfazer(sel) && (
+              <Btn t={t} kind="danger" disabled={desfazendo} onClick={() => desfazer(sel)}>
+                <Undo2 size={14} /> {desfazendo ? L("Desfazendo…") : L("Desfazer esta alteração")}</Btn>)}
+          </div>
+        </Modal>)}
+    </div>
+  );
+}
+
 function Aprovacoes({ t, role }) {
   const { db, reload } = useData();
   /* o administrador acompanha a própria fila, mas não decide — as RPCs
@@ -6772,6 +6945,7 @@ export default function App() {
        e a tela fica inalcançável. O componente continua logo acima, pronto
        para religar em duas linhas se a fila voltar. */
     emails: <GerenciarEmails t={t} role={role} />, planos: <Planos t={t} />,
+    historico: <Historico t={t} />,
   };
   const current = NAV.find((n) => n.id === screen);
 
@@ -6847,6 +7021,7 @@ export default function App() {
                   {(() => { /* subtítulo com dados reais do condomínio (era texto fictício) */
                     const fixo = {dashboard:"Visão geral do condomínio em tempo real",condominio:"Cadastro-mãe: dados legais, gestão e regras internas",
                       portaria:"Controle de acessos, entregas e ocorrências",
+                      historico:"Toda movimentação do condomínio: quem fez, quando e o quê",
                       emails:"E-mails e senhas de acesso dos perfis síndico, tesouraria e morador"}[screen];
                     if (fixo) return L(fixo);
                     if (!db) return "";

@@ -98,14 +98,24 @@ idiomas, instalável como PWA.
       Exige o `supabase-permissoes.sql` antes. Sem ele o perfil não existe e
       nada muda.
 
+   12. `supabase-historico.sql` — aba **Histórico de alterações** (padrão:
+      só o diretor; delegável pela matriz, vedada ao Administrador): endurece
+      a tabela `auditoria` (leitura só com `tela.historico`, append-only),
+      põe o gatilho `trg_historico` em 19 tabelas do domínio (quem, o quê —
+      antes/depois —, quando, criou/editou/excluiu), cria a view
+      `historico_unificado` (CRUD + eventos de segurança da seguranca3) e a
+      RPC `desfazer_alteracao` (reverte cadastros com checagem otimista e
+      grava entrada 'DESFAZ'; dinheiro fica fora). Sem ele o app funciona e
+      a aba mostra o aviso para rodá-lo.
+
    Banco **já instalado**? Não re-rode o schema inteiro — rode apenas o que
    faltar, na ordem: o `alter table usuarios add column if not exists
    preferencias …` que vem logo abaixo do `create table usuarios` (idioma por
    conta), `supabase-seguranca4.sql` e `supabase-seguranca5.sql` ("Esqueci
    minha senha"), `supabase-encargos.sql`, `supabase-planilhas.sql`,
    `supabase-fundo-reserva.sql`, `supabase-notificacoes.sql`,
-   `supabase-planilha-sync.sql`, `supabase-permissoes.sql` e
-   `supabase-aprovacoes.sql` (passos 5–11
+   `supabase-planilha-sync.sql`, `supabase-permissoes.sql`,
+   `supabase-aprovacoes.sql` e `supabase-historico.sql` (passos 5–12
    acima — todos idempotentes e com degrade aberto: sem eles o app funciona
    com o comportamento antigo).
    Licença ancorada em USD (antes BRL)? Rode também o UPDATE dos planos:
@@ -123,6 +133,10 @@ idiomas, instalável como PWA.
    `supabase-permissoes.sql` exige re-rodar o `supabase-aprovacoes.sql`
    depois: ele recria os embrulhos das RPCs de baixa/cancelamento sem o
    desvio da fila, e é o passo 11 que os devolve ao estado atual.
+   Re-rodar o `supabase-rls.sql` **ou** o `supabase-seguranca3.sql` exige
+   re-rodar o `supabase-historico.sql` por último: eles recriam a policy de
+   `auditoria_eventos` decidindo por nome de perfil, e é o passo 12 que a
+   devolve à matriz (`jwt_pode`).
 4. **Stripe** — `node scripts/preparar-stripe-producao.mjs --cotacao <USD→BRL> --executar`
    cria products/prices (base BRL = USD × cotação + `currency_options.usd`
    exato — a licença é ancorada em USD), o promotion code de ativação manual
@@ -152,6 +166,7 @@ idiomas, instalável como PWA.
 | `testar-permissoes.mjs` | sondas da matriz de permissões: catálogo, padrão que reproduz o comportamento pré-matriz, override que SUBSTITUI (e zera) o padrão, paridade JS ≡ SQL ≡ NAV e, com banco, policies por permissão + gatilho de aprovação + blindagem da própria matriz (bloco B pula se o supabase-permissoes.sql não rodou) |
 | `testar-webhook-stripe.mjs` | sondas da autenticação dos webhooks da Stripe: corpo bruto preservado byte a byte (inclusive multibyte partido entre chunks), recusa de corpo re-serializado e a contingência que confirma o evento na própria Stripe quando a plataforma já parseou o corpo |
 | `testar-aprovacoes.mjs` | sondas do Administrador predial: a fila está desarmada nos três espelhos (SQL + 2 JS) e o mecanismo segue instalado; a prova no banco de que a escrita dele ENTRA na hora e nada é enfileirado; e as 4 exceções recusadas de verdade — criar/remover acesso de Diretor, excluir a pessoa do Diretor (pelas duas ligações, mais o rebaixamento do papel) e Planos/licença negadas pelo próprio `jwt_pode`. Inclui o ACL de `executar_acao` e o retrato das pendências congeladas (nenhuma é tocada) |
+| `testar-historico.mjs` | sondas da aba Histórico de alterações: motor puro (categorias/chips, verbos com "Adicionou" nas filhas, diff que ignora carimbos, descrição dos 5 tipos, busca sem acento, regras do desfazer) e paridade de fonte — tabelas do gatilho ≡ JS, bloqueio de dinheiro da RPC ≡ `ENTIDADES_SEM_DESFAZER`, `auditoria` nas listas de exclusão dos loops, policies por `jwt_pode` e NAV/SCREENS com a aba |
 | `testar-combo.mjs` | sondas do dropdown com busca (`src/lib/combo.js`): filtro sem acento/caixa com termos em qualquer ordem, corte entre lista curta (continua `<select>` nativo, melhor no celular) e longa — e, no fonte, as armadilhas de montagem: lista em posição fixa (o modal tem `overflow-y-auto` e cortaria uma absoluta), Enter que escolhe em vez de enviar o formulário, `required` no campo visível (o escondido fica fora da validação) e nenhum `<select>` cru de unidade/pessoa de volta |
 | `relatorio-seguranca.mjs` | auditoria semanal (sessões, eventos, anomalias) |
 | `emergencia-sessoes.mjs` | resposta a incidente: revoga sessões em massa |

@@ -56,10 +56,12 @@ begin
     where table_schema = 'public' and column_name = 'condominio_id'
       -- fora do loop: condominios tem policies próprias abaixo; as demais são
       -- exceções (escrita só backend) tratadas no fim do arquivo; auth_sessoes
-      -- e auditoria_eventos pertencem às etapas de segurança (seguranca 1/3)
+      -- e auditoria_eventos pertencem às etapas de segurança (seguranca 1/3);
+      -- auditoria é a trilha append-only do Histórico (supabase-historico.sql:
+      -- leitura só com tela.historico, escrita só por gatilho definer)
       and table_name not in ('condominios', 'integracoes_pagamento',
                              'saas_assinaturas', 'pagamentos_informados',
-                             'auth_sessoes', 'auditoria_eventos')
+                             'auth_sessoes', 'auditoria_eventos', 'auditoria')
   loop
     execute format('alter table public.%I enable row level security', t.table_name);
     -- leitura: qualquer perfil do próprio condomínio

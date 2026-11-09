@@ -1111,6 +1111,55 @@ export async function listarNotificacoes(condominioId, limite = 30) {
   } catch { return null; }
 }
 
+/* ══════════════ HISTÓRICO DE ALTERAÇÕES (aba do diretor) ══════════════ */
+
+/* Página da trilha unificada (view historico_unificado: auditoria +
+   auditoria_eventos — supabase-historico.sql). FORA do loadAll: é uma tela
+   de consulta, paginada no servidor, que ninguém mais usa. Degrada aberto:
+   SQL não rodado (view inexistente) ou qualquer erro → null, e a aba mostra
+   o aviso para rodar o arquivo. Pede UMA linha além da página (truque N+1)
+   só para saber se existe próxima — não há count() na view. */
+export async function listarHistorico(condominioId, filtros = {}, pagina = 0, porPagina = 50) {
+  try {
+    let qy = supabase.from("historico_unificado").select("*")
+      .eq("condominio_id", condominioId)
+      .order("ts", { ascending: false })
+      .range(pagina * porPagina, (pagina + 1) * porPagina);
+    if (filtros.entidades?.length) qy = qy.in("entidade", filtros.entidades);
+    if (filtros.acao) qy = qy.eq("acao", filtros.acao);
+    if (filtros.de) qy = qy.gte("ts", filtros.de);
+    if (filtros.ate) qy = qy.lte("ts", filtros.ate + "T23:59:59");
+    const { data, error } = await qy;
+    if (error) return null;
+    return { linhas: (data || []).slice(0, porPagina), temMais: (data || []).length > porPagina };
+  } catch { return null; }
+}
+
+const ERROS_DESFAZER = {
+  nao_autorizado: "Você não tem a permissão de desfazer alterações.",
+  inexistente: "Registro do histórico não encontrado.",
+  nao_desfazivel: "Esta entrada não pode ser desfeita (evento do sistema ou conteúdo grande demais).",
+  entidade_bloqueada: "Movimentos de dinheiro não são desfeitos por aqui — use o cancelamento ou a rejeição da própria tela.",
+  registro_mudou: "O registro foi alterado depois desta mudança — desfaça as mais recentes primeiro.",
+  ja_removido: "Este registro já foi removido depois desta mudança — desfaça a exclusão mais recente primeiro.",
+  tem_dependencias: "Este registro já tem outros ligados a ele — remova-os primeiro.",
+  dependencia_ausente: "Algo de que este registro dependia foi removido depois — não dá para recriá-lo.",
+};
+
+/* Reverte UMA entrada do histórico (RPC desfazer_alteracao, transacional):
+   criou → exclui; editou → volta ao estado anterior; excluiu → recria com o
+   mesmo id. A RPC só aplica se o estado ATUAL da linha ainda bate com o
+   `depois` gravado (checagem otimista) e grava uma entrada nova 'DESFAZ' —
+   o histórico nunca é apagado. */
+export async function desfazerAlteracao(refId) {
+  const { data, error } = await supabase.rpc("desfazer_alteracao", { p_id: refId });
+  if (error) throw new Error(/does not exist|schema cache/i.test(error.message)
+    ? "O banco está desatualizado: rode o supabase-historico.sql no SQL Editor para habilitar o Histórico."
+    : error.message);
+  if (data?.ok === false) throw new Error(ERROS_DESFAZER[data.erro] || `Desfazer recusado: ${data.erro}`);
+  return data;
+}
+
 const precisaUsuario = (ctx) => {
   if (!ctx.usuarioId) throw new Error("Nenhum usuário cadastrado no banco (rode o seed).");
   return ctx.usuarioId;

@@ -37,6 +37,8 @@ export const PERMISSOES = [
   { codigo: "tela.documentos",  grupo: "tela", tela: "documentos",  rotulo: "Documentos" },
   { codigo: "tela.chamados",    grupo: "tela", tela: "chamados",    rotulo: "Manutenção" },
   { codigo: "tela.portaria",    grupo: "tela", tela: "portaria",    rotulo: "Portaria" },
+  { codigo: "tela.historico",   grupo: "tela", tela: "historico",   rotulo: "Histórico de alterações",
+    ajuda: "Toda movimentação do condomínio: quem criou, alterou ou excluiu, e quando. Padrão: só o diretor." },
   { codigo: "tela.acessos",     grupo: "tela", tela: "emails",      rotulo: "Gerenciar Acessos" },
   { codigo: "tela.planos",      grupo: "tela", tela: "planos",      rotulo: "Planos e licença" },
   { codigo: "tela.portal",      grupo: "tela", tela: null,          rotulo: "Portal do morador" },
@@ -64,6 +66,8 @@ export const PERMISSOES = [
     ajuda: "Criar e remover valem na hora. O acesso de DIRETOR é a exceção: só outro diretor cria, remove — ou enxerga na lista." },
   { codigo: "licenca.gerir",       grupo: "acao", rotulo: "Contratar, trocar e cancelar a licença",
     ajuda: "Inclui o portal de cobrança da Stripe e o onboarding de recebimento. Anda junto com a tela Planos: as duas são do dono do condomínio." },
+  { codigo: "historico.desfazer",  grupo: "acao", rotulo: "Desfazer alterações pelo Histórico",
+    ajuda: "Reverte criação, edição e exclusão de cadastros. Movimentos de dinheiro ficam de fora: cancelamento e rejeição têm caminho próprio." },
   { codigo: "alteracao.aprovar",   grupo: "acao", fixo: true, rotulo: "Decidir alterações pendentes",
     ajuda: "Fila de aprovação congelada em 02/11/2026. O código continua existindo porque as RPCs aprovar/rejeitar_alteracao o exigem, e ficou INDELEGÁVEL: decidir pendência antiga é aplicar escrita sem ninguém olhando." },
 
@@ -125,6 +129,12 @@ export const PERFIS_SOB_APROVACAO = [];
 export const PERMS_VEDADAS_AO_ADMIN = [
   "licenca.gerir",   // propriedade: licença é do dono (e /api/stripe/* exige)
   "tela.planos",     // propriedade: a tela que mostra e troca o plano
+  /* O Histórico entrou em 09/11/2026 pelo MESMO princípio: a trilha de
+     alterações é o instrumento do dono para fiscalizar quem administra o
+     prédio. Dar a tela (ou o desfazer) ao administrador anularia a
+     fiscalização — ele leria e reverteria o próprio rastro. */
+  "tela.historico",
+  "historico.desfazer",
 ];
 
 /* ── Quem cria acesso de quem ──
