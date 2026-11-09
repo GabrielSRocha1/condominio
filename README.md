@@ -108,6 +108,20 @@ idiomas, instalável como PWA.
       grava entrada 'DESFAZ'; dinheiro fica fora). Sem ele o app funciona e
       a aba mostra o aviso para rodá-lo.
 
+   13. `supabase-reservas-assembleias.sql` — telas **Reservas** e
+      **Assembleias** (as tabelas existiam no schema desde o início, órfãs):
+      permissões `tela.reservas`/`tela.assembleias`/`reserva.decidir`
+      (síndico e administrador) e `reserva.solicitar` (morador, com policy
+      própria de INSERT — o pedido nasce `solicitada`), RPC
+      `confirmar_reserva` (área com taxa gera a cobrança `extra` da unidade
+      e grava `cobranca_id` — fora do índice único das ordinárias e fora da
+      planilla de mora) e trigger do sino `reserva.solicitada`. Este passo
+      exige re-rodar ANTES os definitivos atualizados `supabase-historico.sql`
+      (trg_historico agora cobre as 4 tabelas — 23 relações) e
+      `supabase-planilha-sync.sql` (cobrança `extra` não vira linha de mora).
+      Sem ele o app funciona: as telas aparecem para a gestão, confirmar
+      avisa para rodá-lo e a solicitação do morador é negada com aviso.
+
    Banco **já instalado**? Não re-rode o schema inteiro — rode apenas o que
    faltar, na ordem: o `alter table usuarios add column if not exists
    preferencias …` que vem logo abaixo do `create table usuarios` (idioma por
@@ -115,7 +129,8 @@ idiomas, instalável como PWA.
    minha senha"), `supabase-encargos.sql`, `supabase-planilhas.sql`,
    `supabase-fundo-reserva.sql`, `supabase-notificacoes.sql`,
    `supabase-planilha-sync.sql`, `supabase-permissoes.sql`,
-   `supabase-aprovacoes.sql` e `supabase-historico.sql` (passos 5–12
+   `supabase-aprovacoes.sql`, `supabase-historico.sql` e
+   `supabase-reservas-assembleias.sql` (passos 5–13
    acima — todos idempotentes e com degrade aberto: sem eles o app funciona
    com o comportamento antigo).
    Licença ancorada em USD (antes BRL)? Rode também o UPDATE dos planos:
@@ -136,7 +151,8 @@ idiomas, instalável como PWA.
    Re-rodar o `supabase-rls.sql` **ou** o `supabase-seguranca3.sql` exige
    re-rodar o `supabase-historico.sql` por último: eles recriam a policy de
    `auditoria_eventos` decidindo por nome de perfil, e é o passo 12 que a
-   devolve à matriz (`jwt_pode`).
+   devolve à matriz (`jwt_pode`). E re-rodar o `supabase-rls.sql` também
+   derruba a policy `morador_solicita_reserva` — o passo 13 a recria.
 4. **Stripe** — `node scripts/preparar-stripe-producao.mjs --cotacao <USD→BRL> --executar`
    cria products/prices (base BRL = USD × cotação + `currency_options.usd`
    exato — a licença é ancorada em USD), o promotion code de ativação manual
@@ -166,6 +182,7 @@ idiomas, instalável como PWA.
 | `testar-permissoes.mjs` | sondas da matriz de permissões: catálogo, padrão que reproduz o comportamento pré-matriz, override que SUBSTITUI (e zera) o padrão, paridade JS ≡ SQL ≡ NAV e, com banco, policies por permissão + gatilho de aprovação + blindagem da própria matriz (bloco B pula se o supabase-permissoes.sql não rodou) |
 | `testar-webhook-stripe.mjs` | sondas da autenticação dos webhooks da Stripe: corpo bruto preservado byte a byte (inclusive multibyte partido entre chunks), recusa de corpo re-serializado e a contingência que confirma o evento na própria Stripe quando a plataforma já parseou o corpo |
 | `testar-aprovacoes.mjs` | sondas do Administrador predial: a fila está desarmada nos três espelhos (SQL + 2 JS) e o mecanismo segue instalado; a prova no banco de que a escrita dele ENTRA na hora e nada é enfileirado; e as 4 exceções recusadas de verdade — criar/remover acesso de Diretor, excluir a pessoa do Diretor (pelas duas ligações, mais o rebaixamento do papel) e Planos/licença negadas pelo próprio `jwt_pode`. Inclui o ACL de `executar_acao` e o retrato das pendências congeladas (nenhuma é tocada) |
+| `testar-reservas.mjs` | sondas das telas Reservas e Assembleias: motor puro (conflito advisory — a autoridade é a constraint GiST —, antecedência mínima, pauta ⇄ jsonb, presenças/quórum, transições de status) e paridade de fonte (policy do morador força `solicitada` e decide por `jwt_pode`, RPC `confirmar_reserva` exige `reserva.decidir` e cria a cobrança `extra`, sync da planilha pula `extra`, histórico cobre as 4 tabelas com `reservas` no bloqueio do desfazer, sino conhece `reserva.solicitada`, NAV/SCREENS e portal com os ids da sessão) |
 | `testar-historico.mjs` | sondas da aba Histórico de alterações: motor puro (categorias/chips, verbos com "Adicionou" nas filhas, diff que ignora carimbos, descrição dos 5 tipos, busca sem acento, regras do desfazer) e paridade de fonte — tabelas do gatilho ≡ JS, bloqueio de dinheiro da RPC ≡ `ENTIDADES_SEM_DESFAZER`, `auditoria` nas listas de exclusão dos loops, policies por `jwt_pode` e NAV/SCREENS com a aba |
 | `testar-combo.mjs` | sondas do dropdown com busca (`src/lib/combo.js`): filtro sem acento/caixa com termos em qualquer ordem, corte entre lista curta (continua `<select>` nativo, melhor no celular) e longa — e, no fonte, as armadilhas de montagem: lista em posição fixa (o modal tem `overflow-y-auto` e cortaria uma absoluta), Enter que escolhe em vez de enviar o formulário, `required` no campo visível (o escondido fica fora da validação) e nenhum `<select>` cru de unidade/pessoa de volta |
 | `relatorio-seguranca.mjs` | auditoria semanal (sessões, eventos, anomalias) |

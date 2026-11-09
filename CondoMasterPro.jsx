@@ -9,6 +9,7 @@ import {
   ListChecks, Ban,
   Mail, EyeOff, Trash2, UserPlus, Upload, Copy, MapPin, Banknote, CreditCard,
   ChevronDown, Rocket, Circle, Receipt, ClipboardCheck, History, Undo2,
+  CalendarDays, Vote,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -33,6 +34,9 @@ import {
   criarLinhaPlanilha, removerLinhaPlanilha, criarCobrancasDaPlanilha, excluirPlanilhaCobrancas,
   obterReciboLote, baixarPdfRecibo, baixarPdfReciboLote, FORMA_ROTULO,
   listarNotificacoes, listarHistorico, desfazerAlteracao,
+  criarArea, atualizarArea, desativarArea, criarReserva, solicitarReserva,
+  confirmarReserva, mudarStatusReserva, criarAssembleia, convocarAssembleia,
+  salvarPresencas, cancelarAssembleia, registrarAta,
 } from "./src/lib/api.js";
 import { casaUnidade } from "./src/lib/unidades.js";
 import { pessoaComMesmoDoc } from "./src/lib/pessoas.js";
@@ -46,6 +50,7 @@ import { familiaCarteira, uriVerumPay, redesDaFamilia } from "./src/lib/qr-pagam
 import { pode, permsEfetivas, PERMISSOES, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, PERFIS_CRIAVEIS, PERFIL_SO_DIRETOR_CRIA, podeCriarPerfil, mesmoConjunto } from "./src/lib/permissoes.js";
 import { rotuloTabela, rotuloOperacao, rotuloCampo, valorTexto, diff, resumir, agrupar, resumirGrupo, camposDoGrupo, ehPerfilSobAprovacao, ehAcao } from "./src/lib/aprovacoes.js";
 import { CATEGORIAS, entidadesDaCategoria, rotuloEntidade, verboAcao, diffLinha, descrever, resumoLinha, rotuloAutor, filtrarBusca, podeDesfazer, fraseEvento, detalheCurto } from "./src/lib/historico.js";
+import { agoraLocal as agoraLocalInput, fimPadrao, conflita, antecedenciaOk, pautaParaJson, pautaParaTexto, togglePresenca, quorum, podeTransicionar } from "./src/lib/reservas.js";
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
 import { geoCache } from "./src/lib/geo.js";
@@ -182,6 +187,8 @@ const NAV = [
   { id: "documentos", label: "Documentos",       icon: FileText,        perm: "tela.documentos" },
   { id: "chamados",   label: "Manutenção",       icon: Wrench,          perm: "tela.chamados" },
   { id: "portaria",   label: "Portaria",         icon: DoorOpen,        perm: "tela.portaria" },
+  { id: "reservas",   label: "Reservas",         icon: CalendarDays,    perm: "tela.reservas" },
+  { id: "assembleias",label: "Assembleias",      icon: Vote,            perm: "tela.assembleias" },
   /* tela.historico fica fora da MATRIZ_PADRAO de todos os perfis e é vedada
      ao administrador predial: por padrão só o DIRETOR a vê (anti-trava do
      jwt_pode), delegável a síndico/tesouraria pela matriz. */
@@ -396,6 +403,8 @@ const STATUS_META = {
   andamento:{c:"info",l:"Em andamento"}, concluido:{c:"ok",l:"Concluído"},
   dentro:{c:"info",l:"No condomínio"}, saiu:{c:"ok",l:"Saiu"}, retirado:{c:"ok",l:"Retirado"}, ocorrencia:{c:"warn",l:"Ocorrência"},
   cancelada:{c:"danger",l:"Cancelada"}, cancelado:{c:"danger",l:"Cancelado"}, vendida:{c:"info",l:"Vendida"}, reservada:{c:"warn",l:"Reservada"}, inativa:{c:"danger",l:"Inativa"},
+  solicitada:{c:"warn",l:"Aguardando confirmação"}, confirmada:{c:"ok",l:"Confirmada"}, concluida:{c:"ok",l:"Concluída"},
+  convocada:{c:"info",l:"Convocada"}, realizada:{c:"ok",l:"Realizada"},
   alta:{c:"danger",l:"Alta"}, media:{c:"warn",l:"Média"}, baixa:{c:"ok",l:"Baixa"},
 };
 
@@ -953,7 +962,9 @@ function Login({ t, onEnter, dark, setDark, lang, onLang, aviso }) {
       setVerificando(true);
       try {
         const conta = await loginUsuario("morador", { nome, senha: f.senha });
-        if (conta) { setErro(""); aplicarIdiomaDaConta(conta); return entrarNoApp(conta, [role, { nome: conta.nome, unidade: conta.unidade || null, papel: conta.papel || null }, null, conta.condominioId, conta.token, conta.cargo || null]); }
+        if (conta) { setErro(""); aplicarIdiomaDaConta(conta); return entrarNoApp(conta, [role, { nome: conta.nome, unidade: conta.unidade || null, papel: conta.papel || null,
+          /* pessoaId/unidadeId (09/11/2026): solicitante e unidade das reservas do portal */
+          pessoaId: conta.pessoaId || null, unidadeId: conta.unidadeId || null }, null, conta.condominioId, conta.token, conta.cargo || null]); }
         setErro(L("Nome ou senha incorretos. Peça ao diretor para conferir seu acesso em Gerenciar Acessos."));
       } catch (err) {
         setErro(L("Não foi possível verificar sua conta agora.") + " " + err.message);
@@ -1343,7 +1354,7 @@ function Dashboard({ t, role, go = () => {}, leitura = false }) {
       {!leitura && (
         <div className="flex flex-wrap gap-2">
           {[["Nova cobrança", QrCode, "cobrancas"], ["Novo gasto", Wallet, "financeiro"], ["Nova multa", Gavel, "multas"],
-            ["Novo comunicado", Megaphone, "comunicados"], ["Novo chamado", Wrench, "chamados"]]
+            ["Novo comunicado", Megaphone, "comunicados"], ["Novo chamado", Wrench, "chamados"], ["Nova reserva", CalendarDays, "reservas"]]
             .filter(([, , s]) => telaLiberada(perms, s))
             .map(([l, Ic, s]) => (
               <Btn key={l} t={t} kind="soft" onClick={() => go(s)}><Ic size={14} /> {l}</Btn>))}
@@ -4991,6 +5002,459 @@ function AcessosDoCondominio({ t, role }) {
    precisa ser aprovada antes da filha, senão a chave estrangeira recusa.
    Aprovar fora de ordem não corrompe nada — a alteração fica pendente com
    o erro à vista —, mas é atrito evitável. */
+/* ══════════════ RESERVAS DE ÁREAS COMUNS ══════════════ */
+/* O morador solicita pelo portal (status 'solicitada'); aqui a gestão
+   confirma (RPC confirmar_reserva — área com taxa GERA a cobrança 'extra'),
+   recusa, conclui e administra as áreas. O conflito de horário é decidido
+   pela constraint GiST do banco; a pré-checagem local é só aviso. */
+function Reservas({ t }) {
+  const { db, reload } = useData();
+  const perms = usePerms();
+  const podeDecidir = pode(perms, "reserva.decidir");
+  const [tab, setTab] = useState("reservas");
+  const [st, setSt] = useState("todas");
+  const [areaF, setAreaF] = useState("todas");
+  const [q, setQ] = useState("");
+  const [nova, setNova] = useState(false);
+  const [sel, setSel] = useState(null);
+  const [agindo, setAgindo] = useState(false);
+  const [areaEdit, setAreaEdit] = useState(null); // {} = nova área
+  /* o aviso de conflito/antecedência precisa dos campos ANTES do submit */
+  const [fArea, setFArea] = useState("");
+  const [fIni, setFIni] = useState("");
+  const [fFim, setFFim] = useState("");
+
+  const [salvarNova, salvandoNova] = useSubmit(async (f) => {
+    await criarReserva(db.ctx, f); await reload(); setNova(false);
+    setFArea(""); setFIni(""); setFFim("");
+  });
+  const [salvarArea, salvandoArea] = useSubmit(async (f) => {
+    if (areaEdit?.id) await atualizarArea(db.ctx, areaEdit.id, f);
+    else await criarArea(db.ctx, f);
+    await reload(); setAreaEdit(null);
+  });
+
+  const S = db.stats;
+  const janela = (r) => `${new Date(r.inicio).toLocaleString()} → ${new Date(r.fim).toLocaleString()}`;
+  const rows = db.reservas
+    .filter((r) => (st === "todas" || r.status === st) && (areaF === "todas" || r.areaId === areaF))
+    .filter((r) => !q || `${r.area} ${r.unidadeExib} ${r.solicitante}`.toLowerCase().includes(q.toLowerCase()));
+
+  const confirmar = async (r) => {
+    const aviso = r.taxa > 0
+      ? `${L("Confirmar a reserva?")} ${L("A taxa de uso gera uma cobrança para a unidade:")} ${BRL(r.taxa)}.`
+      : L("Confirmar a reserva?");
+    if (!window.confirm(aviso)) return;
+    setAgindo(true);
+    try { await confirmarReserva(r.id); await reload(); setSel(null); }
+    catch (e) { alert(L(e?.message || String(e))); }
+    finally { setAgindo(false); }
+  };
+  const mudar = async (r, status, confirmacao) => {
+    if (confirmacao && !window.confirm(L(confirmacao))) return;
+    setAgindo(true);
+    try { await mudarStatusReserva(r.id, status); await reload(); setSel(null); }
+    catch (e) { alert(L(e?.message || String(e))); }
+    finally { setAgindo(false); }
+  };
+
+  /* avisos do formulário de nova reserva (a autoridade é o banco) */
+  const areaSel = db.areas.find((a) => a.id === fArea) || null;
+  const colide = fArea && fIni && fFim ? conflita(db.reservas, fArea, fIni, fFim) : null;
+  const antec = areaSel && fIni
+    ? antecedenciaOk({ antecedencia_horas: areaSel.antecedenciaHoras }, fIni) : { ok: true };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard t={t} icon={Clock} label="Aguardando confirmação" value={String(S.reservasPendentes ?? 0)} color={t.warn} />
+        <StatCard t={t} icon={CalendarDays} label="Confirmadas (futuras)" value={String(S.reservasFuturas ?? 0)} color={t.ok} />
+        <StatCard t={t} icon={Home} label="Áreas ativas" value={String(db.areas.filter((a) => a.ativa).length)} />
+        <StatCard t={t} icon={Banknote} label="Áreas com taxa" value={String(db.areas.filter((a) => a.ativa && a.taxa > 0).length)} />
+      </div>
+
+      <div className="flex gap-1 overflow-x-auto">
+        {[["reservas", "Reservas"], ["areas", "Áreas"]].map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)} className="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium"
+            style={{ background: tab === k ? t.goldSoft : "transparent", color: tab === k ? t.gold : t.dim, border: `1px solid ${tab === k ? t.border : "transparent"}` }}>
+            {L(l)}</button>))}
+      </div>
+
+      {tab === "reservas" ? (<>
+        <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por área, unidade ou solicitante…"
+          action={<Btn t={t} kind="primary" onClick={() => { setNova(true); setFIni(agoraLocalInput()); }}><Plus size={15} /> Nova reserva</Btn>}>
+          <Sel t={t} value={st} onChange={setSt}
+            opts={[["todas", "Todos os status"], ["solicitada", "Aguardando confirmação"], ["confirmada", "Confirmada"], ["concluida", "Concluída"], ["cancelada", "Cancelada"]]} />
+          <Sel t={t} value={areaF} onChange={setAreaF}
+            opts={[["todas", "Todas as áreas"], ...db.areas.map((a) => [a.id, a.nome])]} />
+        </Toolbar>
+        <Tbl t={t}
+          cols={[{ k: "area", l: "Área" }, { k: "unidade", l: "Unidade" }, { k: "quem", l: "Solicitante" },
+                 { k: "janela", l: "Período" }, { k: "taxa", l: "Taxa" }, { k: "status", l: "Status" }]}
+          rows={rows}
+          empty={<EmptyState t={t} icon={CalendarDays} title="Nenhuma reserva ainda"
+            hint="Cadastre as áreas na sub-aba Áreas; o morador solicita pelo portal e a solicitação aparece aqui para você confirmar." />}
+          onRowClick={(r) => setSel(r)}
+          renderCell={(r, k) => {
+            if (k === "area") return <b>{r.area}</b>;
+            if (k === "unidade") return r.unidadeExib;
+            if (k === "quem") return <span className="text-xs">{r.solicitante}</span>;
+            if (k === "janela") return <span className="whitespace-nowrap text-xs">{janela(r)}</span>;
+            if (k === "taxa") return r.taxa > 0 ? BRL(r.taxa) : "—";
+            if (k === "status") return <Badge t={t} s={r.status} />;
+            return null;
+          }} />
+      </>) : (<>
+        <SectionTitle t={t} action={<Btn t={t} kind="primary" onClick={() => setAreaEdit({})}><Plus size={15} /> Nova área</Btn>}>
+          Áreas reserváveis do condomínio</SectionTitle>
+        <Tbl t={t}
+          cols={[{ k: "nome", l: "Área" }, { k: "taxa", l: "Taxa de uso" }, { k: "antec", l: "Antecedência mínima" },
+                 { k: "cap", l: "Capacidade" }, { k: "ativa", l: "Status" }]}
+          rows={db.areas}
+          empty={<EmptyState t={t} icon={Home} title="Nenhuma área cadastrada"
+            hint="Cadastre o salão de festas, a churrasqueira, a quadra — com taxa de uso e antecedência mínima, se houver." />}
+          onRowClick={(a) => setAreaEdit(a)}
+          renderCell={(a, k) => {
+            if (k === "nome") return <b>{a.nome}</b>;
+            if (k === "taxa") return a.taxa > 0 ? BRL(a.taxa) : L("Sem taxa");
+            if (k === "antec") return a.antecedenciaHoras ? `${a.antecedenciaHoras}h` : "—";
+            if (k === "cap") return a.capacidade ? `${a.capacidade} ${L("pessoas")}` : "—";
+            if (k === "ativa") return <Badge t={t} s={a.ativa ? "ativo" : "inativa"} />;
+            return null;
+          }} />
+      </>)}
+
+      {sel && (
+        <Modal t={t} wide onClose={() => setSel(null)}>
+          <ModalHeader t={t} title="Detalhe da reserva" onClose={() => setSel(null)} />
+          <div className="space-y-3 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge t={t} s={sel.status} /><b>{sel.area}</b>
+              <span style={{ color: t.dim }}>· {sel.unidadeExib} · {sel.solicitante}</span>
+            </div>
+            <div className="rounded-xl border p-3 text-xs" style={{ borderColor: t.borderSoft }}>
+              <div><span style={{ color: t.dim }}>{L("Período")}:</span> {janela(sel)}</div>
+              {sel.taxa > 0 && <div className="mt-1"><span style={{ color: t.dim }}>{L("Taxa de uso")}:</span> <b>{BRL(sel.taxa)}</b></div>}
+              {sel.cobrancaId && (
+                <div className="mt-1"><span style={{ color: t.dim }}>{L("Cobrança da taxa")}:</span>{" "}
+                  <Badge t={t} s={sel.cobrancaStatus || "emitida"} /></div>)}
+            </div>
+            {sel.status === "confirmada" && sel.cobrancaId && sel.cobrancaStatus !== "pago" && (
+              <div className="text-xs" style={{ color: t.dim }}>
+                {L("Para cancelar uma reserva já cobrada, cancele também a cobrança na tela Cobranças (Baixa indevida).")}</div>)}
+          </div>
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <Btn t={t} onClick={() => setSel(null)}>{L("Fechar")}</Btn>
+            {sel.status === "solicitada" && podeDecidir && (<>
+              <Btn t={t} kind="danger" disabled={agindo} onClick={() => mudar(sel, "cancelada", "Recusar esta solicitação de reserva?")}>
+                <Ban size={14} /> Recusar</Btn>
+              <Btn t={t} kind="primary" disabled={agindo} onClick={() => confirmar(sel)}>
+                <Check size={14} /> {agindo ? L("Confirmando…") : L("Confirmar")}</Btn>
+            </>)}
+            {sel.status === "confirmada" && (<>
+              <Btn t={t} kind="danger" disabled={agindo} onClick={() => mudar(sel, "cancelada", "Cancelar esta reserva confirmada?")}>
+                <Ban size={14} /> Cancelar reserva</Btn>
+              <Btn t={t} kind="soft" disabled={agindo} onClick={() => mudar(sel, "concluida")}>
+                <Check size={14} /> Concluir</Btn>
+            </>)}
+          </div>
+        </Modal>)}
+
+      {nova && (
+        <Modal t={t} wide onClose={() => setNova(false)}>
+          <ModalHeader t={t} title="Nova reserva" onClose={() => setNova(false)} />
+          <form onSubmit={salvarNova}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field t={t} label="Área">
+                <select name="area" required value={fArea} onChange={(e) => setFArea(e.target.value)} style={inputStyle(t)}>
+                  <option value="">—</option>
+                  {db.areas.filter((a) => a.ativa).map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.nome}{a.taxa > 0 ? ` · ${BRL(a.taxa)}` : ""}</option>))}
+                </select></Field>
+              <Field t={t} label="Unidade">
+                <ComboBusca t={t} name="unidade" vazio="—"
+                  opcoes={db.ctx.unidades.map((u) => [u.id, u.labelResp])} /></Field>
+              <Field t={t} label="Solicitante">
+                <ComboBusca t={t} name="solicitante" vazio="—"
+                  opcoes={db.ctx.pessoas.map((p) => [p.id, p.label])} /></Field>
+              <div />
+              <Field t={t} label="Início">
+                <input name="inicio" type="datetime-local" required value={fIni}
+                  onChange={(e) => { setFIni(e.target.value); if (!fFim) setFFim(fimPadrao(e.target.value)); }}
+                  style={inputStyle(t)} /></Field>
+              <Field t={t} label="Fim">
+                <input name="fim" type="datetime-local" required value={fFim}
+                  onChange={(e) => setFFim(e.target.value)} style={inputStyle(t)} /></Field>
+            </div>
+            {colide && (
+              <div className="mt-2 text-xs" style={{ color: t.danger }}>
+                {L("Atenção: este horário conflita com outra reserva desta área")} ({colide.unidadeExib || colide.unidade} · {janela(colide)}). {L("O banco vai recusar.")}</div>)}
+            {!antec.ok && (
+              <div className="mt-2 text-xs" style={{ color: t.warn }}>
+                {L("Antecedência mínima desta área:")} {antec.horas}h.</div>)}
+            {areaSel?.taxa > 0 && (
+              <div className="mt-2 text-xs" style={{ color: t.dim }}>
+                {L("Ao confirmar, a taxa gera uma cobrança para a unidade:")} <b style={{ color: t.gold }}>{BRL(areaSel.taxa)}</b></div>)}
+            <div className="mt-5 flex justify-end gap-2">
+              <Btn t={t} onClick={() => setNova(false)}>{L("Cancelar")}</Btn>
+              <Btn t={t} kind="primary" type="submit" disabled={salvandoNova}>
+                <Check size={14} /> {salvandoNova ? L("Salvando…") : L("Registrar solicitação")}</Btn>
+            </div>
+          </form>
+        </Modal>)}
+
+      {areaEdit !== null && (
+        <Modal t={t} onClose={() => setAreaEdit(null)}>
+          <ModalHeader t={t} title={areaEdit.id ? "Editar área" : "Nova área"} onClose={() => setAreaEdit(null)} />
+          <form onSubmit={salvarArea} key={areaEdit.id || "nova"}>
+            <div className="space-y-3">
+              <Field t={t} label="Nome da área">
+                <input name="nome" required maxLength={80} defaultValue={areaEdit.nome || ""} style={inputStyle(t)}
+                  placeholder={L("Ex.: Salão de festas")} /></Field>
+              <Field t={t} label="Taxa de uso (vazio = sem taxa)">
+                <MoneyInput t={t} name="taxa" moeda={db.ctx.moeda}
+                  defaultCents={areaEdit.taxa ? Math.round(areaEdit.taxa * 100) : null} /></Field>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field t={t} label="Antecedência mínima (horas)">
+                  <input name="antecedencia" type="number" min="0" defaultValue={areaEdit.antecedenciaHoras || ""} style={inputStyle(t)} /></Field>
+                <Field t={t} label="Capacidade (pessoas)">
+                  <input name="capacidade" type="number" min="0" defaultValue={areaEdit.capacidade || ""} style={inputStyle(t)} /></Field>
+              </div>
+            </div>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              {areaEdit.id && (
+                <Btn t={t} kind={areaEdit.ativa ? "danger" : "soft"} disabled={salvandoArea}
+                  onClick={async () => {
+                    try { await desativarArea(db.ctx, areaEdit.id, !areaEdit.ativa); await reload(); setAreaEdit(null); }
+                    catch (e) { alert(L(e?.message || String(e))); }
+                  }}>
+                  {areaEdit.ativa ? L("Desativar") : L("Reativar")}</Btn>)}
+              <Btn t={t} onClick={() => setAreaEdit(null)}>{L("Cancelar")}</Btn>
+              <Btn t={t} kind="primary" type="submit" disabled={salvandoArea}>
+                <Check size={14} /> {salvandoArea ? L("Salvando…") : L("Salvar área")}</Btn>
+            </div>
+          </form>
+        </Modal>)}
+    </div>
+  );
+}
+
+/* ══════════════ ASSEMBLEIAS ══════════════ */
+/* Agenda → convocação (PDF timbrado arquivado em Documentos + aviso
+   opcional aos moradores) → presenças com quórum → ata (PDF obrigatório:
+   anexado ou gerado das deliberações) → realizada. */
+function Assembleias({ t }) {
+  const { db, reload } = useData();
+  const [nova, setNova] = useState(false);
+  const [sel, setSel] = useState(null);
+  const [agindo, setAgindo] = useState(false);
+  const [publicarAviso, setPublicarAviso] = useState(true);
+  const [presencas, setPresencas] = useState([]);
+  const [presSujas, setPresSujas] = useState(false);
+  const [ataAberta, setAtaAberta] = useState(false);
+
+  useEffect(() => {
+    setPresencas(sel?.presencas || []); setPresSujas(false); setAtaAberta(false);
+  }, [sel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [salvarNova, salvandoNova] = useSubmit(async (f) => {
+    const pauta = pautaParaJson(f.pauta);
+    if (!pauta.length) throw new Error("Escreva a pauta da assembleia (um item por linha).");
+    await criarAssembleia(db.ctx, f, pauta); await reload(); setNova(false);
+  });
+  const [salvarAta, salvandoAta] = useSubmit(async (f) => {
+    const r = await registrarAta(db.ctx, sel, f);
+    await reload(); setSel(null);
+    if (r?.url) window.open(r.url, "_blank", "noopener");
+  });
+
+  const convocar = async () => {
+    setAgindo(true);
+    try {
+      const r = await convocarAssembleia(db.ctx, sel, { publicarAviso });
+      await reload(); setSel(null);
+      if (r?.url) window.open(r.url, "_blank", "noopener");
+    } catch (e) { alert(L(e?.message || String(e))); }
+    finally { setAgindo(false); }
+  };
+  const salvarPres = async () => {
+    setAgindo(true);
+    try { await salvarPresencas(sel.id, presencas); await reload(); setPresSujas(false); }
+    catch (e) { alert(L(e?.message || String(e))); }
+    finally { setAgindo(false); }
+  };
+  const cancelar = async () => {
+    if (!window.confirm(L("Cancelar esta assembleia?"))) return;
+    setAgindo(true);
+    try { await cancelarAssembleia(sel.id); await reload(); setSel(null); }
+    catch (e) { alert(L(e?.message || String(e))); }
+    finally { setAgindo(false); }
+  };
+
+  const qr = sel ? quorum(presencas, db.ctx.unidades.length, sel.quorumMinimo) : null;
+  const tipoRotulo = (a) => (a.tipo === "extraordinaria" ? L("Extraordinária") : L("Ordinária"));
+  const encerrada = sel && (sel.status === "realizada" || sel.status === "cancelada");
+
+  return (
+    <div className="space-y-4">
+      <div className="mb-1 flex items-center justify-end">
+        <Btn t={t} kind="primary" onClick={() => setNova(true)}><Plus size={15} /> Nova assembleia</Btn>
+      </div>
+      {!db.assembleias.length ? (
+        <EmptyState t={t} icon={Vote} title="Nenhuma assembleia registrada"
+          hint="Crie a assembleia com data e pauta; depois convoque os moradores, marque as presenças no dia e registre a ata." />
+      ) : (
+        <div className="space-y-2">
+          {db.assembleias.map((a) => (
+            <Card t={t} key={a.id} className="cursor-pointer vhover" onClick={() => setSel(a)}>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <Badge t={t} s={a.status} />
+                <b>{L("Assembleia")} {tipoRotulo(a)}</b>
+                <span style={{ color: t.dim }}>· {new Date(a.dataHora).toLocaleString()}</span>
+                <span className="ml-auto text-xs" style={{ color: t.dim }}>
+                  {a.pauta.length} {L(a.pauta.length === 1 ? "item de pauta" : "itens de pauta")}
+                  {a.ata ? ` · ${L("ata registrada")}` : ""}</span>
+              </div>
+            </Card>))}
+        </div>)}
+
+      {sel && (
+        <Modal t={t} wide onClose={() => setSel(null)}>
+          <ModalHeader t={t} title="Detalhe da assembleia" onClose={() => setSel(null)} />
+          <div className="space-y-3 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge t={t} s={sel.status} />
+              <b>{L("Assembleia")} {tipoRotulo(sel)}</b>
+              <span style={{ color: t.dim }}>· {new Date(sel.dataHora).toLocaleString()}</span>
+              {sel.quorumMinimo != null && <span className="text-xs" style={{ color: t.dim }}>· {L("quórum mínimo")} {sel.quorumMinimo}%</span>}
+            </div>
+
+            <div className="rounded-xl border p-3" style={{ borderColor: t.borderSoft }}>
+              <div className="mb-1 text-xs font-semibold" style={{ color: t.dim }}>{L("ORDEM DO DIA")}</div>
+              <ol className="list-decimal space-y-0.5 pl-5 text-xs">
+                {sel.pauta.map((p, i) => <li key={i}>{p}</li>)}
+              </ol>
+            </div>
+
+            {sel.convocacaoUrl ? (
+              <a href={sel.convocacaoUrl} target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: t.gold }}>
+                <FileText size={13} /> {L("Ver convocação (PDF)")}</a>
+            ) : !encerrada && (
+              <div className="flex flex-wrap items-center gap-3 rounded-xl border p-3 text-xs" style={{ borderColor: t.borderSoft }}>
+                <span style={{ color: t.dim }}>{L("A convocação ainda não foi emitida.")}</span>
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={publicarAviso} onChange={(e) => setPublicarAviso(e.target.checked)}
+                    style={{ accentColor: t.gold }} />
+                  {L("publicar aviso aos moradores")}</label>
+                <Btn t={t} kind="soft" className="!px-2 !py-1" disabled={agindo} onClick={convocar}>
+                  <Send size={13} /> {agindo ? L("Gerando…") : L("Convocar")}</Btn>
+              </div>)}
+
+            {/* presenças — marcadas pela gestão no dia */}
+            {!encerrada && (
+              <div className="rounded-xl border p-3" style={{ borderColor: t.borderSoft }}>
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                  <b>{L("Presenças")}</b>
+                  <span style={{ color: t.dim }}>
+                    {qr.presentes}/{db.ctx.unidades.length} {L("unidades")} · {qr.pct}%</span>
+                  {qr.minimo != null && (
+                    <span className="rounded-full px-2 py-0.5 font-medium"
+                      style={{ background: (qr.atingido ? t.ok : t.warn) + "1E", color: qr.atingido ? t.ok : t.warn }}>
+                      {qr.atingido ? L("quórum atingido") : L("abaixo do quórum")}</span>)}
+                  {presSujas && (
+                    <Btn t={t} kind="primary" className="ml-auto !px-2 !py-1" disabled={agindo} onClick={salvarPres}>
+                      <Check size={13} /> {L("Salvar presenças")}</Btn>)}
+                </div>
+                <div className="grid max-h-44 grid-cols-2 gap-1 overflow-y-auto sm:grid-cols-3">
+                  {db.ctx.unidades.map((u) => (
+                    <label key={u.id} className="flex items-center gap-1.5 text-xs">
+                      <input type="checkbox" checked={presencas.includes(u.label)}
+                        onChange={() => { setPresencas(togglePresenca(presencas, u.label)); setPresSujas(true); }}
+                        style={{ accentColor: t.gold }} />
+                      <span className="truncate">{u.rotulo}</span>
+                    </label>))}
+                </div>
+              </div>)}
+
+            {/* ata registrada OU formulário de registro */}
+            {sel.ata ? (
+              <div className="rounded-xl border p-3 text-xs" style={{ borderColor: t.borderSoft }}>
+                <div className="mb-1 flex items-center gap-2">
+                  <b>{L("Ata registrada")}</b>
+                  {sel.ata.url && (
+                    <a href={sel.ata.url} target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1 font-medium" style={{ color: t.gold }}>
+                      <FileText size={13} /> {L("Ver ata (PDF)")}</a>)}
+                </div>
+                <ol className="list-decimal space-y-0.5 pl-5" style={{ color: t.dim }}>
+                  {sel.ata.deliberacoes.map((d, i) => <li key={i}>{d}</li>)}
+                </ol>
+              </div>
+            ) : sel.status === "convocada" && (ataAberta ? (
+              <form onSubmit={salvarAta} className="rounded-xl border p-3" style={{ borderColor: t.borderSoft }}>
+                <Field t={t} label="Deliberações aprovadas (uma por linha)">
+                  <textarea name="deliberacoes" required rows={4}
+                    style={{ ...inputStyle(t), marginTop: 4, resize: "vertical" }} /></Field>
+                <div className="mt-2">
+                  <FileField t={t} name="arquivo" accept="application/pdf"
+                    hint="Anexar PDF da ata (sem anexo, o app gera o timbrado)" /></div>
+                <div className="mt-3 flex justify-end gap-2">
+                  <Btn t={t} onClick={() => setAtaAberta(false)}>{L("Cancelar")}</Btn>
+                  <Btn t={t} kind="primary" type="submit" disabled={salvandoAta}>
+                    <Check size={14} /> {salvandoAta ? L("Registrando…") : L("Registrar ata e encerrar")}</Btn>
+                </div>
+              </form>
+            ) : (
+              <Btn t={t} kind="soft" onClick={() => setAtaAberta(true)}>
+                <FileText size={14} /> Registrar ata</Btn>
+            ))}
+          </div>
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            {!encerrada && (
+              <Btn t={t} kind="danger" disabled={agindo} onClick={cancelar}><Ban size={14} /> Cancelar assembleia</Btn>)}
+            <Btn t={t} onClick={() => setSel(null)}>{L("Fechar")}</Btn>
+          </div>
+        </Modal>)}
+
+      {nova && (
+        <Modal t={t} wide onClose={() => setNova(false)}>
+          <ModalHeader t={t} title="Nova assembleia" onClose={() => setNova(false)} />
+          <form onSubmit={salvarNova}>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field t={t} label="Tipo">
+                <select name="tipo" style={inputStyle(t)}>
+                  {["Ordinária", "Extraordinária"].map((x) => <option key={x}>{x}</option>)}
+                </select></Field>
+              <Field t={t} label="Modalidade">
+                <select name="modalidade" style={inputStyle(t)}>
+                  {["Presencial", "Digital", "Híbrida"].map((x) => <option key={x}>{x}</option>)}
+                </select></Field>
+              <Field t={t} label="Quórum mínimo (%) — opcional">
+                <input name="quorum" type="number" min="0" max="100" style={inputStyle(t)} /></Field>
+            </div>
+            <div className="mt-3">
+              <Field t={t} label="Data e hora">
+                <input name="dataHora" type="datetime-local" required defaultValue={agoraLocalInput()} style={inputStyle(t)} /></Field>
+            </div>
+            <div className="mt-3">
+              <Field t={t} label="Pauta (um item por linha)">
+                <textarea name="pauta" required rows={4}
+                  placeholder={L("Ex.: Prestação de contas do exercício")}
+                  style={{ ...inputStyle(t), marginTop: 4, resize: "vertical" }} /></Field>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Btn t={t} onClick={() => setNova(false)}>{L("Cancelar")}</Btn>
+              <Btn t={t} kind="primary" type="submit" disabled={salvandoNova}>
+                <Check size={14} /> {salvandoNova ? L("Salvando…") : L("Criar assembleia")}</Btn>
+            </div>
+          </form>
+        </Modal>)}
+    </div>
+  );
+}
+
 /* ══════════════ HISTÓRICO DE ALTERAÇÕES (padrão: só o diretor) ══════════════ */
 /* Lê a view historico_unificado (auditoria CRUD + auditoria_eventos de
    segurança — supabase-historico.sql), paginada no SERVIDOR: a trilha cresce
@@ -5602,6 +6066,33 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
   const ocorrencias = db.acessos.filter((a) => a.status === "ocorrencia");
   /* entregas registradas na portaria para a unidade do morador */
   const minhasEntregas = db.acessos.filter((a) => a.tipo === "entrega" && a.destino === unidade);
+  /* ── reservas de áreas comuns (09/11/2026) ──
+     a lista é filtrada pela CHAVE `unidade`; a solicitação precisa dos ids
+     reais — sessão nova traz pessoaId/unidadeId do login; sessão antiga cai
+     no fallback por nome (pessoa) e pela chave (unidade) */
+  const minhasReservas = db.reservas.filter((r) => r.unidade === unidade);
+  const meuPessoaId = morador?.pessoaId
+    || db.ctx.pessoas.find((p) => p.nome === morador?.nome)?.id || null;
+  const meuUnidadeId = morador?.unidadeId
+    || db.ctx.unidades.find((u) => u.label === unidade)?.id || null;
+  const [novaReserva, setNovaReserva] = useState(false);
+  const [resArea, setResArea] = useState("");
+  const [resIni, setResIni] = useState("");
+  const [resFim, setResFim] = useState("");
+  const areaRes = db.areas.find((a) => a.id === resArea) || null;
+  const resColide = resArea && resIni && resFim ? conflita(db.reservas, resArea, resIni, resFim) : null;
+  const resAntec = areaRes && resIni
+    ? antecedenciaOk({ antecedencia_horas: areaRes.antecedenciaHoras }, resIni) : { ok: true };
+  const [salvarReserva, salvandoReserva] = useSubmit(async (f) => {
+    if (resColide) throw new Error("Este horário já está reservado para esta área — escolha outro.");
+    if (!resAntec.ok) throw new Error(`${L("Antecedência mínima desta área:")} ${resAntec.horas}h.`);
+    await solicitarReserva(db.ctx, { areaId: f.area, unidadeId: meuUnidadeId, pessoaId: meuPessoaId, inicio: f.inicio, fim: f.fim });
+    await reload(); setNovaReserva(false); setResArea(""); setResIni(""); setResFim("");
+  });
+  /* próxima assembleia convocada — todos os moradores veem no Início */
+  const proxAssembleia = db.assembleias
+    .filter((a) => a.status === "convocada" && new Date(a.dataHora) >= new Date())
+    .sort((a, b) => String(a.dataHora).localeCompare(String(b.dataHora)))[0] || null;
   const agoraLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
   /* rascunho = cobrança que o Administrador criou e o diretor ainda não
      emitiu. Fica FORA do portal: é este filtro que faz "o morador só é
@@ -5630,7 +6121,12 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
     ...minhasMultasLista.filter((m) => m.status === "pendente").map((m) => ({ txt: `${m.valor > 0 ? L("Multa") : L("Advertência")} ${m.num} — ${L("prazo de defesa até")} ${m.prazo}`, c: "warn", go: () => setMulta(m) })),
     ...meusChamadosLista.filter((c) => c.status === "aberto" || c.status === "andamento").map((c) => ({ txt: `${L("Chamada de manutenção")} ${c.num} ${c.status === "andamento" ? L("em andamento") : L("aberta")} — ${c.desc}`, c: "info" })),
     ...db.comunic.slice(0, 2).map((c) => ({ txt: `${L("Comunicado")}: ${c.titulo}`, c: "info", go: () => setAviso(c) })),
-  ], [boletos, minhasMultasLista, meusChamadosLista, db.comunic, lang]); // eslint-disable-line react-hooks/exhaustive-deps
+    ...minhasReservas.filter((r) => r.status === "solicitada").map((r) => ({
+      txt: `${L("Reserva aguardando confirmação")}: ${r.area}`, c: "warn", go: () => setTab("reservas") })),
+    ...minhasReservas.filter((r) => r.status === "confirmada" && new Date(r.inicio) >= new Date()).map((r) => ({
+      txt: `${L("Reserva confirmada")}: ${r.area} · ${new Date(r.inicio).toLocaleString()}`, c: "ok", go: () => setTab("reservas") })),
+    ...(proxAssembleia ? [{ txt: `${L("Assembleia convocada para")} ${new Date(proxAssembleia.dataHora).toLocaleString()}`, c: "info" }] : []),
+  ], [boletos, minhasMultasLista, meusChamadosLista, db.comunic, minhasReservas, proxAssembleia, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   const textoEndereco = [db.cond?.nome, db.cond?.endereco, `${morador?.nome || L("Morador")} — ${L("Unidade")} ${unidadeExib}`].filter(Boolean).join("\n");
   const copiarEndereco = async () => {
     try { await navigator.clipboard.writeText(textoEndereco); }
@@ -5754,12 +6250,29 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                 </div>
               </Card>)}
             <div className="grid grid-cols-2 gap-3">
-              {[["Transferência e QR", QrCode, "pagamentos"], ["Extrato", Wallet, "pagamentos"], ["Entregas", Package, "entregas"], ["Chamada de manutenções", Wrench, null]].map(([l, Ic, dest]) => (
+              {[["Transferência e QR", QrCode, "pagamentos"], ["Extrato", Wallet, "pagamentos"], ["Entregas", Package, "entregas"], ["Chamada de manutenções", Wrench, null],
+                /* a barra inferior já está cheia — Reservas entra pelo card, como Entregas */
+                ...(db.areas.some((a) => a.ativa) ? [["Reservar área", CalendarDays, "reservas"]] : [])].map(([l, Ic, dest]) => (
                 <button key={l} onClick={() => dest ? setTab(dest) : setChamado(true)}
                   className="vhover rounded-2xl border p-4 text-left" style={{ background: t.surface, borderColor: t.borderSoft }}>
                   <Ic size={18} color={t.gold} /><div className="mt-2 text-sm font-semibold">{L(l)}</div>
                 </button>))}
             </div>
+            {proxAssembleia && (
+              <Card t={t}>
+                <div className="flex items-center gap-3">
+                  <Vote size={18} color={t.gold} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold">
+                      {L("Assembleia")} {proxAssembleia.tipo === "extraordinaria" ? L("Extraordinária") : L("Ordinária")}</div>
+                    <div className="text-xs" style={{ color: t.dim }}>{new Date(proxAssembleia.dataHora).toLocaleString()}</div>
+                  </div>
+                  {proxAssembleia.convocacaoUrl && (
+                    <a href={proxAssembleia.convocacaoUrl} target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: t.gold }}>
+                      <FileText size={13} /> {L("Convocação")}</a>)}
+                </div>
+              </Card>)}
             <Card t={t}>
               <SectionTitle t={t}>Últimos comunicados</SectionTitle>
               <div className="space-y-2 text-sm">{db.comunic.slice(0, 2).map((c) => (
@@ -5921,6 +6434,31 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
               </Card>))}
             <div className="text-[11px]" style={{ color: t.dim }}>
               {L("Entregas são registradas pela portaria — retire a sua apresentando um documento.")}</div>
+          </div>)}
+        {tab === "reservas" && (
+          <div className="vfade space-y-2">
+            <SectionTitle t={t} action={db.areas.some((a) => a.ativa)
+              ? <Btn t={t} kind="primary" onClick={() => { setNovaReserva(true); setResIni(agoraLocalInput()); }}><Plus size={14} /> {L("Reservar")}</Btn>
+              : null}>
+              {L("Reservas da unidade")} {unidadeExib}</SectionTitle>
+            {minhasReservas.length === 0 && <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
+              {L("Nenhuma reserva ainda. Toque em Reservar para solicitar o uso de uma área comum.")}</div>}
+            {minhasReservas.map((r) => (
+              <Card t={t} key={r.id}>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: t.goldSoft }}>
+                    <CalendarDays size={16} color={t.gold} /></div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold">{r.area}</div>
+                    <div className="text-xs" style={{ color: t.dim }}>
+                      {new Date(r.inicio).toLocaleString()} → {new Date(r.fim).toLocaleString()}
+                      {r.taxa > 0 && <span className="block">{L("Taxa de uso")}: {BRL(r.taxa)}</span>}</div>
+                  </div>
+                  <Badge t={t} s={r.status} />
+                </div>
+              </Card>))}
+            <div className="text-[11px]" style={{ color: t.dim }}>
+              {L("A solicitação vale depois que a administração confirmar. Área com taxa gera a cobrança na confirmação.")}</div>
           </div>)}
         {tab === "ocorrencias" && (
           <div className="vfade space-y-2">
@@ -6214,6 +6752,44 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
             </div>
             <div className="mt-5 flex justify-end gap-2"><Btn t={t} onClick={() => setNovaOcor(false)}>Cancelar</Btn>
               <Btn t={t} kind="primary" type="submit" disabled={salvandoOcor}><Check size={14} /> {salvandoOcor ? "Salvando…" : "Registrar ocorrência"}</Btn></div>
+          </form>
+        </Modal>)}
+      {novaReserva && (
+        <Modal t={t} onClose={() => setNovaReserva(false)}>
+          <ModalHeader t={t} title="Reservar área comum" onClose={() => setNovaReserva(false)} />
+          <form onSubmit={salvarReserva}>
+            <div className="space-y-3">
+              <Field t={t} label="Área">
+                <select name="area" required value={resArea} onChange={(e) => setResArea(e.target.value)} style={inputStyle(t)}>
+                  <option value="">—</option>
+                  {db.areas.filter((a) => a.ativa).map((a) => (
+                    <option key={a.id} value={a.id}>{a.nome}{a.taxa > 0 ? ` · ${BRL(a.taxa)}` : ""}</option>))}
+                </select></Field>
+              {areaRes && (areaRes.antecedenciaHoras > 0 || areaRes.capacidade > 0 || areaRes.taxa > 0) && (
+                <div className="rounded-xl border px-3 py-2 text-[11px]" style={{ borderColor: t.borderSoft, color: t.dim }}>
+                  {areaRes.taxa > 0 && <div>{L("Taxa de uso")}: <b style={{ color: t.gold }}>{BRL(areaRes.taxa)}</b> — {L("cobrada da unidade quando a administração confirmar.")}</div>}
+                  {areaRes.antecedenciaHoras > 0 && <div>{L("Antecedência mínima")}: {areaRes.antecedenciaHoras}h</div>}
+                  {areaRes.capacidade > 0 && <div>{L("Capacidade")}: {areaRes.capacidade} {L("pessoas")}</div>}
+                </div>)}
+              <Field t={t} label="Início">
+                <input name="inicio" type="datetime-local" required value={resIni}
+                  onChange={(e) => { setResIni(e.target.value); if (!resFim) setResFim(fimPadrao(e.target.value)); }}
+                  style={inputStyle(t)} /></Field>
+              <Field t={t} label="Fim">
+                <input name="fim" type="datetime-local" required value={resFim}
+                  onChange={(e) => setResFim(e.target.value)} style={inputStyle(t)} /></Field>
+              {resColide && (
+                <div className="text-xs" style={{ color: t.danger }}>
+                  {L("Este horário já está reservado para esta área — escolha outro.")}</div>)}
+              {!resAntec.ok && (
+                <div className="text-xs" style={{ color: t.warn }}>
+                  {L("Antecedência mínima desta área:")} {resAntec.horas}h.</div>)}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Btn t={t} onClick={() => setNovaReserva(false)}>Cancelar</Btn>
+              <Btn t={t} kind="primary" type="submit" disabled={salvandoReserva || !!resColide}>
+                <Check size={14} /> {salvandoReserva ? L("Enviando…") : L("Solicitar reserva")}</Btn>
+            </div>
           </form>
         </Modal>)}
     </div>
@@ -6762,6 +7338,11 @@ export default function App() {
     if (aprovar.length) n.push({ txt: `${aprovar.length} ${L("lançamento(s) aguardando aprovação")}`, c: "info", s: "financeiro" });
     const semResp = (db.chamados || []).filter((c) => c.status === "aberto" && c.resp === "—");
     if (semResp.length) n.push({ txt: `${semResp.length} ${L("chamado(s) abertos sem responsável designado")}`, c: "warn", s: "chamados" });
+    const reservasPend = (db.reservas || []).filter((r) => r.status === "solicitada");
+    if (reservasPend.length) n.push({ txt: `${reservasPend.length} ${L("reserva(s) de área aguardando confirmação")}`, c: "warn", s: "reservas" });
+    const assembSemAta = (db.assembleias || []).filter((a) => a.status === "convocada"
+      && new Date(a.dataHora) >= new Date() && (new Date(a.dataHora) - Date.now()) <= 7 * 86400000);
+    if (assembSemAta.length) n.push({ txt: `${assembSemAta.length} ${L("assembleia(s) nos próximos 7 dias")}`, c: "info", s: "assembleias" });
     /* o item da fila de aprovação saiu daqui com a tela (02/11/2026): com a
        fila congelada, ele seria um contador permanente de pendências que
        ninguém vai decidir. O passivo se consulta por SQL. */
@@ -6954,6 +7535,7 @@ export default function App() {
        para religar em duas linhas se a fila voltar. */
     emails: <GerenciarEmails t={t} role={role} />, planos: <Planos t={t} />,
     historico: <Historico t={t} />,
+    reservas: <Reservas t={t} />, assembleias: <Assembleias t={t} />,
   };
   const current = NAV.find((n) => n.id === screen);
 
@@ -7029,6 +7611,8 @@ export default function App() {
                   {(() => { /* subtítulo com dados reais do condomínio (era texto fictício) */
                     const fixo = {dashboard:"Visão geral do condomínio em tempo real",condominio:"Cadastro-mãe: dados legais, gestão e regras internas",
                       portaria:"Controle de acessos, entregas e ocorrências",
+                      reservas:"Áreas comuns: solicitações do portal, confirmação e taxa de uso",
+                      assembleias:"Convocação, presenças, quórum e atas",
                       historico:"Toda movimentação do condomínio: quem fez, quando e o quê",
                       emails:"E-mails e senhas de acesso dos perfis síndico, tesouraria e morador"}[screen];
                     if (fixo) return L(fixo);

@@ -98,7 +98,7 @@ export default async function handler(req, res) {
        contra TODAS as contas de morador numa request só. */
     if (f.perfil === "morador") {
       const buscar = (pref) => supabase.from("usuarios")
-        .select(`id, senha_hash, ${pref}pessoas!inner(nome, pessoa_vinculos(papel, unidade_id, unidades(numero, blocos(nome)))), usuario_perfis(condominio_id, perfis(nome))`)
+        .select(`id, senha_hash, ${pref}pessoas!inner(id, nome, pessoa_vinculos(papel, unidade_id, unidades(numero, blocos(nome)))), usuario_perfis(condominio_id, perfis(nome))`)
         .ilike("pessoas.nome", semCuringas(f.nome));
       let { data: rows, error } = await buscar("preferencias, ");
       if (semColunaPreferencias(error)) ({ data: rows, error } = await buscar(""));
@@ -133,6 +133,8 @@ export default async function handler(req, res) {
         perms: [...await carregarPerms(supabase, { perfil: "morador", condominioId })],
         unidade: vincUnidade?.unidades ? `${vincUnidade.unidades.numero}-${vincUnidade.unidades.blocos?.nome || "?"}` : null,
         papel: vincUnidade?.papel || null, // proprietário vê o dashboard do condomínio no portal
+        pessoaId: conta.pessoas?.id || null, // solicitante das reservas do portal (09/11/2026)
+        unidadeId: vincUnidade?.unidade_id || null,
         idioma: conta.preferencias?.idioma || null, // idioma da interface guardado nesta conta
         cargo: conta.preferencias?.cargo || null, // cargo de gestão (rótulo) definido em Gerenciar Acessos
         temCodigoRecuperacao: await temCodigoPermanente(supabase, conta.id),

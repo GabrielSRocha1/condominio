@@ -105,6 +105,10 @@ insert into public.permissoes (codigo, descricao) values
   ('documento.emitir',   'Emitir documentos timbrados'),
   ('chamado.abrir',      'Abrir chamado de manutenção'),
   ('pagamento.informar', 'Informar pagamento com comprovante'),
+  ('tela.reservas',      'Ver a tela Reservas'),
+  ('tela.assembleias',   'Ver a tela Assembleias'),
+  ('reserva.solicitar',  'Solicitar reserva de área comum (morador)'),
+  ('reserva.decidir',    'Confirmar ou recusar reservas (gera a cobrança da taxa)'),
   ('acesso.gerir',       'Criar e remover acessos'),
   ('licenca.gerir',      'Contratar, trocar e cancelar a licença'),
   ('dados.escrever',     'Escrever nos dados do condomínio (coringa)'),
@@ -124,6 +128,8 @@ create or replace view public._padrao_permissoes as
 select 'sindico'::text as perfil, c as codigo from unnest(array[
   'tela.dashboard','tela.condominio','tela.unidades','tela.pessoas','tela.financeiro',
   'tela.cobrancas','tela.multas','tela.comunicados','tela.documentos','tela.chamados','tela.portaria',
+  -- Reservas e Assembleias: telas novas de 09/11/2026 (tabelas eram órfãs)
+  'tela.reservas','tela.assembleias','reserva.decidir',
   'dados.escrever','financeiro.lancar','financeiro.aprovar','financeiro.baixar',
   'cobranca.emitir','cobranca.cancelar','multa.registrar','multa.aprovar',
   'comunicado.publicar','documento.emitir']) c
@@ -133,7 +139,7 @@ select 'tesouraria', c from unnest(array[
   'dados.escrever','financeiro.lancar','financeiro.aprovar','financeiro.baixar',
   'cobranca.emitir','cobranca.cancelar','documento.emitir']) c
 union all
-select 'morador', c from unnest(array['tela.portal','chamado.abrir','pagamento.informar']) c
+select 'morador', c from unnest(array['tela.portal','chamado.abrir','pagamento.informar','reserva.solicitar']) c
 union all
 select 'administradora', c from unnest(array['saas.gerir']) c;
 

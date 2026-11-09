@@ -258,7 +258,7 @@ export async function loadAll(condominioId) {
   const [
     blocos, unidadesRaw, vagas, pessoasRaw, vinculos, usuarios, categorias, fundos,
     lancRaw, cobrRaw, multasRaw, comunicRaw, chamadosRaw, acessosRaw, docsRaw, pagamentosRaw,
-    condRows,
+    condRows, areasRaw, reservasRaw, assembleiasRaw,
   ] = await Promise.all([
     q(supabase.from("blocos").select("id, nome").eq("condominio_id", cid).order("nome"), "blocos"),
     q(supabase.from("unidades").select("*, blocos(nome), pessoas(nome)").eq("condominio_id", cid).is("deletado_em", null).order("numero"), "unidades"),
@@ -277,6 +277,10 @@ export async function loadAll(condominioId) {
     q(supabase.from("documentos").select("*, unidades(numero, blocos(nome))").eq("condominio_id", cid).is("deletado_em", null).order("criado_em", { ascending: false }), "documentos"),
     q(supabase.from("pagamentos").select("valor_pago, pago_em, cobrancas(unidades(numero, blocos(nome)))").eq("condominio_id", cid).order("pago_em", { ascending: false }).limit(3), "pagamentos"),
     q(supabase.from("condominios").select("nome_fantasia, cnpj, endereco, identidade_visual, regras_internas, encargos_atraso").eq("id", cid), "condominios"),
+    /* Reservas e Assembleias (09/11/2026) — as tabelas existem desde o schema */
+    q(supabase.from("areas_comuns").select("*").eq("condominio_id", cid).order("nome"), "areas_comuns"),
+    q(supabase.from("reservas").select("*, areas_comuns(nome, taxa), unidades(numero, blocos(nome)), pessoas(nome), cobrancas(status)").eq("condominio_id", cid).order("inicio", { ascending: false }).limit(300), "reservas"),
+    q(supabase.from("assembleias").select("*, atas(id, deliberacoes, documento_id, documentos(arquivo_url, titulo)), convocacao:documentos!assembleias_convocacao_documento_id_fkey(arquivo_url)").eq("condominio_id", cid).order("data_hora", { ascending: false }), "assembleias"),
   ]);
 
   /* A fila de aprovação foi congelada em 02/11/2026: ninguém opera sob
@@ -513,6 +517,48 @@ export async function loadAll(condominioId) {
     url: d.arquivo_url,
   }));
 
+  /* áreas comuns (reserváveis) */
+  const areas = areasRaw.map((a) => ({
+    id: a.id, nome: a.nome, taxa: num(a.taxa), ativa: a.ativa !== false,
+    antecedenciaHoras: num(a.regras?.antecedencia_horas), capacidade: num(a.regras?.capacidade),
+  }));
+  const areaById = Object.fromEntries(areas.map((a) => [a.id, a]));
+
+  /* reservas — `unidade` é CHAVE (o portal filtra as da própria unidade);
+     `unidadeExib` é o que a tela mostra */
+  const reservas = reservasRaw.map((r) => ({
+    id: r.id, areaId: r.area_id, area: r.areas_comuns?.nome || areaById[r.area_id]?.nome || "—",
+    taxa: num(r.areas_comuns?.taxa),
+    unidadeId: r.unidade_id,
+    unidade: r.unidades ? uLabel(r.unidades) : "—",
+    unidadeExib: r.unidades ? uExib(r.unidades) : "—",
+    solicitanteId: r.solicitante_id, solicitante: r.pessoas?.nome || "—",
+    inicio: r.inicio, fim: r.fim, status: r.status,
+    cobrancaId: r.cobranca_id || null,
+    cobrancaStatus: r.cobrancas ? COBR_STATUS_UI[r.cobrancas.status] || r.cobrancas.status : null,
+  }));
+
+  /* assembleias — a ata é 1:1 (unique em atas.assembleia_id); o PostgREST
+     pode devolver objeto ou lista conforme detecta o vínculo, então os dois
+     formatos são aceitos */
+  const assembleias = assembleiasRaw.map((a) => {
+    const ataRaw = Array.isArray(a.atas) ? a.atas[0] : a.atas;
+    return {
+      id: a.id, tipo: a.tipo, modalidade: a.modalidade,
+      dataHora: a.data_hora, data: ddmmyyyy(a.data_hora),
+      pauta: Array.isArray(a.pauta) ? a.pauta : [],
+      quorumMinimo: a.quorum_minimo === null || a.quorum_minimo === undefined ? null : num(a.quorum_minimo),
+      presencas: Array.isArray(a.presencas) ? a.presencas : [],
+      status: a.status,
+      convocacaoUrl: a.convocacao?.arquivo_url || null,
+      ata: ataRaw ? {
+        id: ataRaw.id,
+        deliberacoes: Array.isArray(ataRaw.deliberacoes) ? ataRaw.deliberacoes : [],
+        url: ataRaw.documentos?.arquivo_url || null,
+      } : null,
+    };
+  });
+
   /* tenants (painel SaaS) */
   const tenants = tenantsRaw.map((t) => {
     const a = (t.saas_assinaturas || [])[0];
@@ -659,6 +705,9 @@ export async function loadAll(condominioId) {
     encomendas: acessos.filter((a) => a.tipo === "entrega").length,
     vagasVisitante: `${vagas.filter((v) => v.tipo === "visitante" && v.status === "livre").length}/${vagas.filter((v) => v.tipo === "visitante").length}`,
     competencia: compBR(mesAtualReal),
+    reservasPendentes: reservas.filter((r) => r.status === "solicitada").length,
+    reservasFuturas: reservas.filter((r) => r.status === "confirmada" && new Date(r.inicio) >= hoje).length,
+    assembleiasProximas: assembleias.filter((a) => a.status === "convocada" && new Date(a.dataHora) >= hoje).length,
   };
 
   /* atividades recentes — todas, ordenadas da mais nova para a mais antiga;
@@ -669,6 +718,8 @@ export async function loadAll(condominioId) {
     ...chamadosRaw.map((c) => [`Chamado ${c.numero} — ${c.descricao}`, c.criado_em, "chamados"]),
     ...multasRaw.map((m) => [`${m.tipo === "multa" ? "Multa" : "Advertência"} ${m.numero} — ${m.categoria_infracao}`, m.criado_em, "multas"]),
     ...acessosRaw.map((a) => [`Portaria: ${a.pessoa_nome}`, a.ocorrido_em, "portaria"]),
+    ...reservasRaw.slice(0, 10).map((r) => [`Reserva ${r.areas_comuns?.nome || "de área"} — ${r.unidades ? uExib(r.unidades) : ""}`, r.criado_em, "reservas"]),
+    ...assembleiasRaw.slice(0, 5).map((a) => [`Assembleia ${a.tipo === "extraordinaria" ? "extraordinária" : "ordinária"} — ${ddmmyyyy(a.data_hora)}`, a.criado_em, "assembleias"]),
   ].sort((a, b) => (b[1] || "").localeCompare(a[1] || ""))
    .map(([txt, iso, tela]) => [txt, ddmm(iso), tela]);
 
@@ -678,6 +729,8 @@ export async function loadAll(condominioId) {
     encargos: cond.encargos, fundoReservaPct: cond.fundoReservaPct,
     usuarioId: usuarios[0]?.usuario_id || null,
     blocos, categorias,
+    /* áreas reserváveis — o form da gestão e o do portal usam a mesma lista */
+    areas,
     /* multiBloco: a tela Unidades precisa da mesma decisão que o uExib toma
        aqui para só mostrar o bloco quando há mais de um */
     multiBloco: blocosComUnidade.size > 1,
@@ -716,7 +769,7 @@ export async function loadAll(condominioId) {
     maxPenalidade: Math.max(0, ...multasRaw.map((m) => Number((m.numero || "").split("-")[1]) || 0)),
   };
 
-  return { ctx, cond, unidades, pessoas, lanc, cobr, multas, comunic, chamados, acessos, docs, tenants, boletos, fluxo, fluxoDiarioPorMes, mesAtualReal, despesasPorMes, inadim, pieReceitasPorMes, stats, atividades, aprovGrupos };
+  return { ctx, cond, unidades, pessoas, lanc, cobr, multas, comunic, chamados, acessos, docs, tenants, boletos, fluxo, fluxoDiarioPorMes, mesAtualReal, despesasPorMes, inadim, pieReceitasPorMes, stats, atividades, aprovGrupos, areas, reservas, assembleias };
 }
 
 /* ─────────── escritas ─────────── */
@@ -1104,7 +1157,7 @@ export async function listarNotificacoes(condominioId, limite = 30) {
     const { data, error } = await supabase.from("notificacoes")
       .select("id, evento, titulo, payload, criado_em")
       .eq("condominio_id", condominioId)
-      .in("evento", ["pagamento.confirmado", "conta.paga", "receita.recebida"])
+      .in("evento", ["pagamento.confirmado", "conta.paga", "receita.recebida", "reserva.solicitada"])
       .order("criado_em", { ascending: false })
       .limit(limite);
     return error ? null : (data || []);
@@ -2433,6 +2486,183 @@ export async function registrarEntrega(ctx, f) {
     detalhes: `Entrega recebida na portaria${f.obs ? ` · ${f.obs}` : ""}`,
     ocorrido_em: f.quando ? new Date(f.quando).toISOString() : new Date().toISOString(),
   }).select(), "acessos_portaria");
+}
+
+/* ═════════════ RESERVAS E ASSEMBLEIAS (telas de 09/11/2026) ═════════════ */
+
+/* A constraint GiST de reservas é a AUTORIDADE sobre conflito de horário —
+   a pré-checagem do front (src/lib/reservas.js) é só conforto. Quando ela
+   escapa (duas janelas abertas), o banco devolve 23P01 e a mensagem tem de
+   ser gente falando, não "exclusion constraint". */
+const erroReserva = (e) => {
+  if (/23P01|exclusion constraint/i.test(e?.message || ""))
+    return new Error("Este horário já está reservado para esta área — escolha outro.");
+  return e;
+};
+
+/* áreas comuns (sub-aba Áreas da tela Reservas) */
+export async function criarArea(ctx, f) {
+  await q(supabase.from("areas_comuns").insert({
+    condominio_id: ctx.condominioId, nome: f.nome,
+    taxa: f.taxa ? parseBRL(f.taxa) : null,
+    regras: {
+      antecedencia_horas: f.antecedencia ? Number(f.antecedencia) : 0,
+      capacidade: f.capacidade ? Number(f.capacidade) : null,
+    },
+    ativa: true,
+  }).select(), "areas_comuns");
+  if (escritaVaiParaFila()) throw erroFila();
+}
+export async function atualizarArea(ctx, id, f) {
+  await q1(supabase.from("areas_comuns").update({
+    nome: f.nome, taxa: f.taxa ? parseBRL(f.taxa) : null,
+    regras: {
+      antecedencia_horas: f.antecedencia ? Number(f.antecedencia) : 0,
+      capacidade: f.capacidade ? Number(f.capacidade) : null,
+    },
+    ...(f.ativa !== undefined ? { ativa: !!f.ativa } : {}),
+  }).eq("id", id).select(), "areas_comuns", "Salvar a área");
+}
+export async function desativarArea(ctx, id, ativa) {
+  await q1(supabase.from("areas_comuns").update({ ativa: !!ativa }).eq("id", id).select(),
+    "areas_comuns", "Alterar a área");
+}
+
+/* Reserva registrada PELA GESTÃO (nasce solicitada; confirmar é outro clique
+   — o mesmo caminho do pedido do morador, para a trilha contar uma história só) */
+export async function criarReserva(ctx, f) {
+  try {
+    await q(supabase.from("reservas").insert({
+      condominio_id: ctx.condominioId, area_id: f.area,
+      unidade_id: f.unidade, solicitante_id: f.solicitante,
+      inicio: new Date(f.inicio).toISOString(), fim: new Date(f.fim).toISOString(),
+    }).select(), "reservas");
+  } catch (e) { throw erroReserva(e); }
+  if (escritaVaiParaFila()) throw erroFila();
+}
+
+/* Solicitação do MORADOR (portal): passa pela policy morador_solicita_reserva
+   — status forçado 'solicitada'. pessoaId vem da sessão (login novo); sessão
+   antiga cai no fallback que a tela resolve antes de chamar. */
+export async function solicitarReserva(ctx, { areaId, unidadeId, pessoaId, inicio, fim }) {
+  if (!pessoaId) throw new Error("Não achei seu cadastro de pessoa — saia e entre de novo para atualizar a sessão.");
+  if (!unidadeId) throw new Error("Sua conta não está vinculada a uma unidade — fale com a administração.");
+  try {
+    await q(supabase.from("reservas").insert({
+      condominio_id: ctx.condominioId, area_id: areaId,
+      unidade_id: unidadeId, solicitante_id: pessoaId,
+      inicio: new Date(inicio).toISOString(), fim: new Date(fim).toISOString(),
+    }).select(), "reservas");
+  } catch (e) {
+    if (/row-level security|42501/i.test(e?.message || ""))
+      throw new Error("O banco ainda não liberou solicitações do morador: peça à administração para rodar o supabase-reservas-assembleias.sql.");
+    throw erroReserva(e);
+  }
+}
+
+const ERROS_RESERVA = {
+  nao_autorizado: "Você não tem a permissão de confirmar reservas.",
+  inexistente: "Reserva não encontrada.",
+  status_invalido: "Esta reserva não está mais aguardando confirmação.",
+};
+
+/* Confirmar = RPC transacional: área com taxa gera a cobrança 'extra' da
+   unidade e grava cobranca_id; sem taxa, só muda o status. */
+export async function confirmarReserva(id) {
+  const { data, error } = await supabase.rpc("confirmar_reserva", { p_id: id });
+  if (error) throw new Error(/does not exist|schema cache/i.test(error.message)
+    ? "O banco está desatualizado: rode o supabase-reservas-assembleias.sql no SQL Editor para habilitar a confirmação."
+    : error.message);
+  if (data?.ok === false) throw new Error(ERROS_RESERVA[data.erro] || `Confirmação recusada: ${data.erro}`);
+  return data; // { ok, cobranca_id, valor }
+}
+
+/* recusar (solicitada→cancelada), concluir, cancelar — transições simples */
+export async function mudarStatusReserva(id, status) {
+  await q1(supabase.from("reservas").update({ status }).eq("id", id).select(),
+    "reservas", "Alterar a reserva");
+}
+
+/* ── assembleias ── */
+export async function criarAssembleia(ctx, f, pauta) {
+  await q(supabase.from("assembleias").insert({
+    condominio_id: ctx.condominioId,
+    tipo: f.tipo === "Extraordinária" ? "extraordinaria" : "ordinaria",
+    modalidade: { Presencial: "presencial", Digital: "digital", "Híbrida": "hibrida" }[f.modalidade] || "presencial",
+    data_hora: new Date(f.dataHora).toISOString(),
+    pauta, // array de itens (uma linha do textarea cada) — jsonb NOT NULL
+    quorum_minimo: f.quorum ? Number(f.quorum) : null,
+  }).select(), "assembleias");
+  if (escritaVaiParaFila()) throw erroFila();
+}
+
+/* Convocar: gera o PDF timbrado da convocação, arquiva em Documentos
+   (tipo 'convocacao') e aponta convocacao_documento_id; com `publicarAviso`
+   também publica o comunicado tipo convocação (o canal que o morador já vê). */
+export async function convocarAssembleia(ctx, assembleia, { publicarAviso = false } = {}) {
+  const uid = precisaUsuario(ctx);
+  const quando = new Date(assembleia.dataHora).toLocaleString();
+  const titulo = `Convocação — Assembleia ${assembleia.tipo === "extraordinaria" ? "Extraordinária" : "Ordinária"} de ${ddmmyyyy(assembleia.dataHora)}`;
+  const corpo = `Ficam convocados os condôminos para a Assembleia Geral ${assembleia.tipo === "extraordinaria" ? "Extraordinária" : "Ordinária"}, `
+    + `a realizar-se em ${quando} (${{ presencial: "presencial", digital: "digital", hibrida: "híbrida" }[assembleia.modalidade] || assembleia.modalidade}).\n\n`
+    + `ORDEM DO DIA:\n${(assembleia.pauta || []).map((p, i) => `${i + 1}. ${p}`).join("\n")}`
+    + (assembleia.quorumMinimo ? `\n\nQuórum mínimo: ${assembleia.quorumMinimo}% das unidades.` : "");
+  const arquivo = await gerarPdfTimbrado(ctx, { tipo: "Convocação", titulo, corpo, rodape: "" });
+  const { id: docId, url } = await arquivarPdfTimbrado(ctx, uid, { tipoDoc: "convocacao", titulo, arquivo });
+  await q1(supabase.from("assembleias").update({ convocacao_documento_id: docId })
+    .eq("id", assembleia.id).select(), "assembleias", "Gravar a convocação");
+  if (publicarAviso) {
+    await criarComunicado(ctx, {
+      tipo: "Convocação de assembleia", titulo, corpo,
+      segmento: "todas", canal_Portal: true,
+    });
+  }
+  return { url };
+}
+
+export async function salvarPresencas(id, presencas) {
+  await q1(supabase.from("assembleias").update({ presencas }).eq("id", id).select(),
+    "assembleias", "Salvar as presenças");
+}
+
+export async function cancelarAssembleia(id) {
+  await q1(supabase.from("assembleias").update({ status: "cancelada" }).eq("id", id).select(),
+    "assembleias", "Cancelar a assembleia");
+}
+
+/* Registrar a ata: PDF próprio anexado OU timbrado gerado das deliberações
+   (atas.documento_id é NOT NULL — não existe ata sem arquivo). A assembleia
+   vira 'realizada' junto. */
+export async function registrarAta(ctx, assembleia, f) {
+  const uid = precisaUsuario(ctx);
+  const deliberacoes = String(f.deliberacoes || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (!deliberacoes.length) throw new Error("Escreva as deliberações da ata (uma por linha).");
+  const titulo = `Ata — Assembleia ${assembleia.tipo === "extraordinaria" ? "Extraordinária" : "Ordinária"} de ${ddmmyyyy(assembleia.dataHora)}`;
+  const anexos = await uploadArquivos(ctx, f.arquivo, "documentos-timbrados");
+  let docId, url;
+  if (anexos.length) {
+    /* PDF próprio: arquiva direto em documentos (tipo 'ata') */
+    const retencao = new Date(); retencao.setFullYear(retencao.getFullYear() + 5);
+    const dados = await q(supabase.from("documentos").insert({
+      condominio_id: ctx.condominioId, tipo: "ata", titulo,
+      arquivo_url: anexos[0].url, hash_sha256: anexos[0].hash, template_versao: "v1",
+      emitido_por: uid, retencao_ate: retencao.toISOString().slice(0, 10),
+    }).select(), "documentos");
+    docId = dados[0].id; url = anexos[0].url;
+  } else {
+    const corpo = `Deliberações aprovadas:\n${deliberacoes.map((d, i) => `${i + 1}. ${d}`).join("\n")}`
+      + `\n\nPresenças registradas: ${(assembleia.presencas || []).length} unidade(s).`;
+    const arquivo = await gerarPdfTimbrado(ctx, { tipo: "Ata", titulo, corpo, rodape: "" });
+    ({ id: docId, url } = await arquivarPdfTimbrado(ctx, uid, { tipoDoc: "ata", titulo, arquivo }));
+  }
+  await q(supabase.from("atas").insert({
+    condominio_id: ctx.condominioId, assembleia_id: assembleia.id,
+    deliberacoes, documento_id: docId, registrada_por: uid,
+  }).select(), "atas");
+  await q1(supabase.from("assembleias").update({ status: "realizada" })
+    .eq("id", assembleia.id).select(), "assembleias", "Fechar a assembleia");
+  if (escritaVaiParaFila()) throw erroFila(); // `documentos` é tabela coberta pela fila (hoje inerte)
+  return { url };
 }
 
 export async function gerarCobrancas(ctx, f) {

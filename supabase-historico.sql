@@ -7,7 +7,7 @@
 --     as policies genéricas do loop de RLS: QUALQUER perfil do condomínio
 --     lia a trilha) — leitura só com jwt_pode('tela.historico'), escrita
 --     nenhuma (só gatilho security definer), append-only de verdade;
---   · gatilho genérico trg_historico em 19 tabelas do domínio: grava quem
+--   · gatilho genérico trg_historico em 23 tabelas do domínio: grava quem
 --     (usuario + perfil do JWT), o quê (antes/depois inteiros), quando e a
 --     ação (INSERT/UPDATE/DELETE) — pulando consequências de outros
 --     gatilhos e UPDATEs cosméticos (só atualizado_em);
@@ -21,9 +21,10 @@
 --     CADASTROS com checagem otimista (só se nada mudou depois) e grava
 --     entrada nova 'DESFAZ' — a trilha nunca é apagada. DINHEIRO fica
 --     fora (cobrancas, lancamentos, fundos, planilhas_cobranca,
---     acessos_portaria): baixa/cancelamento/rejeição mexem em várias
---     tabelas dentro de RPCs próprias; desfazer só a parte auditada
---     deixaria o caixa sem lastro. Espelho: ENTIDADES_SEM_DESFAZER em
+--     acessos_portaria, reservas): baixa/cancelamento/rejeição mexem em
+--     várias tabelas dentro de RPCs próprias — e confirmar reserva GERA
+--     cobrança (confirmar_reserva); desfazer só a parte auditada deixaria
+--     o caixa sem lastro. Espelho: ENTIDADES_SEM_DESFAZER em
 --     src/lib/historico.js (a sonda compara os dois);
 --   · catálogo: permissões tela.historico e historico.desfazer (fora do
 --     padrão de todos os perfis — só o diretor, até delegar pela matriz;
@@ -179,9 +180,9 @@ revoke all on function public.historico_registrar() from public, anon, authentic
 --   · planilha_cobranca_linhas — importação em massa = milhares de linhas
 --     de ruído por sessão (planilhas_cobranca já conta a história);
 --   · pagamentos, pagamentos_informados, usuario_perfis — já têm gatilho
---     próprio → auditoria_eventos (um fato = uma entrada na aba);
---   · reservas, areas_comuns, assembleias, atas — sem tela: nada escreve
---     nelas hoje; entram quando ganharem tela.
+--     próprio → auditoria_eventos (um fato = uma entrada na aba).
+-- reservas, areas_comuns, assembleias e atas entraram em 09/11/2026, junto
+-- com as telas de Reservas e Assembleias (supabase-reservas-assembleias.sql).
 do $$
 declare t text;
 begin
@@ -189,7 +190,8 @@ begin
     'condominios','blocos','unidades','vagas','pessoas','pessoa_vinculos',
     'categorias_financeiras','fundos','lancamentos','cobrancas','penalidades',
     'penalidade_provas','comunicados','comunicado_destinatarios','documentos',
-    'chamados','pre_autorizacoes']
+    'chamados','pre_autorizacoes',
+    'areas_comuns','reservas','assembleias','atas']
   loop
     if to_regclass('public.' || t) is null then
       raise notice '[historico] tabela % não existe — pulada.', t;
@@ -316,15 +318,18 @@ begin
      or coalesce(a.antes ? '_grande', false) or coalesce(a.depois ? '_grande', false) then
     return jsonb_build_object('ok', false, 'erro', 'nao_desfazivel');
   end if;
-  /* dinheiro fica fora — espelho de ENTIDADES_SEM_DESFAZER (src/lib/historico.js) */
-  if a.entidade in ('cobrancas','lancamentos','fundos','planilhas_cobranca','acessos_portaria') then
+  /* dinheiro fica fora — espelho de ENTIDADES_SEM_DESFAZER (src/lib/historico.js).
+     `reservas` entrou em 09/11/2026: confirmar gera cobrança — desfazer a
+     reserva deixaria a cobrança sem lastro */
+  if a.entidade in ('cobrancas','lancamentos','fundos','planilhas_cobranca','acessos_portaria','reservas') then
     return jsonb_build_object('ok', false, 'erro', 'entidade_bloqueada');
   end if;
   /* allowlist dura: só as tabelas do gatilho (fecha qualquer injeção via
      `entidade` e recusa entrada forjada) */
   if a.entidade not in ('condominios','blocos','unidades','vagas','pessoas','pessoa_vinculos',
       'categorias_financeiras','penalidades','penalidade_provas','comunicados',
-      'comunicado_destinatarios','documentos','chamados','pre_autorizacoes') then
+      'comunicado_destinatarios','documentos','chamados','pre_autorizacoes',
+      'areas_comuns','assembleias','atas') then
     return jsonb_build_object('ok', false, 'erro', 'nao_desfazivel');
   end if;
 
@@ -395,7 +400,7 @@ grant execute on function public.desfazer_alteracao(bigint) to authenticated, se
 -- ═══════════════════════════════════════════════════════════════
 -- Verificação rápida (opcional):
 --   select tgrelid::regclass as tabela from pg_trigger
---    where tgname = 'trg_historico' order by 1;            -- 19 tabelas
+--    where tgname = 'trg_historico' order by 1;            -- 23 tabelas (09/11/2026: +reservas/areas/assembleias/atas)
 --   select count(*) from public.permissoes
 --    where codigo in ('tela.historico','historico.desfazer');  -- 2
 --   update public.auditoria set perfil = 'x'

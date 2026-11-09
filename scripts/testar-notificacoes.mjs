@@ -109,13 +109,15 @@ ok("N8b maisRecente: máximo fora de ordem, formatos mistos, vazio/null → null
   && ehNova("2026-10-19T12:00:00.5+00:00", "2026-10-19T12:00:00Z") === true
   && ehNova("2026-10-19T12:00:00.5+00:00", "2026-10-19T12:00:00.5+00:00") === false);
 
-/* N8 · chave do visto separa condomínio × perfil; mapa cobre os 3 eventos */
-ok("N8 chaveVisto por condomínio e perfil; EVENTOS_FEED cobre os 3 eventos",
+/* N8 · chave do visto separa condomínio × perfil; mapa cobre os 4 eventos
+   (reserva.solicitada entrou em 09/11/2026 com a tela de Reservas) */
+ok("N8 chaveVisto por condomínio e perfil; EVENTOS_FEED cobre os 4 eventos",
   chaveVisto("c1", "diretor") === "c1:diretor"
   && chaveVisto("c1", "diretor") !== chaveVisto("c1", "tesouraria")
   && chaveVisto("c1", "diretor") !== chaveVisto("c2", "diretor")
   && chaveVisto(null, null) === "?:?"
-  && Object.keys(EVENTOS_FEED).length === 3);
+  && Object.keys(EVENTOS_FEED).length === 4
+  && EVENTOS_FEED["reserva.solicitada"]?.tela === "reservas");
 
 console.log(falhas ? `\n❌ ${falhas} sonda(s) falharam` : "\n🔔 FEED DE MOVIMENTAÇÕES OK");
 process.exitCode = falhas ? 1 : 0;

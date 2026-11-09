@@ -259,7 +259,11 @@ begin
                              then null else planilha_cobranca_linhas.valor_pago end,
         cancelada_em  = null,
         atualizado_em = now();
-  else
+  elsif new.tipo <> 'extra' then
+    /* `extra` ficou de FORA em 09/11/2026: é a taxa de uso de área comum
+       (confirmar_reserva, supabase-reservas-assembleias.sql) — não é mora
+       e viraria uma linha falsa na planilla quando a unidade ainda não tem
+       a linha do mês. Multa e chamada_caixa seguem como sempre. */
     insert into planilha_cobranca_linhas
         (condominio_id, planilha_id, dados, unidade_id, competencia, cobranca_id, origem, ordem)
       values (new.condominio_id, v_pl.id, v_dados, new.unidade_id, new.competencia,

@@ -15,10 +15,11 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 - **Stack**: React 18 + Vite + Tailwind 4 (tela única `CondoMasterPro.jsx` + módulos em
   `src/lib/`), funções serverless Vercel (`api/`), Supabase (Postgres com RLS por condomínio),
   Stripe (Billing para a licença; Connect para as cobranças), dLocal Go em Fase 0.
-- **Instalação do banco**: 12 arquivos SQL em ordem — a lista canônica está no README.
-  Regra prática: re-rodar `supabase-rls.sql` exige re-rodar `seguranca 1→5`, `permissoes`
-  e `historico` depois; `supabase-fundo-reserva.sql` é o arquivo DEFINITIVO das RPCs de
-  baixa; re-rodar `seguranca3` exige re-rodar `historico` (policy de `auditoria_eventos`).
+- **Instalação do banco**: 13 arquivos SQL em ordem — a lista canônica está no README.
+  Regra prática: re-rodar `supabase-rls.sql` exige re-rodar `seguranca 1→5`, `permissoes`,
+  `historico` e `reservas-assembleias` depois; `supabase-fundo-reserva.sql` é o arquivo
+  DEFINITIVO das RPCs de baixa; re-rodar `seguranca3` exige re-rodar `historico` (policy
+  de `auditoria_eventos`).
 - **Produção**: Vercel (chaves Stripe LIVE só lá; o `.env` local fica em TEST).
 
 ## Convenções de trabalho
@@ -50,6 +51,7 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 | `scripts/testar-pessoas-doc.mjs` | Sondas do documento único de pessoa (unificação, duplicados) |
 | `scripts/testar-import-lancamentos.mjs` | Sondas do import de contas a pagar |
 | `scripts/testar-historico.mjs` | Sondas da aba Histórico de alterações (motor puro + paridade SQL ≡ JS ≡ NAV) |
+| `scripts/testar-reservas.mjs` | Sondas de Reservas e Assembleias (motor puro + paridade policy/RPC/sync/histórico/sino) |
 | `scripts/corrigir-pagadores-planilha.mjs` | Reparo: placeholders "Responsável X" ganham nome/RUC do pagador da planilha |
 | `scripts/corrigir-competencias-planilha.mjs` | Reparo: competências 1905 (ano lido como serial) e meses recuperáveis |
 | `scripts/corrigir-duplicados-pessoas.mjs` | Reparo: funde cadastros duplicados (mesmo nome, doc provisório P-/M-) |
@@ -61,6 +63,12 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
   revisão deles (`verumcripto+dlocal@gmail.com`) vale até 20/11/2026.
 - **Sonda dos manuais**: ~10 ❌ falsos a partir de 28/09/2026 (fixture com cenário vencido).
 - Testes visuais pendentes: import de contas a pagar e unificação de pessoa no navegador.
+- **Reservas e Assembleias**: falta rodar em produção, NESTA ordem: `supabase-historico.sql`
+  (re-run, 23 gatilhos), `supabase-planilha-sync.sql` (re-run, `extra` fora da planilla) e
+  `supabase-reservas-assembleias.sql` (novo, passo 13) — até lá o bloco B de
+  `testar-permissoes` acusa "padrão semeado no banco diverge" (esperado) e as telas avisam.
+  Depois: teste visual (morador solicita → sino → confirmar → cobrança `extra`; assembleia
+  convocar → presenças → ata).
 
 ## Histórico (mais recente primeiro)
 

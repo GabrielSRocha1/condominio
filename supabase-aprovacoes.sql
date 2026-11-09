@@ -114,6 +114,8 @@ select c as codigo from unnest(array[
   'tela.dashboard','tela.condominio','tela.unidades','tela.pessoas','tela.financeiro',
   'tela.cobrancas','tela.multas','tela.comunicados','tela.documentos','tela.chamados',
   'tela.portaria','tela.acessos',
+  -- Reservas e Assembleias (09/11/2026): ele opera como o diretor
+  'tela.reservas','tela.assembleias','reserva.decidir',
   'condominio.editar','unidade.criar','financeiro.lancar','financeiro.aprovar',
   'financeiro.baixar','cobranca.emitir','cobranca.cancelar',
   'multa.registrar','multa.aprovar','comunicado.publicar',

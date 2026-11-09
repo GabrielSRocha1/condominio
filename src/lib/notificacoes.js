@@ -20,6 +20,7 @@ export const EVENTOS_FEED = {
   "pagamento.confirmado": { chave: "Entrada recebida", cor: "ok", tela: "cobrancas" },
   "receita.recebida": { chave: "Receita recebida", cor: "ok", tela: "financeiro" },
   "conta.paga": { chave: "Conta paga", cor: "warn", tela: "financeiro" },
+  "reserva.solicitada": { chave: "Reserva solicitada", cor: "warn", tela: "reservas" },
 };
 
 /* ISO → epoch ms; lixo/ausente → null (tolera "+00:00", "Z" e frações). */
@@ -49,6 +50,10 @@ export function formatarNotificacao(n) {
     const comp = compCurta(p.competencia);
     const detalhe = [p.unidade, comp].filter(Boolean).join(" · ");
     return { ...base, chave: conhecido.chave, detalhe };
+  }
+  if (n.evento === "reserva.solicitada") {
+    const detalhe = [p.area, p.unidade].filter(Boolean).join(" · ");
+    return { ...base, chave: conhecido.chave, detalhe: detalhe || String(n?.titulo || "") };
   }
   return { ...base, chave: conhecido.chave, detalhe: String(p.descricao || "") };
 }

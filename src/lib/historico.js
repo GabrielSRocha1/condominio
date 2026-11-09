@@ -56,6 +56,10 @@ export const ENTIDADES = {
   chamados:                 "operacao",
   acessos_portaria:         "operacao",
   pre_autorizacoes:         "operacao",
+  areas_comuns:             "operacao",
+  reservas:                 "operacao",
+  assembleias:              "comunicacao",
+  atas:                     "comunicacao",
   /* eventos de auditoria_eventos */
   pagamento_registrado:     "cobrancas",
   informe_criado:           "cobrancas",
@@ -122,6 +126,10 @@ export const categoriaDe = (entidade) =>
 const ROTULOS_EXTRA = {
   pre_autorizacoes: "Pré-autorização de visita",
   acessos_portaria: "Registro de portaria",
+  areas_comuns: "Área comum",
+  reservas: "Reserva",
+  assembleias: "Assembleia",
+  atas: "Ata",
 };
 export const rotuloEntidade = (entidade) => {
   const e = String(entidade);
@@ -244,6 +252,9 @@ export function filtrarBusca(linhas, q) {
    próprias; desfazer só a parte auditada deixaria o caixa sem lastro. */
 export const ENTIDADES_SEM_DESFAZER = new Set([
   "cobrancas", "lancamentos", "fundos", "planilhas_cobranca", "acessos_portaria",
+  /* confirmar reserva GERA cobrança (confirmar_reserva) — desfazer a
+     reserva deixaria a cobrança sem lastro (09/11/2026) */
+  "reservas",
 ]);
 export function podeDesfazer(linha) {
   if (String(linha?.fonte) !== "dados") return false;

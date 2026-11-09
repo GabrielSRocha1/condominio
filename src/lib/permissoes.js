@@ -37,6 +37,8 @@ export const PERMISSOES = [
   { codigo: "tela.documentos",  grupo: "tela", tela: "documentos",  rotulo: "Documentos" },
   { codigo: "tela.chamados",    grupo: "tela", tela: "chamados",    rotulo: "Manutenção" },
   { codigo: "tela.portaria",    grupo: "tela", tela: "portaria",    rotulo: "Portaria" },
+  { codigo: "tela.reservas",    grupo: "tela", tela: "reservas",    rotulo: "Reservas" },
+  { codigo: "tela.assembleias", grupo: "tela", tela: "assembleias", rotulo: "Assembleias" },
   { codigo: "tela.historico",   grupo: "tela", tela: "historico",   rotulo: "Histórico de alterações",
     ajuda: "Toda movimentação do condomínio: quem criou, alterou ou excluiu, e quando. Padrão: só o diretor." },
   { codigo: "tela.acessos",     grupo: "tela", tela: "emails",      rotulo: "Gerenciar Acessos" },
@@ -62,6 +64,10 @@ export const PERMISSOES = [
   { codigo: "documento.emitir",    grupo: "acao", rotulo: "Emitir documentos timbrados" },
   { codigo: "chamado.abrir",       grupo: "acao", rotulo: "Abrir chamado de manutenção" },
   { codigo: "pagamento.informar",  grupo: "acao", rotulo: "Informar pagamento com comprovante" },
+  { codigo: "reserva.solicitar",   grupo: "acao", rotulo: "Solicitar reserva de área comum",
+    ajuda: "É do morador: o pedido nasce aguardando a confirmação da gestão." },
+  { codigo: "reserva.decidir",     grupo: "acao", rotulo: "Confirmar ou recusar reservas",
+    ajuda: "Confirmar uma área com taxa GERA a cobrança para a unidade — por isso é uma permissão própria." },
   { codigo: "acesso.gerir",        grupo: "acao", rotulo: "Criar e remover acessos",
     ajuda: "Criar e remover valem na hora. O acesso de DIRETOR é a exceção: só outro diretor cria, remove — ou enxerga na lista." },
   { codigo: "licenca.gerir",       grupo: "acao", rotulo: "Contratar, trocar e cancelar a licença",
@@ -171,6 +177,9 @@ export const MATRIZ_PADRAO = {
     "tela.dashboard", "tela.condominio", "tela.unidades", "tela.pessoas",
     "tela.financeiro", "tela.cobrancas", "tela.multas", "tela.comunicados",
     "tela.documentos", "tela.chamados", "tela.portaria",
+    /* Reservas e Assembleias entraram em 09/11/2026 — telas NOVAS (as
+       tabelas eram órfãs), não regressão do espelho pré-matriz */
+    "tela.reservas", "tela.assembleias", "reserva.decidir",
     "dados.escrever", "financeiro.lancar", "financeiro.aprovar", "financeiro.baixar",
     "cobranca.emitir", "cobranca.cancelar", "multa.registrar", "multa.aprovar",
     "comunicado.publicar", "documento.emitir",
@@ -180,11 +189,12 @@ export const MATRIZ_PADRAO = {
     "dados.escrever", "financeiro.lancar", "financeiro.aprovar", "financeiro.baixar",
     "cobranca.emitir", "cobranca.cancelar", "documento.emitir",
   ],
-  /* 26 dos 33 códigos do catálogo: todas as telas de operação e todas as
-     escritas. Fora, de propósito: `tela.planos` + `licenca.gerir` (a 4ª
-     exceção, ver PERMS_VEDADAS_AO_ADMIN), `alteracao.aprovar`,
-     `permissao.gerir` e `saas.gerir` (indelegáveis) e `tela.portal` +
-     `pagamento.informar` (são do morador).
+  /* 29 dos 39 códigos do catálogo: todas as telas de operação e todas as
+     escritas. Fora, de propósito: `tela.planos` + `licenca.gerir` e
+     `tela.historico` + `historico.desfazer` (propriedade do dono — ver
+     PERMS_VEDADAS_AO_ADMIN), `alteracao.aprovar`, `permissao.gerir` e
+     `saas.gerir` (indelegáveis) e `tela.portal` + `pagamento.informar` +
+     `reserva.solicitar` (são do morador).
      Espelha a view _padrao_administrador do supabase-aprovacoes.sql — a
      sonda compara os dois lados e falha se divergirem. */
   administrador_predial: [
@@ -200,8 +210,10 @@ export const MATRIZ_PADRAO = {
     "documento.emitir", "chamado.abrir", "dados.escrever",
     /* cria e remove todo acesso menos o de DIRETOR — ver podeCriarPerfil */
     "acesso.gerir",
+    /* Reservas e Assembleias (09/11/2026): ele opera como o diretor */
+    "tela.reservas", "tela.assembleias", "reserva.decidir",
   ],
-  morador: ["tela.portal", "chamado.abrir", "pagamento.informar"],
+  morador: ["tela.portal", "chamado.abrir", "pagamento.informar", "reserva.solicitar"],
   administradora: ["saas.gerir"],
   /* conselho_fiscal, funcionario e prestador existem na tabela `perfis` mas
      não têm caminho de login (api/auth/login.js PERFIS) — sem linhas até
@@ -254,7 +266,7 @@ export function podeTela(perms, tela) {
    sem permissão de gestão para o morador — o chão das RPCs e das policies
    antigas continua exigindo perfil de gestão, então marcar isso para o
    morador prometeria um poder que o banco nega. */
-export const PERMS_DO_MORADOR = ["tela.portal", "chamado.abrir", "pagamento.informar"];
+export const PERMS_DO_MORADOR = ["tela.portal", "chamado.abrir", "pagamento.informar", "reserva.solicitar"];
 export function sanearPerms(perfil, lista) {
   const p = String(perfil);
   const permitidas = p === "morador" ? PERMS_DO_MORADOR : CODIGOS;

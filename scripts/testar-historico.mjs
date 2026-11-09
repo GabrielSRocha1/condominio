@@ -134,8 +134,9 @@ const jsx = arq("CondoMasterPro.jsx");
   const tabelasJs = Object.keys(ENTIDADES).filter((e) => !EVENTOS[e]);
   const semJs = doSql.filter((e) => !tabelasJs.includes(e));
   const semSql = tabelasJs.filter((e) => !doSql.includes(e));
-  ok("F1 tabelas do gatilho ≡ tabelas do JS (19)",
-    doSql.length === 19 && semJs.length === 0 && semSql.length === 0,
+  /* 23 desde 09/11/2026: +areas_comuns/reservas/assembleias/atas (telas novas) */
+  ok("F1 tabelas do gatilho ≡ tabelas do JS (23)",
+    doSql.length === 23 && semJs.length === 0 && semSql.length === 0,
     [...semJs.map((x) => `só no SQL: ${x}`), ...semSql.map((x) => `só no JS: ${x}`)].join(" · ") || `${doSql.length} tabelas`);
 }
 

@@ -80,9 +80,10 @@ ok("todo código tem rótulo e grupo",
   const bloco = jsx.slice(jsx.indexOf("const NAV = ["), jsx.indexOf("const PermsCtx"));
   const itens = [...bloco.matchAll(/\{\s*id:\s*"([a-z]+)".*?perm:\s*"([a-z.]+)"/gs)]
     .map(([, id, perm]) => ({ id, perm }));
-  /* 14 desde 09/11/2026: entrou "Histórico de alterações" (tela.historico);
+  /* 16 desde 09/11/2026: entraram "Reservas" e "Assembleias" (as tabelas
+     órfãs ganharam telas) além do "Histórico de alterações" do mesmo dia;
      13 desde 02/11/2026, quando "Aprovações" saiu com a fila congelada */
-  ok("NAV declara perm em todas as telas", itens.length === 14, `${itens.length} itens`);
+  ok("NAV declara perm em todas as telas", itens.length === 16, `${itens.length} itens`);
   const semCatalogo = itens.filter((i) => !CODIGOS.includes(i.perm));
   ok("toda perm do NAV existe no catálogo", semCatalogo.length === 0,
     semCatalogo.map((i) => i.perm).join(", "));
@@ -96,8 +97,12 @@ ok("todo código tem rótulo e grupo",
    cópia literal do NAV.roles anterior. */
 {
   const ANTES = {
+    /* reservas/assembleias entraram em 09/11/2026 — telas NOVAS (as tabelas
+       eram órfãs), somadas aqui porque o espelho é "o que o síndico vê",
+       não só o que via antes da matriz */
     sindico: ["dashboard","condominio","unidades","pessoas","financeiro","cobrancas",
-              "multas","comunicados","documentos","chamados","portaria"],
+              "multas","comunicados","documentos","chamados","portaria",
+              "reservas","assembleias"],
     tesouraria: ["dashboard","unidades","financeiro","cobrancas","documentos"],
   };
   for (const [perfil, telas] of Object.entries(ANTES)) {
