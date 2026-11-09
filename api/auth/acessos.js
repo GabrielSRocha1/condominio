@@ -186,8 +186,12 @@ export default async function handler(req, res) {
         await supabase.from("pessoa_vinculos").delete().eq("pessoa_id", u.pessoa_id).eq("condominio_id", condominioId);
         await supabase.from("pessoas").delete().eq("id", u.pessoa_id).then(() => {}, () => {}); // falha se referenciada — ok
       }
+      /* quem foi removido fica LEGÍVEL na trilha (nome, e-mail, perfil) —
+         só o uuid não diz nada a quem olha o Histórico depois */
       await auditar(supabase, { evento: "acesso_removido", severidade: "aviso", usuarioId: claims.sub,
-        condominioId, ip: ipDoRequest(req), detalhe: { usuario_alvo: f.usuarioId } });
+        condominioId, ip: ipDoRequest(req), detalhe: { usuario_alvo: f.usuarioId,
+          nome: u?.pessoas?.nome || null, email: u?.email || null,
+          perfil: alvo.map((a) => a.perfis?.nome).filter(Boolean).join(", ") || null } });
       return res.status(200).json({ ok: true });
     }
 
@@ -316,7 +320,8 @@ export default async function handler(req, res) {
       await supabase.from("unidades").update({ responsavel_financeiro_id: pessoa.id }).eq("id", f.unidadeId);
 
     await auditar(supabase, { evento: "acesso_criado", usuarioId: claims.sub, condominioId,
-      ip: ipDoRequest(req), detalhe: { usuario_alvo: usuario.id, perfil: f.perfil } });
+      ip: ipDoRequest(req), detalhe: { usuario_alvo: usuario.id, perfil: f.perfil,
+        nome: nome || null, email: email || null } });
     return res.status(200).json({ id: usuario.id });
   } catch (e) {
     logSeguro("[auth/acessos]", e);

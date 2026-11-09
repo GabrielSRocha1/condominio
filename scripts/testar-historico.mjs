@@ -15,6 +15,7 @@ import {
   CATEGORIAS, ENTIDADES, EVENTOS, categoriaDe, rotuloEntidade, fraseEvento,
   entidadesDaCategoria, TABELAS_FILHAS, verboAcao, diffLinha, descrever,
   resumoLinha, rotuloAutor, filtrarBusca, ENTIDADES_SEM_DESFAZER, podeDesfazer,
+  detalheCurto,
 } from "../src/lib/historico.js";
 
 let falhas = 0;
@@ -67,6 +68,19 @@ ok("H2b INSERT em tabela-filha vira Adicionou",
   ok("H4c EVENTO vira a frase do mapa",
     descrever({ acao: "EVENTO", entidade: "login_sucesso" }) === EVENTOS.login_sucesso
     && fraseEvento("evento_estranho") === "evento_estranho");
+  /* a correção de 09/11/2026: "Acesso removido" sem quem foi removido não
+     serve — o detalhe legível entra na linha; uuid fica só no modal */
+  {
+    const ev = { acao: "EVENTO", entidade: "acesso_removido",
+      detalhe: { usuario_alvo: "1e0ec5ba-efeb-4788-b1bc-7ea3a9488b52", nome: "verumcripto",
+        email: "sindico@x.com", perfil: "sindico" } };
+    ok("H4e detalhe do evento aparece na linha (sem o uuid)",
+      descrever(ev) === "Acesso removido · verumcripto · sindico@x.com · sindico"
+      && !detalheCurto(ev).includes("1e0ec5ba"), descrever(ev));
+  }
+  ok("H4f vínculo excluído mostra o papel (não '—')",
+    descrever({ acao: "DELETE", antes: { papel: "sindico", pessoa_id: "x" } }) === "sindico"
+    && resumoLinha({ acao: "DELETE", antes: { papel: "sindico" } }) === "sindico");
   ok("H4d autor: nome > e-mail > Sistema",
     rotuloAutor({ autor_nome: "Ana", autor_email: "a@b.c" }) === "Ana"
     && rotuloAutor({ autor_email: "a@b.c" }) === "a@b.c"

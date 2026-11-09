@@ -178,8 +178,10 @@ export function diffLinha(linha) {
     .map((c) => ({ campo: c, de: (antes || {})[c], para: (depois || {})[c] }));
 }
 
-/* resumo humano da linha afetada (quem é o "Apto 10-A" da história) */
-const CHAVES_RESUMO = ["nome", "nome_fantasia", "titulo", "descricao", "numero", "competencia"];
+/* resumo humano da linha afetada (quem é o "Apto 10-A" da história).
+   `papel` e `email` entraram por causa das tabelas sem nome próprio:
+   um vínculo excluído mostrava "—" quando tem "sindico" para contar. */
+const CHAVES_RESUMO = ["nome", "nome_fantasia", "titulo", "descricao", "numero", "competencia", "papel", "email"];
 export function resumoLinha(linha) {
   const alvo = linha?.depois || linha?.antes || {};
   for (const c of CHAVES_RESUMO) if (alvo[c]) return String(alvo[c]);
@@ -191,10 +193,26 @@ const curto = (v, n = 40) => {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 };
 
+/* O que do `detalhe` de um EVENTO vale mostrar na PRÓPRIA linha — valores
+   legíveis (nome, e-mail, perfil…), nunca uuid (uuid fica para o modal).
+   Um "Acesso removido" sem isto não dizia QUEM foi removido. */
+const DETALHE_VISIVEL = ["nome", "email", "perfil", "papel", "unidade", "competencia", "valor", "motivo", "forma", "origem", "descricao"];
+const ehUuid = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+export function detalheCurto(linha) {
+  const d = linha?.detalhe;
+  if (!d || typeof d !== "object" || Array.isArray(d)) return "";
+  return DETALHE_VISIVEL
+    .filter((k) => d[k] !== null && d[k] !== undefined && d[k] !== "" && !ehUuid(d[k]) && typeof d[k] !== "object")
+    .map((k) => curto(d[k])).join(" · ");
+}
+
 /* Uma frase por linha da tabela. UPDATE: "Valor: 100 → 150 (+2 campos)". */
 export function descrever(linha, maxCampos = 3) {
   const acao = String(linha?.acao || "");
-  if (acao === "EVENTO") return fraseEvento(linha?.entidade);
+  if (acao === "EVENTO") {
+    const det = detalheCurto(linha);
+    return det ? `${fraseEvento(linha?.entidade)} · ${det}` : fraseEvento(linha?.entidade);
+  }
   const resumo = resumoLinha(linha);
   if (acao === "INSERT" || acao === "DELETE") return resumo;
   const d = diffLinha(linha);

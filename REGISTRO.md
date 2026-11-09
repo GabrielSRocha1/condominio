@@ -66,7 +66,16 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 
 ## Histórico (mais recente primeiro)
 
-### 09/11/2026 — Aba Histórico de alterações, só do diretor, com Desfazer (`20710e4`)
+### 09/11/2026 — Histórico diz QUEM foi removido, e remover acesso atualiza o painel
+Teste visual em produção revelou três falhas. (1) "Acesso removido" gravava só o uuid do
+alvo — agora `api/auth/acessos.js` grava nome, e-mail e perfil no `detalhe` (criar idem), e
+a linha do Histórico mostra o detalhe legível (`detalheCurto` em historico.js — uuid nunca;
+fica para o modal). (2) Vínculo excluído mostrava "—": `papel`/`email` entraram nas chaves
+de resumo ("sindico" aparece). (3) Remover/criar acesso não recarregava o painel — a pessoa
+apagada pelo backend continuava na tela Pessoas e parecia que "não removeu" (o banco tinha
+removido: a trilha provou, 0 vivas); agora `reload()` após as duas ações. Sondas H4e/H4f.
+Obs.: CRUD feito pelo backend (service role) segue como "Sistema" — o autor humano está no
+evento da mesma hora, que agora é legível.
 Nova tela **Histórico de alterações** (modelo Google Ads): toda movimentação com data/hora,
 quem (nome + perfil), ação (Criou/Editou/Excluiu/**Adicionou** nas filhas/Desfez/Evento), onde
 e o que mudou — chips por categoria, filtro por ação e período, busca local, paginação no

@@ -45,7 +45,7 @@ import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, se
 import { familiaCarteira, uriVerumPay, redesDaFamilia } from "./src/lib/qr-pagamento.js";
 import { pode, permsEfetivas, PERMISSOES, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, PERFIS_CRIAVEIS, PERFIL_SO_DIRETOR_CRIA, podeCriarPerfil, mesmoConjunto } from "./src/lib/permissoes.js";
 import { rotuloTabela, rotuloOperacao, rotuloCampo, valorTexto, diff, resumir, agrupar, resumirGrupo, camposDoGrupo, ehPerfilSobAprovacao, ehAcao } from "./src/lib/aprovacoes.js";
-import { CATEGORIAS, entidadesDaCategoria, rotuloEntidade, verboAcao, diffLinha, descrever, resumoLinha, rotuloAutor, filtrarBusca, podeDesfazer, fraseEvento } from "./src/lib/historico.js";
+import { CATEGORIAS, entidadesDaCategoria, rotuloEntidade, verboAcao, diffLinha, descrever, resumoLinha, rotuloAutor, filtrarBusca, podeDesfazer, fraseEvento, detalheCurto } from "./src/lib/historico.js";
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
 import { geoCache } from "./src/lib/geo.js";
@@ -4764,7 +4764,7 @@ function GerenciarEmails({ t, role }) {
 }
 
 function AcessosDoCondominio({ t, role }) {
-  const { db } = useData();
+  const { db, reload } = useData();
   const unidades = db.ctx.unidades; // unidades cadastradas na tela Unidades
   /* o servidor devolve a unidade da conta na forma canônica "numero-bloco"
      (api/auth/acessos.js); aqui ela vira o rótulo que o resto do app mostra */
@@ -4815,13 +4815,18 @@ function AcessosDoCondominio({ t, role }) {
     try {
       await criarAcesso(db.ctx, f);
       await recarregar();
+      reload(); // o acesso criou pessoa e vínculo — sem isto a tela Pessoas mostra o estado velho
       setErro(""); setNovo(false);
     } catch (err) { setErro(err.message); }
     finally { setSalvando(false); }
   };
   const remover = async (u) => {
     if (!confirm(`Remover o acesso de ${u.nome || u.email}? Essa pessoa não conseguirá mais entrar.`)) return;
-    try { await removerAcesso(u.id); await recarregar(); }
+    try {
+      await removerAcesso(u.id);
+      await recarregar();
+      reload(); // a remoção pode apagar pessoa e vínculo — a tela Pessoas precisa refletir na hora
+    }
     catch (err) { setErro(err.message); }
   };
   /* papel na unidade: só o proprietário vê os números do prédio no portal.
@@ -5093,7 +5098,9 @@ function Historico({ t }) {
                 {r.acao === "EVENTO" ? L("Sistema") : L(rotuloEntidade(r.entidade))}</span>);
             if (k === "oque") return (
               <span className="block max-w-[340px] truncate text-xs" title={descrever(r, 99)}>
-                {r.acao === "EVENTO" ? L(fraseEvento(r.entidade)) : (descrever(r) || "—")}</span>);
+                {r.acao === "EVENTO"
+                  ? `${L(fraseEvento(r.entidade))}${detalheCurto(r) ? ` · ${detalheCurto(r)}` : ""}`
+                  : (descrever(r) || "—")}</span>);
             if (k === "desfazer") return podeDesf && podeDesfazer(r) ? (
               <Btn t={t} className="!px-2 !py-1 text-xs" disabled={desfazendo}
                 onClick={(e) => { e.stopPropagation(); desfazer(r); }}>
@@ -5122,6 +5129,7 @@ function Historico({ t }) {
             <div className="flex items-center gap-2 text-sm font-semibold">
               <VerboBadge r={sel} />
               <span>{sel.acao === "EVENTO" ? L(fraseEvento(sel.entidade)) : L(rotuloEntidade(sel.entidade))}</span>
+              {sel.acao === "EVENTO" && detalheCurto(sel) && <span className="font-normal" style={{ color: t.dim }}>· {detalheCurto(sel)}</span>}
               {resumoLinha(sel) && <span className="font-normal" style={{ color: t.dim }}>· {resumoLinha(sel)}</span>}
               {sel.desfaz_de != null && <span className="font-normal" style={{ color: t.dim }}>· {L("reversão de uma alteração anterior")}</span>}
             </div>
