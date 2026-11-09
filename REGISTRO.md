@@ -72,6 +72,25 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 
 ## Histórico (mais recente primeiro)
 
+### 09/11/2026 — Reservas e Assembleias ganham telas (`cadfe87`)
+As 4 tabelas órfãs do schema viraram produto. **Reservas**: morador solicita pelo portal
+(card no Início + aba fora da barra; policy própria `morador_solicita_reserva` força status
+`solicitada`; `pessoaId`/`unidadeId` agora vêm do login, com fallback por nome+unidade para
+sessão antiga) e a gestão confirma pela RPC **`confirmar_reserva`** — área com taxa gera a
+cobrança `extra` da unidade (fora do índice único das ordinárias E fora da planilla de mora:
+o sync passou a pular `extra`) e grava `cobranca_id`; recusar/concluir são UPDATEs com `q1`;
+conflito de horário é a constraint GiST (pré-checagem JS é só aviso; `23P01` traduzido);
+sub-aba Áreas (CRUD com taxa/antecedência/capacidade); pedido novo toca o sino da gestão
+(`reserva.solicitada` — 4º evento do feed). **Assembleias**: criar (tipo/modalidade/pauta/
+quórum), convocar = PDF timbrado arquivado em Documentos (+ comunicado opcional tipo
+convocação), presenças por checkbox de unidade com % vs quórum, ata = deliberações + PDF
+(anexado ou gerado) → `realizada`; portal mostra a próxima assembleia com link da convocação.
+Permissões novas `tela.reservas`/`tela.assembleias`/`reserva.decidir` (síndico + admin por
+padrão) e `reserva.solicitar` (morador) — NAV=16; `trg_historico` cobre as 4 (23 relações;
+`reservas` entrou no bloqueio do Desfazer: confirmar gera cobrança). Novo passo 13
+`supabase-reservas-assembleias.sql` + re-run de `historico` e `planilha-sync`; módulo puro
+`src/lib/reservas.js` + sonda `testar-reservas.mjs` (25 ✅); ~114 frases nos 15 idiomas.
+
 ### 09/11/2026 — Histórico VALIDADO fim a fim em produção
 SQL rodado (sonda de banco 5/5), aba conferida pelo diretor e **Desfazer provado de
 verdade**: a pessoa e o vínculo apagados pela remoção de acesso voltaram pela trilha, na
