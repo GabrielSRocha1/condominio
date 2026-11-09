@@ -63,14 +63,20 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
   revisão deles (`verumcripto+dlocal@gmail.com`) vale até 20/11/2026.
 - **Sonda dos manuais**: ~10 ❌ falsos a partir de 28/09/2026 (fixture com cenário vencido).
 - Testes visuais pendentes: import de contas a pagar e unificação de pessoa no navegador.
-- **Reservas e Assembleias**: falta rodar em produção, NESTA ordem: `supabase-historico.sql`
-  (re-run, 23 gatilhos), `supabase-planilha-sync.sql` (re-run, `extra` fora da planilla) e
-  `supabase-reservas-assembleias.sql` (novo, passo 13) — até lá o bloco B de
-  `testar-permissoes` acusa "padrão semeado no banco diverge" (esperado) e as telas avisam.
-  Depois: teste visual (morador solicita → sino → confirmar → cobrança `extra`; assembleia
-  convocar → presenças → ata).
+- **Reservas e Assembleias**: SQL RODADO em produção 09/11/2026 (os 3 passos na ordem:
+  re-run `historico`, re-run `planilha-sync`, `reservas-assembleias`; sonda de banco 4/4 e
+  `testar-permissoes` 0 falhas com o bloco B). Falta o teste visual: cadastrar a 1ª área
+  (produção tem 0), morador solicita → sino → confirmar → cobrança `extra` (e NADA na
+  planilla); assembleia convocar → presenças → ata.
 
 ## Histórico (mais recente primeiro)
+
+### 09/11/2026 — Reservas e Assembleias: SQL instalado em produção
+Os 3 passos rodados na ordem (re-run `supabase-historico.sql` com 23 gatilhos, re-run
+`supabase-planilha-sync.sql` pulando `extra`, e o novo `supabase-reservas-assembleias.sql`).
+Provas: catálogo 4/4, RPC `confirmar_reserva` respondendo, view do histórico intacta após o
+re-run, e `testar-permissoes` 0 falhas — o bloco B (banco vivo ≡ matriz JS) voltou ao verde
+com os padrões novos semeados. Resta o teste visual com a primeira área cadastrada.
 
 ### 09/11/2026 — Reservas e Assembleias ganham telas (`cadfe87`)
 As 4 tabelas órfãs do schema viraram produto. **Reservas**: morador solicita pelo portal
