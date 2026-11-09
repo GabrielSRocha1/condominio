@@ -61,10 +61,13 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
   revisão deles (`verumcripto+dlocal@gmail.com`) vale até 20/11/2026.
 - **Sonda dos manuais**: ~10 ❌ falsos a partir de 28/09/2026 (fixture com cenário vencido).
 - Testes visuais pendentes: import de contas a pagar e unificação de pessoa no navegador.
-- **Histórico de alterações**: falta rodar o `supabase-historico.sql` em produção (até lá a
-  aba mostra o aviso) e o teste visual — incluindo um Desfazer de verdade.
 
 ## Histórico (mais recente primeiro)
+
+### 09/11/2026 — Histórico VALIDADO fim a fim em produção
+SQL rodado (sonda de banco 5/5), aba conferida pelo diretor e **Desfazer provado de
+verdade**: a pessoa e o vínculo apagados pela remoção de acesso voltaram pela trilha, na
+ordem certa (pessoa antes do vínculo), com as entradas 'DESFAZ' gravadas. Ciclo completo.
 
 ### 09/11/2026 — Histórico diz QUEM foi removido, e remover acesso atualiza o painel
 Teste visual em produção revelou três falhas. (1) "Acesso removido" gravava só o uuid do
