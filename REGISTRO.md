@@ -63,13 +63,12 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
   revisão deles (`verumcripto+dlocal@gmail.com`) vale até 20/11/2026.
 - **Sonda dos manuais**: ~10 ❌ falsos a partir de 28/09/2026 (fixture com cenário vencido).
 - Testes visuais pendentes: import de contas a pagar e unificação de pessoa no navegador.
-- **Reservas e Assembleias**: SQL RODADO em produção 09/11/2026 (os 3 passos na ordem:
-  re-run `historico`, re-run `planilha-sync`, `reservas-assembleias`; sonda de banco 4/4 e
-  `testar-permissoes` 0 falhas com o bloco B). Falta o teste visual: cadastrar a 1ª área
-  (produção tem 0), morador solicita → sino → confirmar → cobrança `extra` (e NADA na
-  planilla); assembleia convocar → presenças → ata.
 
 ## Histórico (mais recente primeiro)
+
+### 09/11/2026 — Reservas e Assembleias VALIDADAS no navegador
+Teste visual aprovado pelo usuário ("as telas ficaram boas") — fecha o ciclo da feature:
+código em produção, 3 SQLs rodados com sondas verdes e telas conferidas. Nada em aberto.
 
 ### 09/11/2026 — Reservas e Assembleias: SQL instalado em produção
 Os 3 passos rodados na ordem (re-run `supabase-historico.sql` com 23 gatilhos, re-run
