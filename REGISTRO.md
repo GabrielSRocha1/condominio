@@ -66,6 +66,15 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 
 ## Histórico (mais recente primeiro)
 
+### 12/11/2026 — Lista de unidades em ordem numérica (1, 2 … 10, 11)
+O banco ordena `numero` (varchar) como texto, então 10, 11 e 12 apareciam antes do 1 na
+tela Unidades e em todos os dropdowns. Novo `compararUnidades` em `src/lib/unidades.js`
+(localeCompare numérico sobre o número, desempate pelo bloco) aplicado UMA vez sobre
+`unidadesRaw` no `loadAll` — `db.unidades` e `db.ctx.unidades` herdam a ordem, então tela,
+dropdowns e portal corrigem juntos. Vale também para os números do lote ("101A" do 1º andar
+antes de "1001A" do 10º) e letra no prefixo ("A2" antes de "A10"). Sondas O1–O6 na
+`testar-unidades-rotulo.mjs` (57 ✅ no total) + build OK.
+
 ### 09/11/2026 — Reservas e Assembleias VALIDADAS no navegador
 Teste visual aprovado pelo usuário ("as telas ficaram boas") — fecha o ciclo da feature:
 código em produção, 3 SQLs rodados com sondas verdes e telas conferidas. Nada em aberto.

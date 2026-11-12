@@ -2,7 +2,7 @@
 import { supabase, setAuthToken, getAuthToken, encerrarSessaoServidor, sessaoPronta } from "./supabase";
 import { calcularEncargos, normalizarEncargosCfg } from "./encargos.js";
 import { saldoComAncora } from "./caixa.js";
-import { expandirUnidades, mapaRotulos } from "./unidades.js";
+import { expandirUnidades, mapaRotulos, compararUnidades } from "./unidades.js";
 import { telExibicao } from "./telefone.js";
 import { exigeAprovacao, ehPerfilSobAprovacao } from "./aprovacoes.js";
 import { dedupeLinhasPlanilha, docUtil } from "./planilha.js";
@@ -282,6 +282,13 @@ export async function loadAll(condominioId) {
     q(supabase.from("reservas").select("*, areas_comuns(nome, taxa), unidades(numero, blocos(nome)), pessoas(nome), cobrancas(status)").eq("condominio_id", cid).order("inicio", { ascending: false }).limit(300), "reservas"),
     q(supabase.from("assembleias").select("*, atas(id, deliberacoes, documento_id, documentos(arquivo_url, titulo)), convocacao:documentos!assembleias_convocacao_documento_id_fkey(arquivo_url)").eq("condominio_id", cid).order("data_hora", { ascending: false }), "assembleias"),
   ]);
+
+  /* o banco ordena o varchar `numero` como texto ("10" antes do "2") — a
+     tela Unidades e todos os dropdowns herdam DESTA ordenação numérica */
+  unidadesRaw.sort((a, b) => compararUnidades(
+    { numero: a.numero, bloco: a.blocos?.nome },
+    { numero: b.numero, bloco: b.blocos?.nome },
+  ));
 
   /* A fila de aprovação foi congelada em 02/11/2026: ninguém opera sob
      aprovação, a tela saiu do menu e as pendências antigas ficaram no banco

@@ -161,6 +161,18 @@ export function mapaRotulos(unidades) {
   return mapa;
 }
 
+/* ═══════════════ ORDEM da listagem ═══════════════
+
+   O banco ordena `numero` como texto (é varchar): 10, 11 e 12 vinham antes
+   do 2. Aqui a comparação é numérica por trechos (localeCompare numeric):
+   1, 2, 3 … 10, 11 — e vale igual para os números do lote ("101A" do 1º
+   andar antes de "1001A" do 10º, que a tela mostra como 1-A e 10-A) e para
+   letra no prefixo ("A2" antes de "A10"). Desempate pelo bloco, para cada
+   número repetir a mesma sequência de blocos.
+   Entrada: { numero, bloco } (strings cruas). */
+const cmpNat = (a, b) => String(a ?? "").localeCompare(String(b ?? ""), undefined, { numeric: true, sensitivity: "base" });
+export const compararUnidades = (a, b) => cmpNat(a.numero, b.numero) || cmpNat(a.bloco, b.bloco);
+
 /* ═══════════════ BUSCA da tela Unidades ═══════════════
 
    A busca antiga tratava todo termo começado em dígito como

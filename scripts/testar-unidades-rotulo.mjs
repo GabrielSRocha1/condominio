@@ -11,7 +11,7 @@
    (casava com "apartamento").
 
    Uso: node scripts/testar-unidades-rotulo.mjs */
-import { rotuloCurto, mapaRotulos, casaUnidade, letraDaUnidade, expandirUnidades } from "../src/lib/unidades.js";
+import { rotuloCurto, mapaRotulos, casaUnidade, letraDaUnidade, expandirUnidades, compararUnidades } from "../src/lib/unidades.js";
 
 let falhas = 0;
 const ok = (nome, passou, extra = "") => {
@@ -120,6 +120,28 @@ ok("X2 nenhuma colisão entre os 12 andares", loteMapa.size === 12, `${loteMapa.
 const semLetra = expandirUnidades({ numero: "1", numeroAte: "4", andar: "1", andarAte: "3" });
 ok("X3 lote SEM letra não colapsa nada (101, 102… ficam como estão)",
   semLetra.every((u) => rotuloCurto({ ...u, tipo: "apartamento" }) === null));
+
+/* ══ O · ordenação numérica da listagem ══ */
+console.log("\n━━ O · ordem numérica (1, 2 … 10, 11) ━━");
+const ordem = (lista, esperado) => {
+  const obtido = lista.map((x) => (typeof x === "string" ? { numero: x, bloco: "A" } : x))
+    .sort(compararUnidades).map((u) => u.numero + (u.bloco && u.bloco !== "A" ? `|${u.bloco}` : ""));
+  const bate = JSON.stringify(obtido) === JSON.stringify(esperado);
+  return [bate, bate ? obtido.join(", ") : `obtido [${obtido}], esperado [${esperado}]`];
+};
+ok("O1 o caso da tela: 10, 11 e 12 depois do 1 e do 2",
+  ...ordem(["10", "1", "12", "2", "11", "9"], ["1", "2", "9", "10", "11", "12"]));
+ok("O2 números do lote: 1º e 2º andares antes do 10º e do 12º",
+  ...ordem(["1001A", "101A", "1201A", "201A"], ["101A", "201A", "1001A", "1201A"]));
+ok("O3 letra no prefixo: A2 antes de A10",
+  ...ordem(["A10", "A2", "A1"], ["A1", "A2", "A10"]));
+ok("O4 mesmo número desempata pelo bloco",
+  ...ordem([{ numero: "101", bloco: "B" }, { numero: "101", bloco: "A" }], ["101", "101|B"]));
+ok("O5 zero à esquerda não embaralha: 002 antes de 010",
+  ...ordem(["010", "002", "001"], ["001", "002", "010"]));
+ok("O6 campo vazio não quebra (vai para o início)",
+  compararUnidades({ numero: null, bloco: "A" }, { numero: "1", bloco: "A" }) < 0
+  && compararUnidades({ numero: "1", bloco: null }, { numero: "1", bloco: "A" }) < 0);
 
 console.log(falhas ? `\n❌ ${falhas} sonda(s) falharam` : "\n🏷️  RÓTULO E BUSCA DE UNIDADES OK");
 process.exitCode = falhas ? 1 : 0;
