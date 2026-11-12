@@ -62,12 +62,23 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 - **dLocal Go — Fase 0**: falta a chave de sandbox e o % de comissão; conta demo para a
   revisão deles (`verumcripto+dlocal@gmail.com`) vale até 20/11/2026.
 - **Sonda dos manuais**: ~10 ❌ falsos a partir de 28/09/2026 (fixture com cenário vencido).
-- Testes visuais pendentes: import de contas a pagar e unificação de pessoa no navegador.
-- **Cancelamento de reserva (12/11/2026)**: SQL ainda NÃO rodado em produção — passos 12 e 13
-  nessa ordem (`supabase-historico.sql`, depois `supabase-reservas-assembleias.sql`). Sem eles
-  o app degrada aberto: cancelar avisa para rodar o arquivo e o Desfazer de reserva recusa.
+- Testes visuais pendentes: import de contas a pagar, unificação de pessoa e o cancelamento de
+  reserva (este provado no banco pelo bloco B — falta só a olhada na tela).
 
 ## Histórico (mais recente primeiro)
+
+### 12/11/2026 — Cancelamento de reserva instalado em produção: 7/7 no banco vivo
+Os dois passos rodados (`supabase-historico.sql`, depois `supabase-reservas-assembleias.sql`) e
+o ciclo provado **contra o banco**, não só por regex: `testar-reservas` ganhou um **bloco B**
+(service role, condomínio TESTE Manuais, janelas em 2031) que confirma a reserva gerando a taxa,
+cancela a reserva e vê a cobrança virar `cancelada` na mesma transação, **desfaz a confirmação
+pelo Histórico** e vê a reserva voltar a `solicitada` com `cobranca_id` nulo e a taxa cancelada,
+tenta cancelar com a taxa **paga** e colhe `taxa_paga` com a reserva intacta, cancela um pedido
+sem dinheiro nenhum, e limpa o cenário no fim (a trilha em `auditoria` fica — é append-only).
+Vizinhas no verde com o banco vivo: `testar-historico` 0 falhas, `testar-permissoes` com o
+**padrão semeado ≡ matriz JS** (os 5 perfis) e `testar-planilha-sync` 8/8, inclusive as guardas
+`ja_paga`/`justificativa_obrigatoria`/morador do `cancelar_cobranca` em que a RPC nova delega.
+Falta só a olhada visual na tela.
 
 ### 12/11/2026 — Desfazer de Reservas: o ciclo fecha sem deixar cobrança órfã
 Reservas tinha **dois** furos, e o segundo era pior que o documentado. (1) `reservas` estava

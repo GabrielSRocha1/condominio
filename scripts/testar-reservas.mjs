@@ -22,11 +22,13 @@ import {
   efeitoCancelamento, podeDesfazerReserva,
 } from "../src/lib/reservas.js";
 
-let falhas = 0;
+let falhas = 0, puladas = 0;
 const ok = (nome, passou, extra = "") => {
   console.log(`${passou ? "✅" : "❌"} ${nome}${extra ? " — " + extra : ""}`);
   if (!passou) falhas++;
 };
+/* bloco B degrada aberto: sem .env ou sem o SQL novo, pula em vez de falhar */
+const pula = (nome, motivo) => { puladas++; console.log(`⏭️  ${nome} — ${motivo}`); };
 const arq = (nome) => readFileSync(new URL(`../${nome}`, import.meta.url), "utf8");
 
 console.log("━━ R · motor puro (janela, conflito, antecedência, quórum) ━━");
@@ -233,5 +235,139 @@ ok("F6d erro 23P01 tem tradução amigável no api.js",
     /pessoaId: conta\.pessoas\?\.id/.test(login) && /unidadeId: vincUnidade\?\.unidade_id/.test(login));
 }
 
-console.log(`\n${falhas ? "❌" : "✅"} reservas: ${falhas} falha(s)`);
+/* ═══════════════════════════════════════════════════════════════
+   Bloco B · BANCO REAL (service role, condomínio TESTE Manuais)
+
+   Prova contra o SQL instalado o que o bloco F só lê como texto: a RPC
+   cancelar_reserva está viva, cancelar cancela a TAXA junto, desfazer a
+   confirmação pelo Histórico cancela a taxa também, e taxa paga recusa.
+   Pula com ⏭️ (não falha) se não houver .env ou se o passo 13 novo ainda
+   não tiver rodado — degrade aberto, igual ao resto do app.
+   ═══════════════════════════════════════════════════════════════ */
+console.log("\n━━ B · banco real (cancelamento e desfazer da taxa) ━━");
+
+const COND = "87e6ade7-264e-4b3a-9eef-30b4d78b83fb";   // condomínio TESTE Manuais
+const TAXA = 123.45;
+const NOME_AREA = "SONDA Cancelamento (apagar)";
+/* 2031: longe de qualquer janela das outras sondas e do uso real */
+const INICIO = (n) => `2031-0${n}-10T14:00:00Z`;
+const FIM = (n) => `2031-0${n}-10T18:00:00Z`;
+
+let admin = null;
+try {
+  const { createClient } = await import("@supabase/supabase-js");
+  const env = Object.fromEntries(
+    readFileSync(new URL("../.env", import.meta.url), "utf8").split(/\r?\n/)
+      .filter((l) => l.includes("=") && !l.trim().startsWith("#"))
+      .map((l) => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }));
+  const url = env.SUPABASE_URL || env.VITE_SUPABASE_URL;
+  if (url && env.SUPABASE_SERVICE_ROLE_KEY) admin = createClient(url, env.SUPABASE_SERVICE_ROLE_KEY);
+} catch { /* sem .env ou sem o pacote: o bloco inteiro pula */ }
+
+const criados = { reservas: [], cobrancas: [], areas: [] };
+if (!admin) {
+  pula("B · banco", "sem .env ou sem SUPABASE_SERVICE_ROLE_KEY");
+} else {
+  /* B1 · a RPC existe (uuid inexistente → recusa de negócio, não erro de RPC) */
+  const sonda = await admin.rpc("cancelar_reserva",
+    { p_id: "00000000-0000-0000-0000-000000000000", p_justificativa: "sonda" });
+  const ausente = /does not exist|schema cache/i.test(sonda.error?.message || "");
+  ok("B1 cancelar_reserva instalada e respondendo",
+    !ausente && sonda.data?.erro === "inexistente",
+    ausente ? "rode o supabase-reservas-assembleias.sql" : JSON.stringify(sonda.data ?? sonda.error?.message));
+
+  if (ausente) {
+    pula("B2…B6", "passo 13 novo não rodou");
+  } else {
+    /* cenário: uma área COM taxa + unidade e pessoa que já existem no condomínio */
+    const { data: uni } = await admin.from("unidades").select("id")
+      .eq("condominio_id", COND).is("deletado_em", null).limit(1);
+    const { data: pes } = await admin.from("pessoas").select("id").eq("condominio_id", COND).limit(1);
+    const { data: area } = await admin.from("areas_comuns")
+      .insert({ condominio_id: COND, nome: NOME_AREA, taxa: TAXA, ativa: true }).select().single();
+    if (area) criados.areas.push(area.id);
+
+    if (!uni?.length || !pes?.length || !area) {
+      pula("B2…B6", "condomínio TESTE Manuais sem unidade/pessoa, ou área não criou");
+    } else {
+      const novaReserva = async (n) => {
+        const { data } = await admin.from("reservas").insert({
+          condominio_id: COND, area_id: area.id, unidade_id: uni[0].id,
+          solicitante_id: pes[0].id, inicio: INICIO(n), fim: FIM(n),
+        }).select().single();
+        if (data) criados.reservas.push(data.id);
+        return data;
+      };
+      const statusCobranca = async (id) => (await admin.from("cobrancas")
+        .select("status").eq("id", id).single()).data?.status;
+      const statusReserva = async (id) => (await admin.from("reservas")
+        .select("status, cobranca_id").eq("id", id).single()).data;
+
+      /* B2 · confirmar gera a cobrança da taxa (pré-condição dos outros) */
+      const r1 = await novaReserva(1);
+      const c1 = await admin.rpc("confirmar_reserva", { p_id: r1.id });
+      if (c1.data?.cobranca_id) criados.cobrancas.push(c1.data.cobranca_id);
+      ok("B2 confirmar gera a cobrança 'extra' da taxa",
+        c1.data?.ok === true && !!c1.data?.cobranca_id && Number(c1.data?.valor) === TAXA,
+        JSON.stringify(c1.data ?? c1.error?.message));
+
+      /* B3 · cancelar a reserva cancela a cobrança JUNTO — o furo de 09/11 */
+      const x1 = await admin.rpc("cancelar_reserva", { p_id: r1.id, p_justificativa: null });
+      const depois1 = await statusReserva(r1.id);
+      ok("B3 cancelar a reserva cancela a cobrança da taxa na mesma transação",
+        x1.data?.ok === true && x1.data?.taxa_cancelada === true
+        && depois1?.status === "cancelada"
+        && await statusCobranca(c1.data.cobranca_id) === "cancelada",
+        `reserva=${depois1?.status} cobranca=${await statusCobranca(c1.data.cobranca_id)} ${JSON.stringify(x1.data ?? x1.error?.message)}`);
+
+      /* B4 · DESFAZER a confirmação pelo Histórico cancela a taxa também */
+      const r2 = await novaReserva(2);
+      const c2 = await admin.rpc("confirmar_reserva", { p_id: r2.id });
+      if (c2.data?.cobranca_id) criados.cobrancas.push(c2.data.cobranca_id);
+      const { data: trilha } = await admin.from("auditoria").select("id")
+        .eq("entidade", "reservas").eq("entidade_id", r2.id).eq("acao", "UPDATE")
+        .order("id", { ascending: false }).limit(1);
+      if (!trilha?.length) {
+        pula("B4", "trg_historico não gravou a confirmação (supabase-historico.sql?)");
+      } else {
+        const d = await admin.rpc("desfazer_alteracao", { p_id: trilha[0].id });
+        const volta = await statusReserva(r2.id);
+        ok("B4 desfazer a confirmação devolve 'solicitada' E cancela a taxa",
+          d.data?.ok === true && volta?.status === "solicitada" && volta?.cobranca_id === null
+          && await statusCobranca(c2.data.cobranca_id) === "cancelada",
+          `reserva=${volta?.status} cobranca_id=${volta?.cobranca_id} taxa=${await statusCobranca(c2.data.cobranca_id)} ${JSON.stringify(d.data ?? d.error?.message)}`);
+      }
+
+      /* B5 · taxa PAGA recusa o cancelamento inteiro (nada de estorno automático) */
+      const r3 = await novaReserva(3);
+      const c3 = await admin.rpc("confirmar_reserva", { p_id: r3.id });
+      if (c3.data?.cobranca_id) criados.cobrancas.push(c3.data.cobranca_id);
+      await admin.from("cobrancas").update({ status: "paga" }).eq("id", c3.data.cobranca_id);
+      const x3 = await admin.rpc("cancelar_reserva", { p_id: r3.id, p_justificativa: null });
+      const firme = await statusReserva(r3.id);
+      ok("B5 taxa paga recusa, e a reserva fica como estava",
+        x3.data?.ok === false && x3.data?.erro === "taxa_paga" && firme?.status === "confirmada",
+        `${JSON.stringify(x3.data ?? x3.error?.message)} reserva=${firme?.status}`);
+
+      /* B6 · pedido do morador cancelado não deixa cobrança nenhuma */
+      const r4 = await novaReserva(4);
+      const x4 = await admin.rpc("cancelar_reserva", { p_id: r4.id, p_justificativa: null });
+      const semTaxa = await statusReserva(r4.id);
+      ok("B6 recusar/desistir de um pedido não envolve dinheiro",
+        x4.data?.ok === true && x4.data?.taxa_cancelada === false
+        && semTaxa?.status === "cancelada" && semTaxa?.cobranca_id === null,
+        JSON.stringify(x4.data ?? x4.error?.message));
+    }
+  }
+
+  /* limpeza: reservas antes das cobranças (FK NO ACTION) e a área no fim.
+     A trilha em auditoria FICA — é append-only, e é o comportamento certo. */
+  for (const id of criados.reservas) await admin.from("reservas").delete().eq("id", id);
+  for (const id of criados.cobrancas) await admin.from("cobrancas").delete().eq("id", id);
+  for (const id of criados.areas) await admin.from("areas_comuns").delete().eq("id", id);
+  const sobrou = (await admin.from("areas_comuns").select("id").eq("nome", NOME_AREA)).data?.length || 0;
+  ok("B7 limpeza: o cenário da sonda não fica no condomínio", sobrou === 0, `${sobrou} área(s)`);
+}
+
+console.log(`\n${falhas ? "❌" : "✅"} reservas: ${falhas} falha(s)${puladas ? ` · ${puladas} pulada(s)` : ""}`);
 process.exitCode = falhas ? 1 : 0;
