@@ -39,6 +39,7 @@ import {
   salvarPresencas, cancelarAssembleia, registrarAta,
 } from "./src/lib/api.js";
 import { casaUnidade } from "./src/lib/unidades.js";
+import { casasDecimais, paraCampo } from "./src/lib/moeda.js";
 import { pessoaComMesmoDoc } from "./src/lib/pessoas.js";
 import { filtrarOpcoes, ehListaLonga, casaPorPrefixo } from "./src/lib/combo.js";
 import { calcularLote, elegivelLote, chaveLote, ordenarLote } from "./src/lib/receber-lote.js";
@@ -321,15 +322,22 @@ const useSubmit = (action, aoFila = null) => {
 /* Campo de valor monetário: formata enquanto digita, na moeda de gestão do
    condomínio. O valor submetido (input oculto) sai como "1234,56" — o formato
    que o parseBRL da camada de dados entende, independente da moeda exibida. */
-function MoneyInput({ t, name, moeda = "USD", required, defaultCents = null }) {
-  const [cents, setCents] = useState(defaultCents);
-  const fmt = (c) => (c / 100).toLocaleString(LOCALE_MOEDA[moeda] || "en-US", { style: "currency", currency: moeda });
+/* Digita na MENOR UNIDADE da moeda e formata a cada tecla. A escala vem de
+   src/lib/moeda.js, não é 100 fixo: em guarani (sem centavos) digitar na casa
+   dos centésimos fazia "5" virar Gs. 0 — o campo parecia travado — e submetia
+   cem vezes menos do que o digitado. `defaultValor` é o valor de verdade; a
+   conversão para a menor unidade é aqui dentro, não em quem chama. */
+function MoneyInput({ t, name, moeda = "USD", required, defaultValor = null }) {
+  const casas = casasDecimais(moeda), esc = 10 ** casas;
+  const [un, setUn] = useState(() =>
+    defaultValor == null || defaultValor === "" ? null : Math.round(Number(defaultValor) * esc));
+  const fmt = (u) => (u / esc).toLocaleString(LOCALE_MOEDA[moeda] || "en-US", { style: "currency", currency: moeda });
   return (<>
     <input inputMode="numeric" required={required} placeholder={fmt(0)}
-      value={cents == null ? "" : fmt(cents)}
-      onChange={(e) => { const dig = e.target.value.replace(/\D/g, "").slice(0, 15); setCents(dig ? parseInt(dig, 10) : null); }}
+      value={un == null ? "" : fmt(un)}
+      onChange={(e) => { const dig = e.target.value.replace(/\D/g, "").slice(0, 15); setUn(dig ? parseInt(dig, 10) : null); }}
       style={inputStyle(t)} />
-    <input type="hidden" name={name} value={cents == null ? "" : (cents / 100).toFixed(2).replace(".", ",")} />
+    <input type="hidden" name={name} value={paraCampo(un, moeda)} />
   </>);
 }
 
@@ -3304,7 +3312,7 @@ function Cobrancas({ t }) {
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field t={t} label="Valor recebido">
                   <MoneyInput t={t} name="valor" moeda={moeda} required
-                    defaultCents={Math.round((conf.c.informe && conf.c.informe.forma !== "verum_pay" ? conf.c.informe.valor : (conf.c.valorTotal ?? conf.c.valor)) * 100)} /></Field>
+                    defaultValor={conf.c.informe && conf.c.informe.forma !== "verum_pay" ? conf.c.informe.valor : (conf.c.valorTotal ?? conf.c.valor)} /></Field>
                 <Field t={t} label="Data do recebimento">
                   <input name="data" type="date" required defaultValue={conf.c.informe?.pagoEm || new Date().toISOString().slice(0, 10)} style={inputStyle(t)} /></Field>
               </div>
@@ -5268,7 +5276,7 @@ function Reservas({ t }) {
                   placeholder={L("Ex.: Salão de festas")} /></Field>
               <Field t={t} label="Taxa de uso (vazio = sem taxa)">
                 <MoneyInput t={t} name="taxa" moeda={db.ctx.moeda}
-                  defaultCents={areaEdit.taxa ? Math.round(areaEdit.taxa * 100) : null} /></Field>
+                  defaultValor={areaEdit.taxa || null} /></Field>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field t={t} label="Antecedência mínima (horas)">
                   <input name="antecedencia" type="number" min="0" defaultValue={areaEdit.antecedenciaHoras || ""} style={inputStyle(t)} /></Field>
@@ -6820,7 +6828,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                   <FileField t={t} name="comprovante" accept="application/pdf,image/*" hint={L("Anexar comprovante (PDF/JPG/PNG, até 4 MB)")} />
                   <div className="grid grid-cols-2 gap-2">
                     <Field t={t} label="Valor pago">
-                      <MoneyInput t={t} name="valor" moeda={db.cond?.moeda || "USD"} required defaultCents={Math.round((qr.valorTotal ?? qr.valor) * 100)} /></Field>
+                      <MoneyInput t={t} name="valor" moeda={db.cond?.moeda || "USD"} required defaultValor={qr.valorTotal ?? qr.valor} /></Field>
                     <Field t={t} label="Data do pagamento">
                       <input name="data" type="date" defaultValue={new Date().toISOString().slice(0, 10)} style={inputStyle(t)} /></Field>
                   </div>

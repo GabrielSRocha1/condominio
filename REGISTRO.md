@@ -48,6 +48,7 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 |---|---|
 | `scripts/testar-planilha-cobrancas.mjs` | Sondas do histórico de cobranças por planilha (leitura livre, mora, dedupe, pagador, competências; bloco B no banco) |
 | `scripts/testar-combo.mjs` | Sondas do dropdown com busca e do filtro por prefixo de palavra |
+| `scripts/testar-moeda.mjs` | Sondas do campo de dinheiro por moeda: casas decimais, escala e o campo de ponta a ponta (guarani sem centavos vs. real) |
 | `scripts/testar-pessoas-doc.mjs` | Sondas do documento único de pessoa (unificação, duplicados) |
 | `scripts/testar-import-lancamentos.mjs` | Sondas do import de contas a pagar |
 | `scripts/testar-historico.mjs` | Sondas da aba Histórico de alterações (motor puro + paridade SQL ≡ JS ≡ NAV) |
@@ -66,6 +67,24 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
   reserva (este provado no banco pelo bloco B — falta só a olhada na tela).
 
 ## Histórico (mais recente primeiro)
+
+### 12/11/2026 — Campo de dinheiro em moeda SEM centavos (o guarani travado em "Gs. 0")
+Relatado da tela: a taxa de uso da área não aceitava valor — o campo ficava preso em "Gs. 0".
+A causa é mais ampla que a tela: o `MoneyInput` digitava **sempre em centésimos**, assumindo que
+toda moeda tem centavos. Em guarani, digitar "5" virava Gs. 0,05, que o `Intl` arredonda para
+"Gs. 0" — daí a sensação de campo travado. **O pior não estava à vista**: quem insistisse e
+digitasse 20000 submetia **Gs. 200**, cem vezes menos, sem aviso nenhum. Entre as 32 moedas do
+catálogo, **cinco** não têm centavos (JPY, HUF, PYG, CLP, COP), e o bug valia para todas elas em
+**todos** os 5 campos de dinheiro do app — cobrança, recebimento, confirmação manual, QR e a taxa
+da área —, não só no que foi relatado. Agora a escala vem da moeda (`10 ** casasDecimais`), nunca
+de 100 fixo, e a resposta sai do próprio `Intl` em vez de uma lista à mão. A prop `defaultCents`
+virou **`defaultValor`**: quem chama passa o valor de verdade e a conversão para a menor unidade
+mora num lugar só — foram 4 chamadores que multiplicavam por 100 na mão. Novo módulo puro
+`src/lib/moeda.js` + `scripts/testar-moeda.mjs` com 18 sondas, incluindo o campo **reproduzido de
+ponta a ponta** (dígitos → tela → valor submetido) nas duas famílias de moeda. Nota registrada no
+módulo: a lista zero-decimal da **Stripe** não inclui o HUF e a do `Intl` inclui — as duas estão
+certas em camadas diferentes (o que a pessoa digita vs. como a Stripe cobra), e não se encontram
+porque o banco guarda decimal, não unidade menor.
 
 ### 12/11/2026 — Lembrete de reserva próxima no sino do morador (zero SQL)
 O sino mostrava **toda** reserva futura confirmada, para sempre: uma de três meses à frente com
