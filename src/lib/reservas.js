@@ -62,6 +62,61 @@ export const RESERVA_TRANSICOES = {
 export const podeTransicionar = (de, para) =>
   (RESERVA_TRANSICOES[String(de)] || []).includes(String(para));
 
+/* ── Cancelar: o que acontece com a TAXA ──
+
+   Confirmar uma área com taxa gera a cobrança 'extra' da unidade
+   (confirmar_reserva). Cancelar a reserva sem tocar nela deixava a cobrança
+   viva e sem reserva que a justifique — e o tipo 'extra' não vira linha da
+   planilha (o sync pula), então ela não tinha NENHUM caminho de tela para
+   ser cancelada. Quem cancela a reserva agora cancela a taxa na mesma
+   transação (RPC cancelar_reserva), e esta função é o que a tela usa para
+   dizer o efeito ANTES do clique.
+
+   Dinheiro já recebido não se move por aqui: taxa paga ou com informe
+   pendente recusa o cancelamento — a devolução é ato explícito da tela
+   Cobranças, a mesma regra que a RPC cancelar_cobranca já aplica.
+
+   Entrada: a reserva mapeada pelo loadAll ({ status, taxa, cobrancaId,
+   cobrancaStatus }) — `cobrancaStatus` é o status de EXIBIÇÃO
+   (COBR_STATUS_UI: pago, emitida, vencida, cancelada, informado,
+   divergente), não o enum do banco. */
+const TAXA_TRAVA = { pago: "taxa_paga", informado: "taxa_informe_pendente", divergente: "taxa_informe_pendente" };
+export function efeitoCancelamento(reserva) {
+  if (!reserva || !podeTransicionar(reserva.status, "cancelada"))
+    return { podeCancelar: false, cancelaTaxa: false, valor: 0, motivo: "status_invalido" };
+  const motivo = TAXA_TRAVA[String(reserva.cobrancaStatus)] || null;
+  if (reserva.cobrancaId && motivo)
+    return { podeCancelar: false, cancelaTaxa: false, valor: Number(reserva.taxa) || 0, motivo };
+  /* taxa já cancelada (ou área sem taxa): cancelar a reserva é só a reserva */
+  const cancelaTaxa = !!reserva.cobrancaId && String(reserva.cobrancaStatus) !== "cancelada";
+  return { podeCancelar: true, cancelaTaxa, valor: cancelaTaxa ? Number(reserva.taxa) || 0 : 0, motivo: null };
+}
+
+/* ── Desfazer uma entrada do histórico de `reservas` ──
+
+   Espelho JS da guarda da RPC desfazer_alteracao: ela decide pelo PAR
+   antes/depois, não pela relação (recusar um pedido não mexe em dinheiro
+   nenhum e sempre foi tão indesfazível quanto a confirmação que gera a
+   cobrança). Aqui é só para a aba esconder o botão que o servidor recusaria
+   — a autoridade continua no banco.
+
+   `linha` = linha da view historico_unificado ({ acao, antes, depois });
+   `reserva` = a reserva de hoje (db.reservas), ou null se já não existe. */
+export function podeDesfazerReserva(linha, reserva) {
+  const antes = linha?.antes || {}, depois = linha?.depois || {};
+  /* desfazer a CONFIRMAÇÃO (foi ela que criou a cobrança): só se a taxa
+     ainda puder ser cancelada junto */
+  if (String(linha?.acao) === "UPDATE" && !antes.cobranca_id && depois.cobranca_id) {
+    const motivo = TAXA_TRAVA[String(reserva?.cobrancaStatus)] || null;
+    return { ok: !motivo, motivo };
+  }
+  /* desfazer um CANCELAMENTO exigiria re-emitir a taxa que foi cancelada —
+     o Histórico não emite cobrança: confirmar de novo é pela tela Reservas */
+  if (antes.cobranca_id && String(reserva?.cobrancaStatus) === "cancelada")
+    return { ok: false, motivo: "taxa_cancelada" };
+  return { ok: true, motivo: null };
+}
+
 /* ── Pauta: textarea (uma linha por item) ⇄ jsonb (array de strings) ── */
 export const pautaParaJson = (texto) =>
   String(texto || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);

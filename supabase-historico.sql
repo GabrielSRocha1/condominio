@@ -21,11 +21,16 @@
 --     CADASTROS com checagem otimista (só se nada mudou depois) e grava
 --     entrada nova 'DESFAZ' — a trilha nunca é apagada. DINHEIRO fica
 --     fora (cobrancas, lancamentos, fundos, planilhas_cobranca,
---     acessos_portaria, reservas): baixa/cancelamento/rejeição mexem em
---     várias tabelas dentro de RPCs próprias — e confirmar reserva GERA
---     cobrança (confirmar_reserva); desfazer só a parte auditada deixaria
---     o caixa sem lastro. Espelho: ENTIDADES_SEM_DESFAZER em
+--     acessos_portaria): baixa/cancelamento/rejeição mexem em várias
+--     tabelas dentro de RPCs próprias e desfazer só a parte auditada
+--     deixaria o caixa sem lastro. Espelho: ENTIDADES_SEM_DESFAZER em
 --     src/lib/historico.js (a sonda compara os dois);
+--   · `reservas` saiu desse bloqueio em 12/11/2026 e ganhou guarda pelo
+--     PAR antes/depois: desfazer a confirmação CANCELA a cobrança da taxa
+--     na mesma transação; taxa paga ou com informe pendente recusa
+--     (taxa_paga / taxa_informe_pendente) e desfazer um cancelamento
+--     também (taxa_cancelada — re-emitir é pela tela Reservas). Recusar
+--     um pedido nunca tocou em dinheiro e agora é desfazível;
 --   · catálogo: permissões tela.historico e historico.desfazer (fora do
 --     padrão de todos os perfis — só o diretor, até delegar pela matriz;
 --     VEDADAS ao administrador predial em src/lib/permissoes.js: a trilha
@@ -300,6 +305,7 @@ create or replace function public.desfazer_alteracao(p_id bigint) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
   a record; v_cols text; v_cols_r text; v_atual jsonb;
+  v_cob_status text; v_cob jsonb;   -- taxa da reserva (ver a guarda de `reservas`)
 begin
   if public.jwt_role() <> 'service_role' and not public.jwt_pode('historico.desfazer') then
     return jsonb_build_object('ok', false, 'erro', 'nao_autorizado');
@@ -318,10 +324,8 @@ begin
      or coalesce(a.antes ? '_grande', false) or coalesce(a.depois ? '_grande', false) then
     return jsonb_build_object('ok', false, 'erro', 'nao_desfazivel');
   end if;
-  /* dinheiro fica fora — espelho de ENTIDADES_SEM_DESFAZER (src/lib/historico.js).
-     `reservas` entrou em 09/11/2026: confirmar gera cobrança — desfazer a
-     reserva deixaria a cobrança sem lastro */
-  if a.entidade in ('cobrancas','lancamentos','fundos','planilhas_cobranca','acessos_portaria','reservas') then
+  /* dinheiro fica fora — espelho de ENTIDADES_SEM_DESFAZER (src/lib/historico.js) */
+  if a.entidade in ('cobrancas','lancamentos','fundos','planilhas_cobranca','acessos_portaria') then
     return jsonb_build_object('ok', false, 'erro', 'entidade_bloqueada');
   end if;
   /* allowlist dura: só as tabelas do gatilho (fecha qualquer injeção via
@@ -329,8 +333,45 @@ begin
   if a.entidade not in ('condominios','blocos','unidades','vagas','pessoas','pessoa_vinculos',
       'categorias_financeiras','penalidades','penalidade_provas','comunicados',
       'comunicado_destinatarios','documentos','chamados','pre_autorizacoes',
-      'areas_comuns','assembleias','atas') then
+      'areas_comuns','reservas','assembleias','atas') then
     return jsonb_build_object('ok', false, 'erro', 'nao_desfazivel');
+  end if;
+
+  /* ── reservas: guarda pelo PAR antes/depois, não pela relação ──
+     `reservas` ficou bloqueada inteira de 09 a 12/11/2026 porque confirmar
+     GERA a cobrança 'extra' da taxa. Mas recusar um pedido não toca em
+     dinheiro nenhum, e estava tão indesfazível quanto a confirmação. Agora
+     o recorte é cirúrgico, e a cobrança é conferida ANTES de qualquer
+     escrita (a função roda na transação do PostgREST: `return` depois de
+     escrever não desfaz o que foi escrito). */
+  if a.entidade = 'reservas' then
+    /* desfazer um CANCELAMENTO exigiria RE-EMITIR a taxa cancelada — o
+       Histórico não emite cobrança: confirmar de novo é pela tela Reservas */
+    /* `antes` nulo (INSERT) ou sem a chave já cai fora: ->> devolve null */
+    if a.antes ->> 'cobranca_id' is not null
+       and exists (select 1 from public.cobrancas c
+                    where c.id = (a.antes ->> 'cobranca_id')::uuid and c.status = 'cancelada') then
+      return jsonb_build_object('ok', false, 'erro', 'taxa_cancelada');
+    end if;
+    /* desfazer a CONFIRMAÇÃO: a taxa tem de poder ser cancelada junto */
+    if a.acao = 'UPDATE' and a.antes ->> 'cobranca_id' is null
+       and a.depois ->> 'cobranca_id' is not null then
+      select status::text into v_cob_status from public.cobrancas
+       where id = (a.depois ->> 'cobranca_id')::uuid;
+      if v_cob_status in ('paga', 'paga_em_atraso') then
+        return jsonb_build_object('ok', false, 'erro', 'taxa_paga');
+      end if;
+      if v_cob_status in ('pagamento_informado', 'pagamento_divergente') then
+        return jsonb_build_object('ok', false, 'erro', 'taxa_informe_pendente');
+      end if;
+      /* cancelar a cobrança exige cobranca.cancelar (o corpo de
+         cancelar_cobranca cobra a permissão, e deve cobrar). Conferir AQUI
+         troca um 'falha_ao_desfazer' opaco por uma recusa que diz o que
+         falta — o diretor, padrão da aba, tem tudo. */
+      if public.jwt_role() <> 'service_role' and not public.jwt_pode('cobranca.cancelar') then
+        return jsonb_build_object('ok', false, 'erro', 'taxa_sem_permissao');
+      end if;
+    end if;
   end if;
 
   execute format('select to_jsonb(t) from public.%I t where t.id = $1', a.entidade)
@@ -374,6 +415,28 @@ begin
       execute format(
         'insert into public.%I select * from jsonb_populate_record(null::public.%I, $1)',
         a.entidade, a.entidade) using a.antes;
+    end if;
+
+    /* A TAXA, por último de propósito: desfazer a confirmação de uma reserva
+       tem de cancelar a cobrança que ela gerou, e todas as recusas acima
+       saem por `return` — que NÃO desfaz escrita já feita. Cancelando aqui,
+       qualquer recusa anterior acontece antes de a cobrança ser tocada, e
+       uma falha daqui para frente rola a reserva atrás junto (a exceção
+       volta ao início deste bloco). A guarda de taxa paga/informe já rodou
+       lá acima; se mudou no meio (alguém pagou agora), a recusa sobe como
+       exceção e nada é gravado. */
+    if a.entidade = 'reservas' and a.acao = 'UPDATE'
+       and a.antes ->> 'cobranca_id' is null and a.depois ->> 'cobranca_id' is not null then
+      if to_regprocedure('public.cancelar_cobranca__base(uuid,text)') is not null then
+        v_cob := public.cancelar_cobranca__base((a.depois ->> 'cobranca_id')::uuid,
+                   'Confirmação de reserva desfeita pelo Histórico de alterações');
+      else
+        v_cob := public.cancelar_cobranca((a.depois ->> 'cobranca_id')::uuid,
+                   'Confirmação de reserva desfeita pelo Histórico de alterações');
+      end if;
+      if coalesce((v_cob ->> 'ok')::boolean, false) is not true then
+        raise exception 'taxa nao pudo ser cancelada: %', coalesce(v_cob ->> 'erro', '?');
+      end if;
     end if;
   exception
     when foreign_key_violation then

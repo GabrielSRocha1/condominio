@@ -6,14 +6,20 @@
    as costuras que não podem divergir: a policy do morador força status
    'solicitada' e decide por jwt_pode, a RPC confirmar_reserva exige
    reserva.decidir e cria cobrança 'extra', o sync da planilha PULA 'extra',
-   o historico cobre as 4 tabelas novas (com reservas no bloqueio do
-   desfazer), o sino conhece reserva.solicitada e o NAV/SCREENS têm as abas.
+   o historico cobre as 4 tabelas novas, o sino conhece reserva.solicitada e
+   o NAV/SCREENS têm as abas.
+
+   E prova o CANCELAMENTO (12/11/2026): cancelar a reserva cancela a cobrança
+   da taxa na mesma transação (RPC cancelar_reserva), taxa paga ou com informe
+   pendente recusa, e `reservas` saiu do bloqueio cego do desfazer para uma
+   guarda pelo par antes/depois.
 
    Uso: node scripts/testar-reservas.mjs */
 import { readFileSync } from "node:fs";
 import {
   agoraLocal, fimPadrao, conflita, antecedenciaOk, pautaParaJson, pautaParaTexto,
   togglePresenca, quorum, RESERVA_TRANSICOES, podeTransicionar,
+  efeitoCancelamento, podeDesfazerReserva,
 } from "../src/lib/reservas.js";
 
 let falhas = 0;
@@ -86,6 +92,54 @@ ok("R6 solicitada→confirmada/cancelada; confirmada→concluida/cancelada; term
   && !podeTransicionar("solicitada", "concluida")
   && Object.keys(RESERVA_TRANSICOES).length === 4);
 
+/* R7 · cancelar: o que acontece com a TAXA */
+{
+  const res = (extra) => ({ status: "confirmada", taxa: 150, ...extra });
+  const semTaxa = efeitoCancelamento(res({ cobrancaId: null, cobrancaStatus: null }));
+  ok("R7 área sem taxa: cancela a reserva e nada de dinheiro",
+    semTaxa.podeCancelar && !semTaxa.cancelaTaxa && semTaxa.valor === 0);
+  const emitida = efeitoCancelamento(res({ cobrancaId: "c1", cobrancaStatus: "emitida" }));
+  ok("R7b taxa emitida: cancela a cobrança junto, com o valor à vista",
+    emitida.podeCancelar && emitida.cancelaTaxa && emitida.valor === 150);
+  const vencida = efeitoCancelamento(res({ cobrancaId: "c1", cobrancaStatus: "vencida" }));
+  ok("R7c taxa vencida também é cancelável", vencida.podeCancelar && vencida.cancelaTaxa);
+  const paga = efeitoCancelamento(res({ cobrancaId: "c1", cobrancaStatus: "pago" }));
+  ok("R7d taxa PAGA recusa o cancelamento (devolução é ato da tela Cobranças)",
+    !paga.podeCancelar && paga.motivo === "taxa_paga");
+  for (const s of ["informado", "divergente"]) {
+    const inf = efeitoCancelamento(res({ cobrancaId: "c1", cobrancaStatus: s }));
+    ok(`R7e informe pendente (${s}) recusa`, !inf.podeCancelar && inf.motivo === "taxa_informe_pendente");
+  }
+  const jaCanc = efeitoCancelamento(res({ cobrancaId: "c1", cobrancaStatus: "cancelada" }));
+  ok("R7f taxa já cancelada: segue cancelável, sem mexer em dinheiro de novo",
+    jaCanc.podeCancelar && !jaCanc.cancelaTaxa);
+  ok("R7g solicitada é cancelável (recusa); concluída e cancelada não",
+    efeitoCancelamento({ status: "solicitada", taxa: 0 }).podeCancelar
+    && !efeitoCancelamento({ status: "concluida", taxa: 0 }).podeCancelar
+    && !efeitoCancelamento({ status: "cancelada", taxa: 0 }).podeCancelar
+    && !efeitoCancelamento(null).podeCancelar);
+}
+
+/* R8 · desfazer pelo histórico: a guarda pelo par antes/depois */
+{
+  const confirmacao = { acao: "UPDATE", antes: { status: "solicitada", cobranca_id: null }, depois: { status: "confirmada", cobranca_id: "c1" } };
+  ok("R8 desfazer a confirmação passa quando a taxa ainda é cancelável",
+    podeDesfazerReserva(confirmacao, { cobrancaStatus: "emitida" }).ok);
+  ok("R8b desfazer a confirmação recusa com a taxa paga",
+    podeDesfazerReserva(confirmacao, { cobrancaStatus: "pago" }).motivo === "taxa_paga");
+  ok("R8c desfazer a confirmação recusa com informe pendente",
+    podeDesfazerReserva(confirmacao, { cobrancaStatus: "divergente" }).motivo === "taxa_informe_pendente");
+  const cancelamento = { acao: "UPDATE", antes: { status: "confirmada", cobranca_id: "c1" }, depois: { status: "cancelada", cobranca_id: "c1" } };
+  ok("R8d desfazer um CANCELAMENTO recusa (re-emitir é pela tela Reservas)",
+    podeDesfazerReserva(cancelamento, { cobrancaStatus: "cancelada" }).motivo === "taxa_cancelada");
+  const pedido = { acao: "INSERT", antes: null, depois: { status: "solicitada", cobranca_id: null } };
+  ok("R8e desfazer o PEDIDO passa: nunca houve dinheiro",
+    podeDesfazerReserva(pedido, { cobrancaStatus: null }).ok);
+  const recusa = { acao: "UPDATE", antes: { status: "solicitada", cobranca_id: null }, depois: { status: "cancelada", cobranca_id: null } };
+  ok("R8f desfazer uma RECUSA passa: área sem taxa não gerou cobrança",
+    podeDesfazerReserva(recusa, { cobrancaStatus: null }).ok);
+}
+
 console.log("\n━━ F · paridade com os arquivos fonte ━━");
 
 const sRes = arq("supabase-reservas-assembleias.sql");
@@ -113,13 +167,43 @@ ok("F3 planilha-sync pula tipo extra", /elsif new\.tipo <> 'extra' then/.test(sS
   const tabelas = m ? [...m[1].matchAll(/'(\w+)'/g)].map(([, x]) => x) : [];
   ok("F4 trg_historico cobre areas_comuns/reservas/assembleias/atas",
     ["areas_comuns", "reservas", "assembleias", "atas"].every((x) => tabelas.includes(x)));
-  ok("F4b reservas está no bloqueio de dinheiro do desfazer",
-    /'entidade_bloqueada'[\s\S]{0,600}/.test(sHist)
-    && /if a\.entidade in \([^)]*'reservas'[^)]*\)[\s\S]{0,120}'entidade_bloqueada'/.test(sHist));
-  ok("F4c areas/assembleias/atas são desfazíveis (allowlist da RPC)",
+  /* 12/11/2026: reservas SAIU do bloqueio cego e entrou na allowlist — quem
+     decide agora é a guarda pelo par antes/depois (R8 prova o espelho JS) */
+  const bloqueio = sHist.match(/if a\.entidade in \(([^)]+)\)[\s\S]{0,200}?'entidade_bloqueada'/);
+  ok("F4b reservas NÃO está mais no bloqueio cego de dinheiro",
+    !!bloqueio && !/'reservas'/.test(bloqueio[1]), bloqueio ? bloqueio[1].replace(/\s+/g, "") : "bloqueio não encontrado");
+  ok("F4c areas/reservas/assembleias/atas são desfazíveis (allowlist da RPC)",
     /'nao_desfazivel'/.test(sHist)
-    && /a\.entidade not in \([^)]*'areas_comuns'[^)]*'assembleias'[^)]*'atas'[^)]*\)/s.test(sHist));
+    && /a\.entidade not in \([^)]*'areas_comuns'[^)]*'reservas'[^)]*'assembleias'[^)]*'atas'[^)]*\)/s.test(sHist));
+  ok("F4d a guarda de reservas recusa taxa paga, informe pendente e taxa cancelada",
+    /if a\.entidade = 'reservas' then/.test(sHist)
+    && ["taxa_paga", "taxa_informe_pendente", "taxa_cancelada"].every((e) => sHist.includes(`'${e}'`)));
+  ok("F4e desfazer a confirmação cancela a cobrança DENTRO do bloco transacional",
+    /cancelar_cobranca__base[\s\S]{0,400}raise exception/.test(sHist));
 }
+
+/* F4f · a RPC de cancelamento e o que ela garante */
+ok("F4f cancelar_reserva existe com justificativa opcional",
+  /create or replace function public\.cancelar_reserva\(\s*p_id\s+uuid,\s*p_justificativa text default null/.test(sRes));
+ok("F4g cancelar_reserva delega ao corpo real de cancelar_cobranca e propaga as recusas",
+  /cancelar_cobranca__base/.test(sRes)
+  && /when 'ja_paga'\s+then 'taxa_paga'/.test(sRes)
+  && /when 'informe_pendente' then 'taxa_informe_pendente'/.test(sRes)
+  && /when 'nao_autorizado'\s+then 'taxa_sem_permissao'/.test(sRes));
+/* o corpo de cancelar_cobranca exige cobranca.cancelar (e deve exigir): as
+   duas pontas dizem QUAL permissão falta, em vez de um erro opaco */
+ok("F4g2 falta de cobranca.cancelar tem recusa própria nas duas pontas",
+  /taxa_sem_permissao/.test(sRes)
+  && /not public\.jwt_pode\('cobranca\.cancelar'\)[\s\S]{0,120}'taxa_sem_permissao'/.test(sHist)
+  && ["taxa_sem_permissao"].every((e) => api.includes(e)));
+ok("F4h a taxa é conferida ANTES do update da reserva (return não desfaz escrita)",
+  sRes.indexOf("cancelar_cobranca__base") < sRes.indexOf("update public.reservas set status = 'cancelada'"));
+ok("F4i o morador cancela só o PRÓPRIO pedido ainda não confirmado",
+  /jwt_pode\('reserva\.solicitar'\)[\s\S]{0,200}solicitante_id is distinct from v_dono[\s\S]{0,120}r\.status <> 'solicitada'/.test(sRes));
+ok("F4j a tela e o portal cancelam pela RPC (não por UPDATE cru)",
+  /cancelarReserva\(r\.id\)/.test(jsx) && /rpc\("cancelar_reserva"/.test(api));
+ok("F4k cancelar reserva confirmada exige reserva.decidir na tela",
+  /sel\.status === "confirmada" && podeDecidir/.test(jsx));
 
 /* F5 · sino: trigger no SQL, whitelist no api.js, apresentação no módulo */
 ok("F5 trigger notifica reserva.solicitada e nunca derruba a escrita",

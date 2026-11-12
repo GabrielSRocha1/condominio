@@ -29,7 +29,7 @@ export const CATEGORIAS = [
 ];
 
 /* ── entidade (tabela OU evento) → categoria ──
-   As TABELAS são as 19 cobertas pelo gatilho trg_historico (a sonda compara
+   As TABELAS são as 23 cobertas pelo gatilho trg_historico (a sonda compara
    esta lista com os arrays do supabase-historico.sql — paridade obrigatória).
    Os EVENTOS são o vocabulário de auditoria_eventos: api/_lib/seguranca.js
    (+ login/esqueci/acessos/permissoes) e os triggers de seguranca3,
@@ -252,10 +252,13 @@ export function filtrarBusca(linhas, q) {
    próprias; desfazer só a parte auditada deixaria o caixa sem lastro. */
 export const ENTIDADES_SEM_DESFAZER = new Set([
   "cobrancas", "lancamentos", "fundos", "planilhas_cobranca", "acessos_portaria",
-  /* confirmar reserva GERA cobrança (confirmar_reserva) — desfazer a
-     reserva deixaria a cobrança sem lastro (09/11/2026) */
-  "reservas",
 ]);
+/* `reservas` esteve aqui de 09 a 12/11/2026 (confirmar GERA a cobrança da
+   taxa). Saiu porque o bloqueio por relação pegava junto a recusa de um
+   pedido, que não toca em dinheiro nenhum: hoje a decisão é pelo PAR
+   antes/depois, em podeDesfazerReserva (src/lib/reservas.js) e na guarda
+   equivalente da RPC — desfazer a confirmação cancela a taxa na mesma
+   transação, e taxa paga recusa. */
 export function podeDesfazer(linha) {
   if (String(linha?.fonte) !== "dados") return false;
   if (!["INSERT", "UPDATE", "DELETE"].includes(String(linha?.acao))) return false;

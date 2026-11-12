@@ -1204,6 +1204,13 @@ const ERROS_DESFAZER = {
   ja_removido: "Este registro já foi removido depois desta mudança — desfaça a exclusão mais recente primeiro.",
   tem_dependencias: "Este registro já tem outros ligados a ele — remova-os primeiro.",
   dependencia_ausente: "Algo de que este registro dependia foi removido depois — não dá para recriá-lo.",
+  /* reservas: desfazer a confirmação cancela a cobrança da taxa junto, então
+     o que trava a cobrança trava o desfazer (12/11/2026) */
+  taxa_paga: "A taxa desta reserva já foi paga — resolva a devolução na tela Cobranças primeiro.",
+  taxa_informe_pendente: "Há um pagamento da taxa aguardando conferência — rejeite o informe na tela Cobranças primeiro.",
+  taxa_sem_permissao: "Cancelar a taxa exige também a permissão de cancelar cobrança indevida — peça ao diretor.",
+  taxa_cancelada: "A cobrança da taxa já foi cancelada e o histórico não emite cobrança: confirme a reserva de novo pela tela Reservas.",
+  falha_ao_desfazer: "O banco recusou esta reversão — a trilha continua intacta e nada foi alterado.",
 };
 
 /* Reverte UMA entrada do histórico (RPC desfazer_alteracao, transacional):
@@ -2584,10 +2591,37 @@ export async function confirmarReserva(id) {
   return data; // { ok, cobranca_id, valor }
 }
 
-/* recusar (solicitada→cancelada), concluir, cancelar — transições simples */
+/* concluir — a única transição que não mexe em dinheiro nem libera horário */
 export async function mudarStatusReserva(id, status) {
   await q1(supabase.from("reservas").update({ status }).eq("id", id).select(),
     "reservas", "Alterar a reserva");
+}
+
+const ERROS_CANCELAR_RESERVA = {
+  nao_autorizado: "Você não tem a permissão de cancelar esta reserva.",
+  inexistente: "Reserva não encontrada.",
+  status_invalido: "Esta reserva já foi cancelada ou concluída.",
+  taxa_paga: "A taxa desta reserva já foi paga — resolva a devolução na tela Cobranças primeiro.",
+  taxa_informe_pendente: "Há um pagamento da taxa aguardando conferência — rejeite o informe na tela Cobranças primeiro.",
+  taxa_sem_permissao: "Cancelar a taxa exige também a permissão de cancelar cobrança indevida — peça ao diretor.",
+  taxa_recusada: "Não foi possível cancelar a cobrança da taxa, então a reserva segue como está.",
+};
+
+/* Cancelar = RPC transacional: recusa um pedido ou cancela uma reserva
+   confirmada CANCELANDO a cobrança da taxa junto (até 12/11/2026 a cobrança
+   ficava viva, e o tipo 'extra' não tem linha de planilha por onde cancelá-la).
+   Taxa já paga recusa a operação inteira — devolução é ato da tela Cobranças.
+   Serve também o morador, para desistir do próprio pedido: a RPC confere o
+   solicitante_id, o que uma policy não conseguiria (o JWT não traz a unidade). */
+export async function cancelarReserva(id, justificativa = null) {
+  const { data, error } = await supabase.rpc("cancelar_reserva", {
+    p_id: id, p_justificativa: justificativa,
+  });
+  if (error) throw new Error(/does not exist|schema cache/i.test(error.message)
+    ? "O banco está desatualizado: rode o supabase-reservas-assembleias.sql no SQL Editor para habilitar o cancelamento."
+    : error.message);
+  if (data?.ok === false) throw new Error(ERROS_CANCELAR_RESERVA[data.erro] || `Cancelamento recusado: ${data.erro}`);
+  return data; // { ok, taxa_cancelada, cobranca_id }
 }
 
 /* ── assembleias ── */

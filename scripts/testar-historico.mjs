@@ -148,6 +148,15 @@ const jsx = arq("CondoMasterPro.jsx");
   const js = [...ENTIDADES_SEM_DESFAZER];
   ok("F2 RPC bloqueia o mesmo conjunto do JS",
     doSql.length === js.length && js.every((e) => doSql.includes(e)), doSql.join(","));
+  /* `reservas` saiu do bloqueio em 12/11/2026 e passou a ter guarda pelo PAR
+     antes/depois: desfazer a confirmação cancela a taxa na mesma transação,
+     taxa paga recusa. O espelho JS é podeDesfazerReserva (testar-reservas). */
+  ok("F2b reservas fora do bloqueio, com a guarda da taxa no lugar",
+    !doSql.includes("reservas") && !ENTIDADES_SEM_DESFAZER.has("reservas")
+    && /if a\.entidade = 'reservas' then/.test(sHist)
+    && ["taxa_paga", "taxa_informe_pendente", "taxa_cancelada"].every((e) => sHist.includes(`'${e}'`)));
+  ok("F2c o cancelamento da taxa roda DENTRO do bloco transacional do desfazer",
+    /begin[\s\S]{0,3000}cancelar_cobranca__base[\s\S]{0,400}raise exception[\s\S]{0,600}exception\s+when foreign_key_violation/.test(sHist));
 }
 
 /* F3 · `auditoria` nas DUAS listas de exclusão dos loops genéricos —

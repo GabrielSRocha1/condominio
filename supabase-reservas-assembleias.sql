@@ -17,7 +17,12 @@
 --     cobrança tipo 'extra' da unidade (competência do mês do uso,
 --     vencimento no dia do uso) e grava cobranca_id. O índice único de
 --     cobranças só vale para ordinárias — a taxa não colide com a
---     mensalidade. Recusar/cancelar/concluir são UPDATEs comuns da tela;
+--     mensalidade;
+--   · RPC cancelar_reserva(id, justificativa): a irmã dela — cancela a
+--     reserva E a cobrança da taxa na mesma transação (12/11/2026), e
+--     RECUSA se a taxa já está paga ou tem informe pendente. Serve a
+--     gestão (reserva.decidir) e o morador, que cancela o próprio pedido
+--     enquanto ninguém confirmou. Concluir segue UPDATE comum da tela;
 --   · sino: pedido novo do morador notifica a gestão (reserva.solicitada);
 --   · índice de assembleias por data.
 --
@@ -118,6 +123,118 @@ begin
 end $$;
 revoke all on function public.confirmar_reserva(uuid) from public, anon;
 grant execute on function public.confirmar_reserva(uuid) to authenticated, service_role;
+
+-- ─────────────────────────────────────────────────────────────────
+-- D2) Cancelar reserva — e a TAXA junto, na mesma transação
+--
+-- Irmã de confirmar_reserva: se aquela GERA a cobrança 'extra', esta a
+-- cancela. Até 12/11/2026 cancelar era um UPDATE cru da tela, e a cobrança
+-- da taxa ficava viva apontada por reservas.cobranca_id — sem reserva que
+-- a justifique e sem caminho de tela para cancelá-la (o botão de baixa
+-- indevida vive na planilha e exige uma linha, e o sync pula 'extra').
+--
+-- Dinheiro já recebido NÃO se move por aqui: taxa paga ou com informe
+-- pendente recusa o cancelamento inteiro (a devolução é ato explícito da
+-- tela Cobranças). Por isso a cobrança é conferida e cancelada ANTES de
+-- mexer na reserva: a função roda na transação do PostgREST, então um
+-- `return` depois de uma escrita não desfaz a escrita.
+--
+-- Serve a gestão (reserva.decidir — e cobranca.cancelar quando há taxa a
+-- cancelar, que os três perfis com reserva.decidir já têm por padrão) e o
+-- MORADOR, que cancela o próprio pedido enquanto ninguém confirmou.
+-- Autorizar aqui, e não por policy, é o que permite exigir que a reserva
+-- seja dele (solicitante_id): o JWT não carrega a unidade, e security
+-- definer consegue conferir.
+-- ─────────────────────────────────────────────────────────────────
+create or replace function public.cancelar_reserva(
+  p_id            uuid,
+  p_justificativa text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  r record; v_area record; v_dono uuid; v_gestao boolean; v_just text;
+  v_cob jsonb; v_cancelou boolean := false;
+begin
+  select * into r from public.reservas where id = p_id for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'erro', 'inexistente');
+  end if;
+  if public.jwt_role() <> 'service_role'
+     and r.condominio_id is distinct from public.jwt_condominio() then
+    return jsonb_build_object('ok', false, 'erro', 'nao_autorizado');
+  end if;
+
+  /* dois caminhos de autoridade: a gestão cancela qualquer uma; o morador
+     só a PRÓPRIA e só enquanto ninguém confirmou (nenhuma cobrança existe
+     ainda, então é o recorte seguro) */
+  v_gestao := public.jwt_role() = 'service_role' or public.jwt_pode('reserva.decidir');
+  if not v_gestao then
+    select pessoa_id into v_dono from public.usuarios where id = public.jwt_usuario();
+    if not public.jwt_pode('reserva.solicitar')
+       or v_dono is null or r.solicitante_id is distinct from v_dono
+       or r.status <> 'solicitada' then
+      return jsonb_build_object('ok', false, 'erro', 'nao_autorizado');
+    end if;
+  end if;
+
+  if r.status not in ('solicitada', 'confirmada') then
+    return jsonb_build_object('ok', false, 'erro', 'status_invalido');
+  end if;
+
+  select * into v_area from public.areas_comuns where id = r.area_id;
+  v_just := coalesce(nullif(trim(coalesce(p_justificativa, '')), ''),
+                     'Reserva cancelada: ' || coalesce(v_area.nome, 'área comum')
+                     || ' ' || to_char(r.inicio, 'DD/MM/YYYY HH24:MI'));
+
+  begin
+    /* a taxa primeiro — se ela recusar, nada foi escrito ainda.
+       Chama o corpo REAL (cancelar_cobranca__base, que supabase-permissoes.sql
+       cria ao embrulhar a função; sem o passo 11 rodado, cai na direta) para
+       não passar pelo embrulho de fila/permissão duas vezes. O corpo ainda
+       confere cobranca.cancelar por dentro, e deve conferir: cancelar
+       cobrança é ato de dinheiro. Os três perfis com reserva.decidir por
+       padrão já a têm — ver o tratamento de nao_autorizado abaixo. */
+    if r.cobranca_id is not null then
+      if to_regprocedure('public.cancelar_cobranca__base(uuid,text)') is not null then
+        v_cob := public.cancelar_cobranca__base(r.cobranca_id, v_just);
+      else
+        v_cob := public.cancelar_cobranca(r.cobranca_id, v_just);
+      end if;
+      /* cobranca_inexistente = ponteiro órfão (a FK é NO ACTION, então na
+         prática não acontece): não há taxa para cancelar, segue em frente.
+         nao_autorizado = quem decide reserva não tem cobranca.cancelar — o
+         corpo de cancelar_cobranca exige a permissão dele, e é certo que
+         exija: cancelar cobrança é ato de dinheiro. Os três perfis com
+         reserva.decidir por padrão já a têm; a matriz é delegável, então a
+         recusa precisa dizer qual permissão falta. */
+      if coalesce((v_cob ->> 'ok')::boolean, false) is not true
+         and coalesce(v_cob ->> 'erro', '') <> 'cobranca_inexistente' then
+        return jsonb_build_object('ok', false, 'erro',
+          case v_cob ->> 'erro'
+            when 'ja_paga'          then 'taxa_paga'
+            when 'informe_pendente' then 'taxa_informe_pendente'
+            when 'nao_autorizado'   then 'taxa_sem_permissao'
+            else 'taxa_recusada' end,
+          'detalhe', v_cob ->> 'erro');
+      end if;
+      /* só é "cancelei a taxa agora" se a chamada deu ok E a cobrança não
+         estava cancelada antes (ponteiro órfão também não conta) */
+      v_cancelou := coalesce((v_cob ->> 'ok')::boolean, false)
+                    and coalesce((v_cob ->> 'ja_cancelada')::boolean, false) is not true;
+    end if;
+
+    /* libera o horário sozinho: a constraint GiST só vale para
+       status in ('solicitada','confirmada') */
+    update public.reservas set status = 'cancelada' where id = p_id;
+  exception when others then
+    return jsonb_build_object('ok', false, 'erro', 'falha', 'detalhe', left(sqlerrm, 400));
+  end;
+
+  return jsonb_build_object('ok', true, 'taxa_cancelada', v_cancelou,
+                            'cobranca_id', r.cobranca_id);
+end $$;
+revoke all on function public.cancelar_reserva(uuid, text) from public, anon;
+grant execute on function public.cancelar_reserva(uuid, text) to authenticated, service_role;
 
 -- ─────────────────────────────────────────────────────────────────
 -- E) Sino da gestão: pedido novo do morador (cosmético — nunca derruba)

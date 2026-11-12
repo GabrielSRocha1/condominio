@@ -63,8 +63,37 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
   revisão deles (`verumcripto+dlocal@gmail.com`) vale até 20/11/2026.
 - **Sonda dos manuais**: ~10 ❌ falsos a partir de 28/09/2026 (fixture com cenário vencido).
 - Testes visuais pendentes: import de contas a pagar e unificação de pessoa no navegador.
+- **Cancelamento de reserva (12/11/2026)**: SQL ainda NÃO rodado em produção — passos 12 e 13
+  nessa ordem (`supabase-historico.sql`, depois `supabase-reservas-assembleias.sql`). Sem eles
+  o app degrada aberto: cancelar avisa para rodar o arquivo e o Desfazer de reserva recusa.
 
 ## Histórico (mais recente primeiro)
+
+### 12/11/2026 — Desfazer de Reservas: o ciclo fecha sem deixar cobrança órfã
+Reservas tinha **dois** furos, e o segundo era pior que o documentado. (1) `reservas` estava
+no bloqueio de dinheiro do Desfazer — por RELAÇÃO, então recusar um pedido (que não gera
+cobrança nenhuma) era tão indesfazível quanto a confirmação que gera, enquanto
+`areas_comuns`/`assembleias`/`atas` da mesma feature eram desfazíveis. (2) cancelar uma
+reserva confirmada era UPDATE cru: a cobrança `extra` da taxa **ficava viva e inalcançável** —
+a tela mandava usar a "Baixa indevida" em Cobranças, mas aquele botão vive na planilha e exige
+uma linha, e o sync pula `extra` de propósito. Agora: nova RPC **`cancelar_reserva`** (irmã de
+`confirmar_reserva`) cancela a reserva E a taxa na mesma transação, delegando ao corpo real
+`cancelar_cobranca__base`; taxa **paga** ou com informe pendente **recusa a operação inteira**
+(devolução segue ato explícito da tela Cobranças) e falta de `cobranca.cancelar` recusa dizendo
+qual permissão falta. Ordem é regra, não estilo: a taxa é conferida **antes** de qualquer
+escrita, porque a função roda na transação do PostgREST e um `return` depois de escrever não
+desfaz a escrita. No Desfazer, `reservas` saiu do bloqueio e entrou na allowlist com guarda
+pelo **par antes/depois**: desfazer a confirmação cancela a taxa dentro do bloco transacional
+(falha rola as duas atrás); desfazer um cancelamento recusa com `taxa_cancelada` (o Histórico
+não emite cobrança — reconfirmar é pela tela). O **morador** passou a desistir do próprio
+pedido enquanto `solicitada`, autorizado pelo `solicitante_id` dentro da RPC — o que uma policy
+não conseguiria, já que o JWT não carrega a unidade (nenhuma policy nova). De quebra, cancelar
+reserva confirmada passou a exigir `reserva.decidir` na tela (não exigia, e agora move dinheiro)
+e `podeTransicionar` deixou de ser import morto. Puros novos `efeitoCancelamento` e
+`podeDesfazerReserva` em `src/lib/reservas.js`; 41 sondas em `testar-reservas` + F2b/F2c em
+`testar-historico` (a paridade do bloqueio pega quem mexer num lado só); 240 traduções nos
+15 idiomas e a frase morta do aviso removida. Re-rodar `supabase-historico.sql` e
+`supabase-reservas-assembleias.sql` (passos 12 e 13, nessa ordem).
 
 ### 12/11/2026 — Lista de unidades em ordem numérica (1, 2 … 10, 11)
 O banco ordena `numero` (varchar) como texto, então 10, 11 e 12 apareciam antes do 1 na

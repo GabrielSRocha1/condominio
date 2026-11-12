@@ -35,7 +35,7 @@ import {
   obterReciboLote, baixarPdfRecibo, baixarPdfReciboLote, FORMA_ROTULO,
   listarNotificacoes, listarHistorico, desfazerAlteracao,
   criarArea, atualizarArea, desativarArea, criarReserva, solicitarReserva,
-  confirmarReserva, mudarStatusReserva, criarAssembleia, convocarAssembleia,
+  confirmarReserva, cancelarReserva, mudarStatusReserva, criarAssembleia, convocarAssembleia,
   salvarPresencas, cancelarAssembleia, registrarAta,
 } from "./src/lib/api.js";
 import { casaUnidade } from "./src/lib/unidades.js";
@@ -50,7 +50,7 @@ import { familiaCarteira, uriVerumPay, redesDaFamilia } from "./src/lib/qr-pagam
 import { pode, permsEfetivas, PERMISSOES, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, PERFIS_CRIAVEIS, PERFIL_SO_DIRETOR_CRIA, podeCriarPerfil, mesmoConjunto } from "./src/lib/permissoes.js";
 import { rotuloTabela, rotuloOperacao, rotuloCampo, valorTexto, diff, resumir, agrupar, resumirGrupo, camposDoGrupo, ehPerfilSobAprovacao, ehAcao } from "./src/lib/aprovacoes.js";
 import { CATEGORIAS, entidadesDaCategoria, rotuloEntidade, verboAcao, diffLinha, descrever, resumoLinha, rotuloAutor, filtrarBusca, podeDesfazer, fraseEvento, detalheCurto } from "./src/lib/historico.js";
-import { agoraLocal as agoraLocalInput, fimPadrao, conflita, antecedenciaOk, pautaParaJson, pautaParaTexto, togglePresenca, quorum, podeTransicionar } from "./src/lib/reservas.js";
+import { agoraLocal as agoraLocalInput, fimPadrao, conflita, antecedenciaOk, pautaParaJson, pautaParaTexto, togglePresenca, quorum, podeTransicionar, efeitoCancelamento, podeDesfazerReserva } from "./src/lib/reservas.js";
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
 import { geoCache } from "./src/lib/geo.js";
@@ -5006,7 +5006,16 @@ function AcessosDoCondominio({ t, role }) {
 /* O morador solicita pelo portal (status 'solicitada'); aqui a gestão
    confirma (RPC confirmar_reserva — área com taxa GERA a cobrança 'extra'),
    recusa, conclui e administra as áreas. O conflito de horário é decidido
-   pela constraint GiST do banco; a pré-checagem local é só aviso. */
+   pela constraint GiST do banco; a pré-checagem local é só aviso.
+   Cancelar é a RPC cancelar_reserva, que cancela a cobrança da taxa na
+   mesma transação — e recusa se ela já foi paga. */
+/* motivos de efeitoCancelamento (src/lib/reservas.js) em frase de tela */
+const MOTIVO_TAXA = {
+  taxa_paga: "A taxa desta reserva já foi paga — resolva a devolução na tela Cobranças primeiro.",
+  taxa_informe_pendente: "Há um pagamento da taxa aguardando conferência — rejeite o informe na tela Cobranças primeiro.",
+  taxa_sem_permissao: "Cancelar a taxa exige também a permissão de cancelar cobrança indevida — peça ao diretor.",
+  status_invalido: "Esta reserva já foi cancelada ou concluída.",
+};
 function Reservas({ t }) {
   const { db, reload } = useData();
   const perms = usePerms();
@@ -5055,6 +5064,25 @@ function Reservas({ t }) {
     setAgindo(true);
     try { await mudarStatusReserva(r.id, status); await reload(); setSel(null); }
     catch (e) { alert(L(e?.message || String(e))); }
+    finally { setAgindo(false); }
+  };
+
+  /* Cancelar passa pela RPC porque a TAXA vai junto: a cobrança 'extra' da
+     confirmação não tem linha de planilha, logo não havia tela por onde
+     cancelá-la depois. O efeito é enunciado ANTES do clique. */
+  const cancelar = async (r, pergunta) => {
+    const ef = efeitoCancelamento(r);
+    if (!ef.podeCancelar) { alert(L(MOTIVO_TAXA[ef.motivo] || "Esta reserva já foi cancelada ou concluída.")); return; }
+    const aviso = ef.cancelaTaxa
+      ? `${L(pergunta)} ${L("A cobrança da taxa será cancelada junto:")} ${BRL(ef.valor)}.`
+      : L(pergunta);
+    if (!window.confirm(aviso)) return;
+    setAgindo(true);
+    try {
+      const r2 = await cancelarReserva(r.id);
+      await reload(); setSel(null);
+      if (r2?.taxa_cancelada) alert(`${L("Reserva cancelada.")} ${L("A cobrança da taxa também foi cancelada.")}`);
+    } catch (e) { alert(L(e?.message || String(e))); }
     finally { setAgindo(false); }
   };
 
@@ -5139,20 +5167,30 @@ function Reservas({ t }) {
                 <div className="mt-1"><span style={{ color: t.dim }}>{L("Cobrança da taxa")}:</span>{" "}
                   <Badge t={t} s={sel.cobrancaStatus || "emitida"} /></div>)}
             </div>
-            {sel.status === "confirmada" && sel.cobrancaId && sel.cobrancaStatus !== "pago" && (
-              <div className="text-xs" style={{ color: t.dim }}>
-                {L("Para cancelar uma reserva já cobrada, cancele também a cobrança na tela Cobranças (Baixa indevida).")}</div>)}
+            {(() => {
+              /* o que o cancelamento vai fazer com o dinheiro, dito antes do clique */
+              const ef = efeitoCancelamento(sel);
+              if (!podeTransicionar(sel.status, "cancelada")) return null;
+              if (!ef.podeCancelar) return (
+                <div className="text-xs" style={{ color: t.warn }}>{L(MOTIVO_TAXA[ef.motivo] || "")}</div>);
+              if (ef.cancelaTaxa) return (
+                <div className="text-xs" style={{ color: t.dim }}>
+                  {L("Cancelar esta reserva cancela também a cobrança da taxa:")} <b>{BRL(ef.valor)}</b>.</div>);
+              return null;
+            })()}
           </div>
           <div className="mt-5 flex flex-wrap justify-end gap-2">
             <Btn t={t} onClick={() => setSel(null)}>{L("Fechar")}</Btn>
             {sel.status === "solicitada" && podeDecidir && (<>
-              <Btn t={t} kind="danger" disabled={agindo} onClick={() => mudar(sel, "cancelada", "Recusar esta solicitação de reserva?")}>
+              <Btn t={t} kind="danger" disabled={agindo} onClick={() => cancelar(sel, "Recusar esta solicitação de reserva?")}>
                 <Ban size={14} /> Recusar</Btn>
               <Btn t={t} kind="primary" disabled={agindo} onClick={() => confirmar(sel)}>
                 <Check size={14} /> {agindo ? L("Confirmando…") : L("Confirmar")}</Btn>
             </>)}
-            {sel.status === "confirmada" && (<>
-              <Btn t={t} kind="danger" disabled={agindo} onClick={() => mudar(sel, "cancelada", "Cancelar esta reserva confirmada?")}>
+            {/* `confirmada` também exige reserva.decidir: cancelar aqui MOVE
+                dinheiro (cancela a cobrança da taxa) */}
+            {sel.status === "confirmada" && podeDecidir && (<>
+              <Btn t={t} kind="danger" disabled={agindo} onClick={() => cancelar(sel, "Cancelar esta reserva confirmada?")}>
                 <Ban size={14} /> Cancelar reserva</Btn>
               <Btn t={t} kind="soft" disabled={agindo} onClick={() => mudar(sel, "concluida")}>
                 <Check size={14} /> Concluir</Btn>
@@ -5461,6 +5499,13 @@ function Assembleias({ t }) {
    sem teto e nunca entra no loadAll. Filtros de chip/ação/período vão na
    consulta; a busca de texto é local, na página carregada. Degrada aberto:
    SQL não rodado → aviso e nada mais. */
+/* motivos de podeDesfazerReserva (src/lib/reservas.js) em frase de tela */
+const MOTIVO_DESFAZER_RESERVA = {
+  taxa_paga: "A taxa desta reserva já foi paga — resolva a devolução na tela Cobranças primeiro.",
+  taxa_informe_pendente: "Há um pagamento da taxa aguardando conferência — rejeite o informe na tela Cobranças primeiro.",
+  taxa_sem_permissao: "Cancelar a taxa exige também a permissão de cancelar cobrança indevida — peça ao diretor.",
+  taxa_cancelada: "A cobrança da taxa já foi cancelada e o histórico não emite cobrança: confirme a reserva de novo pela tela Reservas.",
+};
 function Historico({ t }) {
   const { db, reload } = useData();
   const perms = usePerms();
@@ -5477,6 +5522,16 @@ function Historico({ t }) {
   const [sel, setSel] = useState(null);                // linha aberta no modal
   const [desfazendo, setDesfazendo] = useState(false);
   const [versao, setVersao] = useState(0);             // recarrega após desfazer
+
+  /* `reservas` é desfazível desde 12/11/2026, mas depende da TAXA: desfazer a
+     confirmação cancela a cobrança junto, e taxa paga recusa. A decisão fina
+     mora em podeDesfazerReserva (espelho da guarda da RPC) e precisa do
+     estado de HOJE da reserva — daí a consulta a db.reservas. */
+  const elegivel = (linha) => {
+    if (!podeDesfazer(linha)) return false;
+    if (linha.entidade !== "reservas") return true;
+    return podeDesfazerReserva(linha, db.reservas.find((r) => r.id === linha.entidade_id)).ok;
+  };
 
   useEffect(() => { setPagina(0); }, [cat, acao, de, ate]);
   useEffect(() => {
@@ -5565,7 +5620,7 @@ function Historico({ t }) {
                 {r.acao === "EVENTO"
                   ? `${L(fraseEvento(r.entidade))}${detalheCurto(r) ? ` · ${detalheCurto(r)}` : ""}`
                   : (descrever(r) || "—")}</span>);
-            if (k === "desfazer") return podeDesf && podeDesfazer(r) ? (
+            if (k === "desfazer") return podeDesf && elegivel(r) ? (
               <Btn t={t} className="!px-2 !py-1 text-xs" disabled={desfazendo}
                 onClick={(e) => { e.stopPropagation(); desfazer(r); }}>
                 <Undo2 size={12} /> Desfazer</Btn>) : null;
@@ -5614,10 +5669,15 @@ function Historico({ t }) {
                 </tbody>
               </table>
             </div>
+            {/* reserva que o banco recusaria: o botão não aparece, então o
+                motivo tem de aparecer — senão a ausência fica inexplicada */}
+            {podeDesf && sel.entidade === "reservas" && podeDesfazer(sel) && !elegivel(sel) && (
+              <div className="text-xs" style={{ color: t.warn }}>
+                {L(MOTIVO_DESFAZER_RESERVA[podeDesfazerReserva(sel, db.reservas.find((r) => r.id === sel.entidade_id)).motivo] || "")}</div>)}
           </div>
           <div className="mt-5 flex flex-wrap justify-end gap-2">
             <Btn t={t} onClick={() => setSel(null)}>{L("Fechar")}</Btn>
-            {podeDesf && podeDesfazer(sel) && (
+            {podeDesf && elegivel(sel) && (
               <Btn t={t} kind="danger" disabled={desfazendo} onClick={() => desfazer(sel)}>
                 <Undo2 size={14} /> {desfazendo ? L("Desfazendo…") : L("Desfazer esta alteração")}</Btn>)}
           </div>
@@ -6089,6 +6149,17 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
     await solicitarReserva(db.ctx, { areaId: f.area, unidadeId: meuUnidadeId, pessoaId: meuPessoaId, inicio: f.inicio, fim: f.fim });
     await reload(); setNovaReserva(false); setResArea(""); setResIni(""); setResFim("");
   });
+  /* desistir do próprio pedido ainda não confirmado: a RPC cancelar_reserva
+     confere que o solicitante é quem está pedindo (o JWT não traz a unidade,
+     então isso não dava para amarrar numa policy) */
+  const [cancelandoRes, setCancelandoRes] = useState(null);
+  const cancelarMinhaReserva = async (r) => {
+    if (!window.confirm(L("Cancelar este pedido de reserva?"))) return;
+    setCancelandoRes(r.id);
+    try { await cancelarReserva(r.id); await reload(); }
+    catch (e) { alert(L(e?.message || String(e))); }
+    finally { setCancelandoRes(null); }
+  };
   /* próxima assembleia convocada — todos os moradores veem no Início */
   const proxAssembleia = db.assembleias
     .filter((a) => a.status === "convocada" && new Date(a.dataHora) >= new Date())
@@ -6456,6 +6527,18 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                   </div>
                   <Badge t={t} s={r.status} />
                 </div>
+                {/* desistir do próprio pedido: só enquanto ninguém confirmou
+                    (depois de confirmada existe cobrança da taxa, e aí quem
+                    cancela é a gestão). A RPC confere o solicitante_id. */}
+                {r.status === "solicitada" && (
+                  <div className="mt-2 flex justify-end">
+                    <Btn t={t} kind="soft" className="!px-2 !py-1 text-xs" disabled={cancelandoRes === r.id}
+                      onClick={() => cancelarMinhaReserva(r)}>
+                      <Ban size={12} /> {cancelandoRes === r.id ? L("Cancelando…") : L("Cancelar pedido")}</Btn>
+                  </div>)}
+                {r.status === "confirmada" && (
+                  <div className="mt-2 text-[11px]" style={{ color: t.dim }}>
+                    {L("Para cancelar uma reserva já confirmada, fale com a administração.")}</div>)}
               </Card>))}
             <div className="text-[11px]" style={{ color: t.dim }}>
               {L("A solicitação vale depois que a administração confirmar. Área com taxa gera a cobrança na confirmação.")}</div>
