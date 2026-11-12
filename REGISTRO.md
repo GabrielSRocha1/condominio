@@ -67,6 +67,30 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 
 ## Histórico (mais recente primeiro)
 
+### 12/11/2026 — Lembrete de reserva próxima no sino do morador (zero SQL)
+O sino mostrava **toda** reserva futura confirmada, para sempre: uma de três meses à frente com
+o mesmo peso de uma que é amanhã, competindo com cobranças e comunicados. Agora só entra o que
+está perto, com a frase mudando de fase: **em uso agora · hoje · amanhã · em breve** (janela de
+48h, parâmetro), cor de atenção em hoje/em-curso, **ordenado pela mais próxima** e **acima dos
+comunicados**. A reserva distante sai do sino e ganha **card "Próxima reserva" no Início** (molde
+do card da assembleia, com taxa e status da cobrança quando houver) — sem ele, enxugar o sino
+esconderia informação. O sino da **gestão** ganhou o agregado "N reserva(s) de área nas próximas
+24h", vizinho do aviso de assembleia: quem cuida do prédio precisa preparar o espaço.
+**Decidido pelo relógio, não por linha no banco** — e de propósito: o projeto **não tem nenhuma
+infraestrutura de execução agendada** (sem `crons` no `vercel.json`, sem `pg_cron`/`pg_net` — as
+únicas extensões são `pgcrypto` e `btree_gist`, sem Actions, sem Edge Functions; os 4 triggers de
+notificação são AFTER INSERT/UPDATE e reagem a escrita, nunca ao relógio). O gêmeo da técnica já
+rodava em produção no aviso de "assembleia nos próximos 7 dias". Limite dito em voz alta: **o
+lembrete aparece quando o morador abre o app**; fazer o celular vibrar exige agendador + canal de
+push, que são duas obras à parte (o `sw.js` só tem install/activate/fetch; zero VAPID/PushManager).
+A fase é decidida por **dia de calendário local** (`Date.UTC` dos componentes locais, imune a
+horário de verão), não por aritmética de horas — uma reserva às 9h de amanhã está a 23h e tem de
+ler "amanhã", não "hoje" (sonda R9c). Novo hook `useTique` (10 min, zero rede) é dep dos dois
+sinos, senão "é amanhã" seguiria dizendo amanhã na aba aberta a noite toda. Puros novos
+`faseReserva`/`proximaReserva` em `src/lib/reservas.js`; 17 sondas R9 com **tempo injetado** +
+6 de paridade de tela (F8); 84 traduções nos 15 idiomas e a frase morta "Reserva confirmada"
+removida. `EVENTOS_FEED` intocado — nenhum evento novo de `notificacoes`, nada a instalar.
+
 ### 12/11/2026 — Cancelamento de reserva instalado em produção: 7/7 no banco vivo
 Os dois passos rodados (`supabase-historico.sql`, depois `supabase-reservas-assembleias.sql`) e
 o ciclo provado **contra o banco**, não só por regex: `testar-reservas` ganhou um **bloco B**

@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import {
   agoraLocal, fimPadrao, conflita, antecedenciaOk, pautaParaJson, pautaParaTexto,
   togglePresenca, quorum, RESERVA_TRANSICOES, podeTransicionar,
-  efeitoCancelamento, podeDesfazerReserva,
+  efeitoCancelamento, podeDesfazerReserva, faseReserva, proximaReserva,
 } from "../src/lib/reservas.js";
 
 let falhas = 0, puladas = 0;
@@ -142,6 +142,57 @@ ok("R6 solicitada→confirmada/cancelada; confirmada→concluida/cancelada; term
     podeDesfazerReserva(recusa, { cobrancaStatus: null }).ok);
 }
 
+/* R9 · lembrete de reserva próxima (fase por dia de calendário) */
+{
+  /* instante FIXO, no fuso local, para a sonda não depender do relógio:
+     uma terça-feira às 10:00 */
+  const base = new Date(2031, 2, 11, 10, 0, 0).getTime();
+  const h = (n) => base + n * 3600000;
+  /* reserva confirmada começando em `n` horas, durando 4 */
+  const res = (n, extra) => ({ status: "confirmada", inicio: h(n), fim: h(n + 4), ...extra });
+  const fase = (n, extra) => faseReserva(res(n, extra), base).fase;
+
+  ok("R9 hoje: começa em 3h (mesmo dia do calendário)", fase(3) === "hoje");
+  ok("R9b hoje à noite: 23h do mesmo dia ainda é 'hoje'", fase(13) === "hoje");
+  /* o caso que a aritmética de horas erraria: 23h de distância, mas é amanhã */
+  ok("R9c amanhã às 9h: 23h de distância, e ainda assim 'amanhã'", fase(23) === "amanha");
+  ok("R9d amanhã de noite também é 'amanhã'", fase(35) === "amanha");
+  /* 47h adiante caem em DOIS dias de calendário → 'proxima' */
+  ok("R9e depois de amanhã, dentro das 48h, é 'proxima'", fase(47) === "proxima");
+  ok("R9f fora da janela de 48h sai do sino (null)", fase(72) === null && fase(24 * 10) === null);
+  ok("R9g janela configurável: com 72h, o que era null entra como 'proxima'",
+    faseReserva(res(60), base).fase === null
+    && faseReserva(res(60), base, 72).fase === "proxima");
+
+  /* em curso e passada */
+  ok("R9h em curso: começou há 1h e termina em 3h", fase(-1) === "em_curso");
+  ok("R9i já terminada não é lembrete", fase(-10) === null);
+  ok("R9j fim ausente numa reserva passada não vira 'em_curso'",
+    faseReserva({ status: "confirmada", inicio: h(-1) }, base).fase === null);
+
+  /* só reserva confirmada é lembrete */
+  ok("R9k solicitada/cancelada/concluída não geram lembrete",
+    ["solicitada", "cancelada", "concluida"].every((s) => fase(3, { status: s }) === null));
+  ok("R9l entrada inválida não quebra",
+    faseReserva(null, base).fase === null
+    && faseReserva({ status: "confirmada", inicio: "lixo" }, base).fase === null);
+
+  ok("R9m horasAte é informado para ordenar o sino",
+    Math.round(faseReserva(res(3), base).horasAte) === 3);
+  ok("R9n agora aceita ISO, não só epoch",
+    faseReserva(res(3), new Date(base).toISOString()).fase === "hoje");
+
+  /* proximaReserva: db.reservas chega DESCENDENTE, então ordenar importa */
+  const lista = [res(100), res(3), res(40)];        // como o banco entrega: distante primeiro
+  ok("R9o proximaReserva pega a mais próxima, não a primeira da lista",
+    proximaReserva(lista, base)?.inicio === h(3));
+  ok("R9p a que está em curso tem precedência (fim ainda no futuro)",
+    proximaReserva([res(10), res(-1)], base)?.inicio === h(-1));
+  ok("R9q ignora não confirmadas, passadas e lista vazia",
+    proximaReserva([res(3, { status: "solicitada" }), res(-10)], base) === null
+    && proximaReserva([], base) === null && proximaReserva(null, base) === null);
+}
+
 console.log("\n━━ F · paridade com os arquivos fonte ━━");
 
 const sRes = arq("supabase-reservas-assembleias.sql");
@@ -227,6 +278,26 @@ ok("F6c portal solicita com pessoaId/unidadeId da sessão (com fallback)",
   && /solicitarReserva\(db\.ctx, \{ areaId: f\.area, unidadeId: meuUnidadeId, pessoaId: meuPessoaId/.test(jsx));
 ok("F6d erro 23P01 tem tradução amigável no api.js",
   /23P01\|exclusion constraint/.test(api));
+
+/* F8 · lembrete de reserva próxima (12/11/2026) */
+ok("F8 o sino do morador usa faseReserva, não mais o filtro cru de toda futura",
+  /faseReserva\(r\)/.test(jsx)
+  && !/status === "confirmada" && new Date\(r\.inicio\) >= new Date\(\)/.test(jsx));
+ok("F8b as quatro fases têm frase de tela",
+  ["em_curso", "hoje", "amanha", "proxima"].every((f) => new RegExp(`${f}:`).test(jsx))
+  && /LEMBRETE_RESERVA/.test(jsx));
+ok("F8c o lembrete é ordenado pela mais próxima e entra antes dos comunicados",
+  /sort\(\(a, b\) => a\.horasAte - b\.horasAte\)/.test(jsx)
+  && jsx.indexOf("LEMBRETE_RESERVA[fase]") < jsx.indexOf('db.comunic.slice(0, 2).map'));
+ok("F8d existe o tique do relógio e ele é dep dos dois sinos",
+  /const useTique = \(ms = 600000\)/.test(jsx)
+  && /minhasReservas, proxAssembleia, tique, lang\]/.test(jsx)
+  && /db, role, perms, tique, lang\]/.test(jsx));
+ok("F8e card da próxima reserva no Início do morador",
+  /proximaReserva\(minhasReservas\)/.test(jsx) && /L\("Próxima reserva"\)/.test(jsx));
+ok("F8f sino da gestão avisa as reservas das próximas 24h",
+  /faseReserva\(r, Date\.now\(\), 24\)/.test(jsx)
+  && /reserva\(s\) de área nas próximas 24h/.test(jsx));
 
 /* F7 · login devolve pessoaId/unidadeId para o portal */
 {

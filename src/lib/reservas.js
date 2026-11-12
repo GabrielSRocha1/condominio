@@ -52,6 +52,54 @@ export function antecedenciaOk(regras, inicioISO, agoraISO = null) {
   return { ok, horas };
 }
 
+/* ── Lembrete: quão PRÓXIMA está a reserva ──
+
+   O sino do morador mostrava toda reserva futura confirmada, para sempre: uma
+   de três meses à frente tinha o mesmo peso de uma que é amanhã. Esta regra dá
+   a noção de proximidade que faltava — e devolve `null` para a distante, que é
+   o que a tira do sino (ela segue na aba e no card do Início).
+
+   A fase é decidida por DIA DE CALENDÁRIO local, não por aritmética de horas:
+   uma reserva às 9h de amanhã está a 20h de distância, e "em 20h" tem de ler
+   "amanhã", não "hoje". `diaLocal` indexa o dia via Date.UTC dos componentes
+   LOCAIS, que é imune a horário de verão (somar 86400000 não é).
+
+   `agora` é parâmetro para a sonda poder fixar o instante — sem isso o teste
+   dependeria do relógio da máquina. */
+const diaLocal = (ms) => {
+  const d = new Date(ms);
+  return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+};
+const diasEntre = (a, b) => Math.round((diaLocal(b) - diaLocal(a)) / 86400000);
+const instante = (v) => (typeof v === "number" ? v : new Date(v).getTime());
+
+export function faseReserva(reserva, agora = Date.now(), horas = 48) {
+  const vazio = { fase: null, horasAte: null };
+  if (!reserva || String(reserva.status) !== "confirmada") return vazio;
+  const ini = instante(reserva.inicio), ag = instante(agora);
+  if (!Number.isFinite(ini) || !Number.isFinite(ag)) return vazio;
+  const fim = instante(reserva.fim);
+  /* acontecendo agora: vale mais que qualquer lembrete */
+  if (ini <= ag) return Number.isFinite(fim) && ag < fim ? { fase: "em_curso", horasAte: 0 } : vazio;
+  const horasAte = (ini - ag) / 3600000;
+  if (horasAte > horas) return { fase: null, horasAte };  // fora da janela: sai do sino
+  const dias = diasEntre(ag, ini);
+  return { fase: dias === 0 ? "hoje" : dias === 1 ? "amanha" : "proxima", horasAte };
+}
+
+/* A próxima reserva confirmada da lista (molde do proxAssembleia do portal).
+   Ordena ASCENDENTE de propósito: db.reservas chega descendente por `inicio`
+   (api.js), então pegar [0] sem reordenar daria a mais distante. Inclui a que
+   está em curso (fim >= agora) — é a mais relevante enquanto acontece. */
+export function proximaReserva(reservas, agora = Date.now()) {
+  const ag = instante(agora);
+  return (reservas || [])
+    .filter((r) => String(r.status) === "confirmada"
+      && Number.isFinite(instante(r.fim ?? r.inicio))
+      && instante(r.fim ?? r.inicio) >= ag)
+    .sort((a, b) => instante(a.inicio) - instante(b.inicio))[0] || null;
+}
+
 /* ── Transições de status (quem pode ir para onde) ── */
 export const RESERVA_TRANSICOES = {
   solicitada: ["confirmada", "cancelada"],

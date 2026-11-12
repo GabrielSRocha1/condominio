@@ -50,7 +50,7 @@ import { familiaCarteira, uriVerumPay, redesDaFamilia } from "./src/lib/qr-pagam
 import { pode, permsEfetivas, PERMISSOES, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, PERFIS_CRIAVEIS, PERFIL_SO_DIRETOR_CRIA, podeCriarPerfil, mesmoConjunto } from "./src/lib/permissoes.js";
 import { rotuloTabela, rotuloOperacao, rotuloCampo, valorTexto, diff, resumir, agrupar, resumirGrupo, camposDoGrupo, ehPerfilSobAprovacao, ehAcao } from "./src/lib/aprovacoes.js";
 import { CATEGORIAS, entidadesDaCategoria, rotuloEntidade, verboAcao, diffLinha, descrever, resumoLinha, rotuloAutor, filtrarBusca, podeDesfazer, fraseEvento, detalheCurto } from "./src/lib/historico.js";
-import { agoraLocal as agoraLocalInput, fimPadrao, conflita, antecedenciaOk, pautaParaJson, pautaParaTexto, togglePresenca, quorum, podeTransicionar, efeitoCancelamento, podeDesfazerReserva } from "./src/lib/reservas.js";
+import { agoraLocal as agoraLocalInput, fimPadrao, conflita, antecedenciaOk, pautaParaJson, pautaParaTexto, togglePresenca, quorum, podeTransicionar, efeitoCancelamento, podeDesfazerReserva, faseReserva, proximaReserva } from "./src/lib/reservas.js";
 
 import { L, LANG, LANGS, setLang, aoTrocarIdioma, conciliarIdiomaDaConta } from "./src/lib/i18n.js";
 import { geoCache } from "./src/lib/geo.js";
@@ -272,6 +272,22 @@ const salvarVisto = (cid, role, iso) => { try { const all = JSON.parse(localStor
 /* ══════════════ DADOS (Supabase) ══════════════ */
 const DataCtx = React.createContext(null);
 const useData = () => React.useContext(DataCtx);
+
+/* Tique grosso do relógio para avisos que dependem do TEMPO, não do dado.
+   Os lembretes ("sua reserva é amanhã", "assembleia nos próximos 7 dias") saem
+   de useMemo cujas deps são arrays do db — e `Date.now()` não é dep nenhuma.
+   Com a aba aberta a noite toda, "amanhã" continuaria dizendo amanhã depois da
+   virada. Dez minutos é fino de sobra para um lembrete de horas e custa um
+   contador: nenhuma consulta ao banco (ao contrário do polling de 30 s do feed,
+   que vai à rede). Devolve um número que só serve de dep do memo. */
+const useTique = (ms = 600000) => {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setN((v) => v + 1), ms);
+    return () => clearInterval(t);
+  }, [ms]);
+  return n;
+};
 
 /* Envia um formulário: coleta os campos com FormData, executa a ação e trata erros.
    Campos repetidos (ex.: input de arquivo com "multiple") viram array. */
@@ -6034,6 +6050,27 @@ function EditorPermissoes({ t }) {
 }
 
 /* ══════════════ PORTAL DO MORADOR ══════════════ */
+/* frase do lembrete por fase — a fase vem de faseReserva (src/lib/reservas.js).
+   "em breve" em vez de "depois de amanhã": a janela é parâmetro (hoje 48h), e a
+   frase não deve mentir se alguém a abrir para 72h. */
+const LEMBRETE_RESERVA = {
+  em_curso: "Sua reserva está em uso agora:",
+  hoje: "Sua reserva é hoje:",
+  amanha: "Sua reserva é amanhã:",
+  proxima: "Sua reserva é em breve:",
+};
+/* hoje/amanhã dispensam a data (a frase já diz o dia); "em breve" precisa dela
+   — horaCurta dá dd/mm hh:mm e já serve o sino da gestão */
+const horaLocal = (iso) => {
+  const d = new Date(iso);
+  return isNaN(d) ? "" : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+const quandoLembrete = (inicio, fase) => {
+  if (fase === "em_curso") return "";
+  const q = fase === "proxima" ? horaCurta(inicio) : horaLocal(inicio);
+  return q ? ` · ${q}` : "";
+};
+
 function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
   const { db, reload } = useData();
   /* recarregar mantém a aba do portal onde o morador estava */
@@ -6160,6 +6197,12 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
     catch (e) { alert(L(e?.message || String(e))); }
     finally { setCancelandoRes(null); }
   };
+  /* o lembrete de reserva muda de fase com o RELÓGIO, não com o dado: sem um
+     tique, "é amanhã" seguiria dizendo amanhã na aba aberta a noite toda */
+  const tique = useTique();
+  /* próxima reserva confirmada da unidade — o card do Início, e o lugar onde a
+     reserva distante continua visível depois de sair do sino */
+  const proxReserva = useMemo(() => proximaReserva(minhasReservas), [minhasReservas, tique]); // eslint-disable-line react-hooks/exhaustive-deps
   /* próxima assembleia convocada — todos os moradores veem no Início */
   const proxAssembleia = db.assembleias
     .filter((a) => a.status === "convocada" && new Date(a.dataHora) >= new Date())
@@ -6191,13 +6234,25 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
     ...boletos.filter((b) => b.status === "emitida").map((b) => ({ txt: `${L("Nova cobrança de")} ${b.comp} — ${BRL(devido(b))} · ${L("vence em")} ${b.venc}`, c: "warn", go: () => setTab("pagamentos") })),
     ...minhasMultasLista.filter((m) => m.status === "pendente").map((m) => ({ txt: `${m.valor > 0 ? L("Multa") : L("Advertência")} ${m.num} — ${L("prazo de defesa até")} ${m.prazo}`, c: "warn", go: () => setMulta(m) })),
     ...meusChamadosLista.filter((c) => c.status === "aberto" || c.status === "andamento").map((c) => ({ txt: `${L("Chamada de manutenção")} ${c.num} ${c.status === "andamento" ? L("em andamento") : L("aberta")} — ${c.desc}`, c: "info" })),
-    ...db.comunic.slice(0, 2).map((c) => ({ txt: `${L("Comunicado")}: ${c.titulo}`, c: "info", go: () => setAviso(c) })),
     ...minhasReservas.filter((r) => r.status === "solicitada").map((r) => ({
       txt: `${L("Reserva aguardando confirmação")}: ${r.area}`, c: "warn", go: () => setTab("reservas") })),
-    ...minhasReservas.filter((r) => r.status === "confirmada" && new Date(r.inicio) >= new Date()).map((r) => ({
-      txt: `${L("Reserva confirmada")}: ${r.area} · ${new Date(r.inicio).toLocaleString()}`, c: "ok", go: () => setTab("reservas") })),
+    /* LEMBRETE: só a reserva próxima entra no sino, e a mais próxima primeiro.
+       Antes toda reserva futura confirmada ficava aqui para sempre — uma de
+       três meses à frente com o mesmo peso de uma que é amanhã. A distante
+       agora vive no card do Início e na aba Reservas. `tique` está nas deps
+       porque a fase vira sozinha com o relógio, sem o dado mudar. */
+    ...minhasReservas
+      .map((r) => ({ r, ...faseReserva(r) }))
+      .filter((x) => x.fase)
+      .sort((a, b) => a.horasAte - b.horasAte)
+      .map(({ r, fase }) => ({
+        txt: `${L(LEMBRETE_RESERVA[fase])} ${r.area}${quandoLembrete(r.inicio, fase)}`,
+        c: fase === "hoje" || fase === "em_curso" ? "warn" : "ok",
+        go: () => setTab("reservas"),
+      })),
+    ...db.comunic.slice(0, 2).map((c) => ({ txt: `${L("Comunicado")}: ${c.titulo}`, c: "info", go: () => setAviso(c) })),
     ...(proxAssembleia ? [{ txt: `${L("Assembleia convocada para")} ${new Date(proxAssembleia.dataHora).toLocaleString()}`, c: "info" }] : []),
-  ], [boletos, minhasMultasLista, meusChamadosLista, db.comunic, minhasReservas, proxAssembleia, lang]); // eslint-disable-line react-hooks/exhaustive-deps
+  ], [boletos, minhasMultasLista, meusChamadosLista, db.comunic, minhasReservas, proxAssembleia, tique, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   const textoEndereco = [db.cond?.nome, db.cond?.endereco, `${morador?.nome || L("Morador")} — ${L("Unidade")} ${unidadeExib}`].filter(Boolean).join("\n");
   const copiarEndereco = async () => {
     try { await navigator.clipboard.writeText(textoEndereco); }
@@ -6343,6 +6398,23 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
                       className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: t.gold }}>
                       <FileText size={13} /> {L("Convocação")}</a>)}
                 </div>
+              </Card>)}
+            {/* próxima reserva: o sino só guarda as próximas 48h, então é aqui
+                que a reserva distante segue à vista (e no detalhe da aba) */}
+            {proxReserva && (
+              <Card t={t}>
+                <button onClick={() => setTab("reservas")} className="flex w-full items-center gap-3 text-left">
+                  <CalendarDays size={18} color={t.gold} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold">
+                      {L("Próxima reserva")}: {proxReserva.area}</div>
+                    <div className="text-xs" style={{ color: t.dim }}>
+                      {new Date(proxReserva.inicio).toLocaleString()}
+                      {proxReserva.taxa > 0 && <span> · {L("Taxa de uso")}: {BRL(proxReserva.taxa)}</span>}</div>
+                  </div>
+                  {proxReserva.cobrancaId && <Badge t={t} s={proxReserva.cobrancaStatus || "emitida"} />}
+                  <ChevronRight size={14} color={t.dim} />
+                </button>
               </Card>)}
             <Card t={t}>
               <SectionTitle t={t}>Últimos comunicados</SectionTitle>
@@ -7404,6 +7476,7 @@ export default function App() {
 
   /* notificações do sino: pendências reais da sessão, filtradas pelo perfil */
   const [notifOpen, setNotifOpen] = useState(false);
+  const tique = useTique(); // janelas de tempo (reservas de 24h, assembleia de 7 dias) andam sozinhas
   const notifs = useMemo(() => {
     if (!db || db.vazio || !role) return [];
     const n = [];
@@ -7423,6 +7496,11 @@ export default function App() {
     if (semResp.length) n.push({ txt: `${semResp.length} ${L("chamado(s) abertos sem responsável designado")}`, c: "warn", s: "chamados" });
     const reservasPend = (db.reservas || []).filter((r) => r.status === "solicitada");
     if (reservasPend.length) n.push({ txt: `${reservasPend.length} ${L("reserva(s) de área aguardando confirmação")}`, c: "warn", s: "reservas" });
+    /* reservas das próximas 24h: quem cuida do prédio precisa preparar o
+       espaço. Mesma técnica do aviso de assembleia logo abaixo — derivado do
+       relógio, sem linha no banco. `tique` nas deps faz a janela andar. */
+    const reservasJa = (db.reservas || []).filter((r) => faseReserva(r, Date.now(), 24).fase);
+    if (reservasJa.length) n.push({ txt: `${reservasJa.length} ${L("reserva(s) de área nas próximas 24h")}`, c: "info", s: "reservas" });
     const assembSemAta = (db.assembleias || []).filter((a) => a.status === "convocada"
       && new Date(a.dataHora) >= new Date() && (new Date(a.dataHora) - Date.now()) <= 7 * 86400000);
     if (assembSemAta.length) n.push({ txt: `${assembSemAta.length} ${L("assembleia(s) nos próximos 7 dias")}`, c: "info", s: "assembleias" });
@@ -7430,7 +7508,7 @@ export default function App() {
        fila congelada, ele seria um contador permanente de pendências que
        ninguém vai decidir. O passivo se consulta por SQL. */
     return n.filter((x) => telaLiberada(perms, x.s));
-  }, [db, role, perms, lang]); // lang: os textos passam por L(), então trocar o idioma precisa recalcular
+  }, [db, role, perms, tique, lang]); // lang: os textos passam por L(), então trocar o idioma precisa recalcular
 
   /* feed de movimentações (entrada recebida / conta paga) — as linhas nascem
      de triggers no banco (supabase-notificacoes.sql) e chegam por polling de
