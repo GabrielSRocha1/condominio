@@ -1,5 +1,20 @@
 /* Türkçe */
 export default {
+  /* Fatura da licença (22/11/2026) */
+  "Licença da plataforma": "Platform lisansı",
+  "Faturas": "Faturalar",
+  "Fatura": "Fatura",
+  "Emissão": "Düzenlenme",
+  "Não recebida": "Tahsil edilmedi",
+  "sem data de renovação": "yenileme tarihi yok",
+  "Carregando faturas…": "Faturalar yükleniyor…",
+  "Nenhuma fatura emitida até agora.": "Şu ana kadar fatura düzenlenmedi.",
+  "Pagar fatura em atraso": "Gecikmiş faturayı öde",
+  "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "Platform faturalarını görüntüleyip ödeyebilir ve kartı değiştirebilirsiniz. Abone olmak, plan değiştirmek ve aboneliği iptal etmek site yöneticisinin yetkisindedir.",
+  "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "Lisans henüz alınmadı — fatura yok. Site yöneticisiyle görüşün.",
+  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "Bu sitenin lisansı Stripe'ta henüz alınmadı — yöneticiyle görüşün.",
+  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "Faturalar Stripe'tan gelir, tahsil edildikleri para biriminde. “Öde” Stripe'ın barındırdığı faturayı açar; “Ödemeyi yönet” portalı açar, kart da oradan değiştirilir.",
+
   "Condomínio": "Site", "Unidades": "Daireler", "Pessoas": "Kişiler", "Financeiro": "Finans",
   "Cobranças QR": "QR Tahsilat", "Multas": "Cezalar", "Comunicados": "Duyurular", "Documentos": "Belgeler",
   "Manutenção": "Bakım", "Portaria": "Danışma", "Gerenciar Acessos": "Erişim Yönetimi", 

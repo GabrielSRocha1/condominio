@@ -1,5 +1,20 @@
 /* हिन्दी */
 export default {
+  /* Fatura da licença (22/11/2026) */
+  "Licença da plataforma": "प्लैटफ़ॉर्म लाइसेंस",
+  "Faturas": "इनवॉइस",
+  "Fatura": "इनवॉइस",
+  "Emissão": "जारी तिथि",
+  "Não recebida": "वसूल नहीं हुई",
+  "sem data de renovação": "नवीनीकरण तिथि नहीं",
+  "Carregando faturas…": "इनवॉइस लोड हो रहे हैं…",
+  "Nenhuma fatura emitida até agora.": "अब तक कोई इनवॉइस जारी नहीं हुई।",
+  "Pagar fatura em atraso": "बकाया इनवॉइस का भुगतान करें",
+  "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "आप प्लैटफ़ॉर्म की इनवॉइस देख और चुका सकते हैं और कार्ड बदल सकते हैं। सदस्यता लेना, प्लान बदलना और सदस्यता रद्द करना सोसाइटी के निदेशक का अधिकार है।",
+  "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "लाइसेंस अभी नहीं लिया गया है — कोई इनवॉइस नहीं है। सोसाइटी के निदेशक से बात करें।",
+  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "इस सोसाइटी का लाइसेंस अभी Stripe में नहीं लिया गया है — निदेशक से बात करें।",
+  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "इनवॉइस Stripe से आती हैं, उसी मुद्रा में जिसमें शुल्क लिया गया। “भुगतान करें” Stripe पर होस्ट की गई इनवॉइस खोलता है; “भुगतान प्रबंधित करें” पोर्टल खोलता है, जहाँ कार्ड भी बदला जाता है।",
+
   "Condomínio": "सोसाइटी", "Unidades": "यूनिट", "Pessoas": "लोग", "Financeiro": "वित्त",
   "Cobranças QR": "QR भुगतान", "Multas": "जुर्माने", "Comunicados": "सूचनाएँ", "Documentos": "दस्तावेज़",
   "Manutenção": "रखरखाव", "Portaria": "रिसेप्शन", "Gerenciar Acessos": "एक्सेस प्रबंधन", 

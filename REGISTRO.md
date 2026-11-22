@@ -40,7 +40,8 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 - **Commits**: uma linha narrativa em PT (sem acentos), contando o comportamento que mudou.
 - **Fila de aprovação do diretor**: CONGELADA desde 02/11/2026 (inerte) — o Administrador
   opera como o diretor, com 4 exceções; a autoridade vem da MATRIZ DE PERMISSÕES
-  (`jwt_pode`), nunca do nome do perfil.
+  (`jwt_pode`), nunca do nome do perfil. Desde 22/11/2026 a 4ª exceção é só o **contrato** da
+  licença (contratar, trocar de plano, cancelar): a **fatura** ele vê e paga.
 
 ## Scripts
 
@@ -53,6 +54,8 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 | `scripts/testar-import-lancamentos.mjs` | Sondas do import de contas a pagar |
 | `scripts/testar-historico.mjs` | Sondas da aba Histórico de alterações (motor puro + paridade SQL ≡ JS ≡ NAV) |
 | `scripts/testar-reservas.mjs` | Sondas de Reservas e Assembleias (motor puro + paridade policy/RPC/sync/histórico/sino) |
+| `scripts/testar-fatura-licenca.mjs` | Sondas da Fatura da licença: o administrador lê e paga pelo portal RESTRITO, e leva 403 em contratar/trocar/cancelar |
+| `scripts/_contas-de-sonda.mjs` | Teardown das contas de teste: libera o e-mail sem apagar o rastro (`auditoria` é append-only) |
 | `scripts/corrigir-pagadores-planilha.mjs` | Reparo: placeholders "Responsável X" ganham nome/RUC do pagador da planilha |
 | `scripts/corrigir-competencias-planilha.mjs` | Reparo: competências 1905 (ano lido como serial) e meses recuperáveis |
 | `scripts/corrigir-duplicados-pessoas.mjs` | Reparo: funde cadastros duplicados (mesmo nome, doc provisório P-/M-) |
@@ -65,8 +68,87 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 - **Sonda dos manuais**: ~10 ❌ falsos a partir de 28/09/2026 (fixture com cenário vencido).
 - Testes visuais pendentes: import de contas a pagar, unificação de pessoa e o cancelamento de
   reserva (este provado no banco pelo bloco B — falta só a olhada na tela).
+- **Fatura da licença (22/11/2026)**: SQL rodado e provado — `testar-permissoes` 0 falhas
+  (bloco B incluído) e `testar-fatura-licenca` **17/17**, as duas rodadas duas vezes seguidas.
+  Falta só a olhada visual e confirmar no navegador que o portal restrito deixa pagar a fatura
+  em aberto — se não deixar, o botão "Pagar" da linha já vai no `hosted_invoice_url` que o
+  endpoint devolve.
 
 ## Histórico (mais recente primeiro)
+
+### 22/11/2026 — O administrador paga a fatura da plataforma, sem poder matar a conta
+Quem administra o prédio por contrato paga e gere as contas do condomínio, e a licença da
+plataforma é uma dessas contas — mas o `administrador_predial` não conseguia nem **ver** a
+fatura: a 4ª exceção vedava `tela.planos` + `licenca.gerir` em bloco, e todo
+`/api/stripe/*` da licença exigia `licenca.gerir`. Pior no caso que mais importa: com a licença
+vencida o paywall tranca o sistema inteiro, e ele lia só *"Acesso indisponível — procure a
+administração"*, sem nada a fazer, esperando um diretor que podia estar ausente.
+**A vedação protegia a coisa certa pelo critério errado**: tratava "pagar a conta" e "ser dono
+do contrato" como a mesma coisa. Agora são duas. Apurado no código ao desenhar isto: **não
+existe nenhuma ação de excluir conta, excluir condomínio ou desativar no app** (a única
+`condominios.delete()` é rollback interno de criação falha); o que de fato destrói a conta é
+**cancelar a assinatura** — webhook marca `cancelada` e o paywall tranca para sempre. A
+fronteira ficou exatamente aí.
+Par novo no catálogo (39 → 41 códigos), espelhando o par que já existia: **`tela.fatura`**
+(menu) + **`licenca.pagar`** (endpoints), ambos no padrão do administrador — que vai a **31 de
+41**. `PERMS_VEDADAS_AO_ADMIN` **não mudou**: segue com os mesmos 4 códigos, e a sonda que os
+trava passa sem alteração — nada foi afrouxado, abriu-se uma porta estreita ao lado. O diretor
+pode revogar as duas em Gerenciar Acessos → Permissões.
+Tela nova **Fatura** (NAV 16 → 17): plano, valor e renovação em leitura + as faturas lidas da
+**Stripe** (não há tabela local de faturas, e não deve haver: a fatura é um fato da Stripe, e
+espelhá-la criaria duas versões da verdade sobre dinheiro). O mesmo componente é montado no
+rodapé de **Planos** — o diretor ganha a lista em contexto, sem lógica duplicada; até aqui o app
+**não tinha listagem de faturas em lugar nenhum**. Endpoint novo `/api/stripe/faturas`, e o
+valor vem convertido por `deMenorUnidade` (lista zero-decimal da Stripe): com Adaptive Pricing
+a fatura sai na moeda do cliente, e uma fatura em guarani **não** se divide por 100 — a mesma
+armadilha de 12/11.
+**Pagar é pelo Billing Portal, em configuração RESTRITA**: `invoice_history` e
+`payment_method_update` ligados, **`subscription_cancel` e `subscription_update` desligados**.
+A configuração é provisionada sob demanda e reconhecida por metadata (`restrito_v1`) — test e
+live se resolvem sozinhos, sem variável de ambiente nova — e também pelo
+`preparar-stripe-producao.mjs`, que a **reaperta** se achar frouxa. Aqui o projeto degrada
+**FECHADO**, contra a própria convenção: se a configuração restrita não puder ser resolvida, o
+endpoint responde 503, porque cair no portal padrão entregaria o botão "Cancel plan" a quem não
+pode cancelar. Está comentado no código, justamente por contrariar o padrão da casa.
+No **Paywall**, a única `ehDiretor` virou duas — `podeGerir` (escolher plano, checkout, código
+de ativação) e `podePagar` (motivo real do bloqueio, plano, valor e **"Pagar fatura em
+atraso"** pelo portal restrito) —, com os ~12 usos auditados um a um. Condomínio sem cliente na
+Stripe não tem fatura para pagar: em vez de um botão que morre em 404, a mensagem manda falar
+com o diretor. `assinatura.js`, `plano.js` e `cancelar-assinatura.js` **não mudaram uma linha**.
+Sondas: `scripts/testar-fatura-licenca.mjs` (10 puras + 7 no banco com um administrador de
+verdade: lê faturas, abre portal, **o portal é o restrito conferido na Stripe**, e 403 em
+cancelar/contratar/trocar) e 5 novas em `testar-permissoes`, entre elas uma de FONTE que
+congela o invariante: os três endpoints do contrato **não podem mencionar `licenca.pagar`** —
+um copiar-colar futuro entregaria o cancelamento a quem só deveria pagar.
+**Nenhuma policy nova**: `saas_assinaturas` é somente-leitura para o navegador e os dados de
+fatura vivem na Stripe; `licenca.pagar` é enforçada na API, como `licenca.gerir` sempre foi.
+Quem procurar `jwt_pode('licenca.pagar')` no banco não vai achar — e está certo.
+**O bug que esta mudança desenterrou, e que valia mais que ela** (22/11/2026): rodar o
+`supabase-permissoes.sql` num banco completo falhava com
+`ERROR 42809: "historico_unificado" is not a table`. Os laços que varrem
+`information_schema.columns` por `condominio_id` — bloco F do `permissoes` e o equivalente no
+`rls` — listam também as colunas de **VIEW**, e policy em view não existe. Como o SQL Editor
+roda o arquivo em **uma transação**, o RUN inteiro voltava atrás: o catálogo do bloco B, que já
+havia sido semeado, era revertido junto, o banco ficava **idêntico** e a mensagem apontava uma
+relação sem nenhuma relação com o que se queria mudar. Sintoma final: o `aprovacoes` (passo 11)
+rodava limpo e inseria ZERO linha, porque o `join permissoes pm on pm.codigo = d.codigo` não
+achava os códigos — sem erro nenhum. **Nunca apareceu em instalação nova** (o passo 10 roda
+antes do 12, a view ainda não existe); só no RE-RUN sobre banco completo, que é precisamente o
+caminho que o README prescreve desde 09/11, quando o `historico_unificado` nasceu com
+`condominio_id`. Os três laços do projeto agora filtram `table_type = 'BASE TABLE'`
+(`permissoes`, `rls` e o de `atualizado_em` no `schema`, este preventivo), e duas sondas de
+FONTE cobrem os três arquivos de uma vez.
+
+Dois achados de passagem, corrigidos junto: o status `bloqueada` não existia em `STATUS_META` e
+vazava cru na tela (justamente a que um condomínio bloqueado abre), e 4 strings da tela Reservas
+nunca entraram nos dicionários EN/ES desde 09/11 — a sonda de i18n acusava e ninguém tinha
+olhado. **Armadilha de sonda documentada**: `auditoria` é append-only por gatilho (DELETE só
+acima de 365 dias) e o LOGIN grava lá, então conta de sonda que entrou **não pode mais ser
+apagada** — o `remover` do endpoint falhava em silêncio e deixava conta SEM perfil, que existe,
+duplica o e-mail e não entra; a execução seguinte pulava o bloco B inteiro com "login da
+tesouraria falhou", sem pista da causa. `scripts/_contas-de-sonda.mjs` passa a **liberar o
+e-mail** em vez de apagar o rastro (apelida quando o delete é recusado), e as duas sondas rodam
+duas vezes seguidas sem sobra.
 
 ### 12/11/2026 — Campo de dinheiro em moeda SEM centavos (o guarani travado em "Gs. 0")
 Relatado da tela: a taxa de uso da área não aceitava valor — o campo ficava preso em "Gs. 0".

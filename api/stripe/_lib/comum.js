@@ -101,6 +101,58 @@ export const slug = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCas
    a âncora da licença é USD via currency_options — não muda a chave */
 export const lookupKey = (nomePlano, ciclo) => `condomaster_${slug(nomePlano)}_${ciclo === "anual" ? "anual" : "mensal"}_brl`;
 
+/* ── Billing Portal em modo RESTRITO (licenca.pagar) ──
+   Quem administra o prédio paga a mensalidade da plataforma, mas não é dono
+   do contrato: no portal dele o histórico de faturas e a troca de cartão
+   ficam LIGADOS, e cancelar/trocar de plano ficam DESLIGADOS. Sem isto, a
+   configuração padrão do portal entregaria o botão "Cancel plan" — que é o
+   que de fato destrói a conta do condomínio (nenhuma outra ação do app
+   exclui conta: o webhook marca "cancelada" e o paywall tranca para sempre).
+
+   A configuração é provisionada sob demanda e reconhecida pela metadata, sem
+   variável de ambiente nova: TEST e LIVE se resolvem sozinhos, cada um na
+   sua conta. O id fica em cache no escopo do módulo (dura o ciclo de vida da
+   função serverless). `scripts/preparar-stripe-producao.mjs` cria a mesma
+   configuração, para o estado da Stripe ficar auditável por script. */
+export const MARCA_PORTAL_RESTRITO = "restrito_v1";
+export const FEATURES_PORTAL_RESTRITO = {
+  invoice_history:       { enabled: true },   // ver faturas e baixar recibos
+  payment_method_update: { enabled: true },   // trocar o cartão da licença
+  subscription_cancel:   { enabled: false },  // ← é isto que mata a conta
+  subscription_update:   { enabled: false },  // trocar de plano é do dono
+  customer_update:       { enabled: false },  // nome/e-mail/endereço: do dono
+};
+
+let cachePortalRestrito = null;
+
+/* Devolve o id da configuração restrita, ou null se não foi possível obtê-la.
+   Quem chama DEVE tratar null negando o portal — nunca caindo no padrão. */
+export async function configPortalRestrito(stripe, origem) {
+  if (cachePortalRestrito) return cachePortalRestrito;
+  try {
+    const lista = await stripe.billingPortal.configurations.list({ limit: 100 });
+    const achada = lista.data.find((c) => c.metadata?.condomaster === MARCA_PORTAL_RESTRITO);
+    if (achada) return (cachePortalRestrito = achada.id);
+
+    const base = String(origem || "").replace(/\/+$/, "");
+    const nova = await stripe.billingPortal.configurations.create({
+      features: FEATURES_PORTAL_RESTRITO,
+      metadata: { condomaster: MARCA_PORTAL_RESTRITO },
+      ...(base ? {
+        business_profile: {
+          headline: "CondoMaster Pro · fatura da licença",
+          privacy_policy_url: `${base}/privacidade`,
+          terms_of_service_url: `${base}/termos`,
+        },
+      } : {}),
+    });
+    return (cachePortalRestrito = nova.id);
+  } catch (e) {
+    console.error("[stripe] configuração restrita do portal indisponível:", e.message);
+    return null;
+  }
+}
+
 /* ── licença SaaS: espelha uma subscription da Stripe no status local ──
    Mapeia o ESTADO VIVO (não o delta do evento) — imune a eventos fora de
    ordem e a reentregas. "cancelada" local é terminal (.neq), como sempre. */

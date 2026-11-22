@@ -19,6 +19,7 @@ import {
   loadAll, criarCondominio, criarUnidade, criarPessoa, criarLancamento, decidirLancamento, criarPenalidade, decidirPenalidade,
   criarComunicado, criarChamado, criarPreAutorizacao, gerarCobrancas, baixarPdfCobranca, loginDiretor,
   assinarLicenca, verificarLicenca, cancelarAssinatura, abrirPortalCobranca, listarPlanos, trocarPlanoLicenca, registrarDiretor,
+  listarFaturasLicenca,
   iniciarOnboardingStripe, statusStripeConnect, pagarCobrancaOnline, verificarCobranca,
   informarPagamentoCobranca, confirmarPagamentoManual, rejeitarPagamentoInformado, cancelarCobrancaIndevida, emitirCobranca,
   criarAcesso, listarAcessos, removerAcesso, gerarCodigoRecuperacao, gerarMeuCodigoRecuperacao, recuperarSenha, loginUsuario, setAuthToken, encerrarSessaoServidor,
@@ -196,6 +197,11 @@ const NAV = [
   { id: "historico",  label: "Histórico de alterações", icon: History,  perm: "tela.historico" },
   { id: "emails",     label: "Gerenciar Acessos",icon: Mail,            perm: "tela.acessos" },
   { id: "planos",     label: "Planos",           icon: Star,            perm: "tela.planos" },
+  /* A CONTA da plataforma, separada do CONTRATO (22/11/2026): o administrador
+     predial paga a mensalidade, então vê plano, valor e faturas em leitura e
+     paga pelo portal RESTRITO da Stripe. "Planos" (contratar, trocar,
+     cancelar) segue só com o dono — ver PERMS_VEDADAS_AO_ADMIN. */
+  { id: "fatura",     label: "Fatura",           icon: Receipt,         perm: "tela.fatura" },
   /* "Aprovações" saiu daqui em 02/11/2026, com a fila congelada. Tirar só a
      exceção por perfil não bastaria: o diretor tem `alteracao.aprovar` pelo
      atalho anti-trava e continuaria vendo a tela. O componente Aprovacoes
@@ -421,6 +427,8 @@ const STATUS_META = {
   informado:{c:"info",l:"Pag. informado"}, divergente:{c:"warn",l:"Divergente"},
   ocupada:{c:"ok",l:"Ocupada"}, alugada:{c:"info",l:"Alugada"}, vaga:{c:"warn",l:"Vaga"},
   ativo:{c:"ok",l:"Ativo"}, teste:{c:"warn",l:"Em teste"}, inadimplente:{c:"danger",l:"Inadimplente"},
+  /* status de licença que faltava no mapa e vazava cru na tela */
+  bloqueada:{c:"danger",l:"Bloqueada"},
   aguardando_defesa:{c:"warn",l:"Prazo de defesa"}, aprovada:{c:"danger",l:"Multa aplicada"}, advertencia:{c:"info",l:"Advertência"},
   pendente:{c:"warn",l:"Pendente — revisão do síndico"}, aprovada_envio:{c:"gold",l:"Aprovada — enviar ao responsável"},
   entregue:{c:"info",l:"Entregue"}, encerrada:{c:"ok",l:"Encerrada"}, paga:{c:"ok",l:"Paga"},
@@ -6959,6 +6967,158 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
   );
 }
 
+/* ══════════════ FATURA DA LICENÇA — A CONTA, NÃO O CONTRATO ══════════════
+   Plano contratado em LEITURA e as faturas da plataforma, lidas da Stripe
+   (não há tabela local de faturas: a fatura é um fato da Stripe).
+
+   Existe porque "pagar a conta" e "ser dono do contrato" não são a mesma
+   coisa: quem administra o prédio paga a mensalidade, mas não contrata, não
+   troca de plano e não cancela. Daí não haver aqui nenhum card de plano,
+   nenhum preço de upgrade e nenhum "Cancelar assinatura" — o pagamento sai
+   pelo portal da Stripe, que para quem só tem `licenca.pagar` abre em modo
+   RESTRITO (api/stripe/portal.js).
+
+   O diretor também chega aqui (tem tudo pelo anti-trava) e vê a mesma lista:
+   até hoje não existia listagem de faturas em lugar nenhum do app. Por isso
+   o componente é montado duas vezes — tela própria e rodapé de Planos. */
+const META_FATURA = {
+  paid:          { c: "ok",     l: "Paga" },
+  open:          { c: "warn",   l: "Em aberto" },
+  uncollectible: { c: "danger", l: "Não recebida" },
+  void:          { c: "dim",    l: "Cancelada" },
+};
+
+function FaturaLicenca({ t, embutida = false }) {
+  const { db, reload } = useData();
+  const podeGerir = pode(usePerms(), "licenca.gerir");
+  const tenant = (db.tenants || []).find((x) => x.id === db.ctx.condominioId);
+  const [faturas, setFaturas] = useState(null);
+  const [semCliente, setSemCliente] = useState(false);
+  const [erro, setErro] = useState("");
+  const [abrindo, setAbrindo] = useState(false);
+  const [verificando, setVerificando] = useState(false);
+  const dBR = (iso) => (iso ? iso.split("-").reverse().join("/") : "—");
+  /* a fatura vem na moeda que a Stripe cobrou (Adaptive Pricing), que não é
+     a moeda de gestão do condomínio nem a âncora USD do preço de tabela */
+  const valor = (v, m) => Number(v).toLocaleString(LOCALE_MOEDA[m] || "en-US", { style: "currency", currency: m || "USD" });
+
+  const carregar = useCallback(async () => {
+    setErro("");
+    try {
+      const r = await listarFaturasLicenca(db.ctx.condominioId);
+      setFaturas(r?.faturas || []);
+      setSemCliente(Boolean(r?.semCliente));
+    } catch (e) { setErro(e?.message || String(e)); setFaturas([]); }
+  }, [db.ctx.condominioId]);
+  useEffect(() => { carregar(); }, [carregar]);
+
+  const abrirPortal = async () => {
+    setAbrindo(true);
+    try {
+      const resp = await abrirPortalCobranca(db.ctx.condominioId);
+      if (resp?.url) window.open(resp.url, "_blank", "noopener");
+    } catch (e) { alert("Não foi possível abrir o portal de pagamento: " + (e?.message || e)); }
+    finally { setAbrindo(false); }
+  };
+  const verificar = async () => {
+    setVerificando(true);
+    try { await verificarLicenca(db.ctx.condominioId); await reload(); await carregar(); }
+    finally { setVerificando(false); }
+  };
+
+  const temCliente = !semCliente;
+  return (
+    <div className={embutida ? "space-y-4" : "vfade max-w-3xl space-y-4"}>
+      {!embutida && (
+        <Card t={t} className="p-5">
+          <SectionTitle t={t} action={
+            <div className="flex gap-2">
+              {temCliente && (
+                <Btn t={t} disabled={abrindo} onClick={abrirPortal}>
+                  <CreditCard size={13} /> {abrindo ? "Abrindo…" : L("Gerenciar pagamento")}</Btn>)}
+              <Btn t={t} disabled={verificando} onClick={verificar}>
+                <RefreshCw size={13} className={verificando ? "vpulse" : ""} /> {verificando ? "Verificando…" : L("Verificar pagamento")}</Btn>
+            </div>}>
+            Licença da plataforma</SectionTitle>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl" style={{ background: t.goldSoft }}><Receipt size={18} color={t.gold} /></div>
+            <div className="flex-1">
+              <div className="text-base font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{tenant?.plano || "—"}</div>
+              <div className="text-xs" style={{ color: t.dim }}>
+                {tenant?.venc && tenant.venc !== "—" ? `${L("renova em")} ${tenant.venc}` : L("sem data de renovação")}</div>
+            </div>
+            {tenant && <Badge t={t} s={tenant.status} />}
+          </div>
+          {!podeGerir && (
+            <div className="mt-3 text-[11px]" style={{ color: t.dim }}>
+              {L("Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.")}</div>)}
+        </Card>)}
+
+      <Card t={t} className="p-5">
+        <SectionTitle t={t} action={embutida && temCliente
+          ? <Btn t={t} disabled={abrindo} onClick={abrirPortal}>
+              <CreditCard size={13} /> {abrindo ? "Abrindo…" : L("Gerenciar pagamento")}</Btn>
+          : null}>
+          Faturas</SectionTitle>
+        {erro && <div className="rounded-xl border p-2.5 text-xs" style={{ borderColor: t.danger, color: t.danger }}>{erro}</div>}
+        {faturas === null ? (
+          <div className="vfade text-xs" style={{ color: t.dim }}>{L("Carregando faturas…")}</div>
+        ) : semCliente ? (
+          <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
+            <AlertCircle size={13} className="mr-1 inline" />
+            {L("A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.")}</div>
+        ) : !faturas.length ? (
+          <div className="text-xs" style={{ color: t.dim }}>{L("Nenhuma fatura emitida até agora.")}</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr style={{ color: t.dim }}>
+                  <th className="pb-2 text-left font-medium">{L("Fatura")}</th>
+                  <th className="pb-2 text-left font-medium">{L("Emissão")}</th>
+                  <th className="pb-2 text-left font-medium">{L("Vencimento")}</th>
+                  <th className="pb-2 text-right font-medium">{L("Valor")}</th>
+                  <th className="pb-2 text-left font-medium">{L("Situação")}</th>
+                  <th className="pb-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {faturas.map((f) => {
+                  const m = META_FATURA[f.status] || { c: "info", l: f.status };
+                  return (
+                    <tr key={f.id} className="border-t" style={{ borderColor: t.borderSoft }}>
+                      <td className="py-2 font-medium">{f.numero || "—"}</td>
+                      <td className="py-2" style={{ color: t.dim }}>{dBR(f.criadaEm)}</td>
+                      <td className="py-2" style={{ color: t.dim }}>{dBR(f.vencimento || f.pagaEm)}</td>
+                      <td className="py-2 text-right font-semibold">{valor(f.total, f.moeda)}</td>
+                      <td className="py-2">
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 font-medium"
+                          style={{ background: t[m.c] + "1E", color: t[m.c] }}><CircleDot size={9} /> {L(m.l)}</span>
+                      </td>
+                      <td className="py-2">
+                        <div className="flex items-center justify-end gap-2">
+                          {f.pagarUrl && (
+                            <a href={f.pagarUrl} target="_blank" rel="noopener noreferrer"
+                              className="rounded-lg px-2 py-1 font-semibold"
+                              style={{ background: t.goldSoft, color: t.gold, border: `1px solid ${t.border}` }}>{L("Pagar")}</a>)}
+                          {f.pdfUrl && (
+                            <a href={f.pdfUrl} target="_blank" rel="noopener noreferrer"
+                              className="underline opacity-70 hover:opacity-100" style={{ color: t.dim }}>{L("Recibo")}</a>)}
+                        </div>
+                      </td>
+                    </tr>);
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="mt-3 text-[11px]" style={{ color: t.dim }}>
+          {L("As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.")}</div>
+      </Card>
+    </div>
+  );
+}
+
 /* ══════════════ PAYWALL — LICENÇA SAAS ══════════════
 /* ══════════════ PLANOS — GERENCIAR ASSINATURA (só o diretor vê) ══════════════
    Mostra o plano contratado e permite upgrade/downgrade e a escolha do ciclo
@@ -7095,6 +7255,9 @@ function Planos({ t }) {
       </div>
       <div className="text-[11px]" style={{ color: t.dim }}>
         {L("Na troca de plano, a assinatura atual é atualizada automaticamente na Stripe (a diferença é cobrada ou creditada com rateio) — sem cobrança dupla. Após pagar, use \"Verificar pagamento\" para sincronizar o status.")}</div>
+      {/* mesmas faturas da tela Fatura — o dono as vê aqui, em contexto, sem
+          lógica duplicada (o componente é um só) */}
+      <FaturaLicenca t={t} embutida />
       {(licencaAtiva || emTeste) && !cancelamentoAgendado && (
         <div className="text-right">
           <button onClick={cancelar} disabled={cancelando} className="text-[11px] underline opacity-70 hover:opacity-100" style={{ color: t.dim, background: "none", border: "none" }}>
@@ -7108,11 +7271,21 @@ function Planos({ t }) {
    estiver ativa. O pagamento abre o Stripe Checkout; a ativação chega
    pelo webhook (customer.subscription.*) e o botão "Verificar" recarrega. */
 function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload }) {
-  /* a página de planos/pagamento pede licenca.gerir (padrão: só o diretor);
-     os demais perfis só veem o aviso de assinatura pendente, sem valores
-     nem botão de pagar. O nome da variável segue por ser usada em todo o
-     componente — o que mudou é a fonte da verdade. */
-  const ehDiretor = pode(usePerms(), "licenca.gerir");
+  /* DUAS autoridades, não uma (22/11/2026). Antes havia só `ehDiretor =
+     licenca.gerir`, e com ela o paywall decidia tudo: quem não fosse o dono
+     lia "Acesso indisponível — procure a administração" e não tinha como
+     fazer nada. Só que o administrador predial PAGA as contas do condomínio:
+     com a licença vencida e o diretor ausente, era ele quem precisava
+     regularizar e não podia.
+       · `podeGerir` (licenca.gerir) = o dono: escolher plano, contratar,
+         checkout, código de ativação;
+       · `podePagar` (ou licenca.pagar) = quem paga a conta: vê o motivo real
+         do bloqueio, o plano e o valor, e paga a fatura em atraso pelo
+         portal RESTRITO (sem cancelar, sem trocar de plano).
+     Os demais perfis seguem vendo só o aviso genérico. */
+  const permsPaywall = usePerms();
+  const podeGerir = pode(permsPaywall, "licenca.gerir");
+  const podePagar = podeGerir || pode(permsPaywall, "licenca.pagar");
   const [gerando, setGerando] = useState(false);
   const [verificando, setVerificando] = useState(false);
   const [erro, setErro] = useState("");
@@ -7124,7 +7297,8 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
      checkout, e o preço exibido acompanha a seleção */
   const [planos, setPlanos] = useState(null);
   const [planoSel, setPlanoSel] = useState(null);
-  useEffect(() => { if (ehDiretor) listarPlanos().then(setPlanos).catch(() => setPlanos([])); }, [ehDiretor]);
+  /* só o dono escolhe plano — quem apenas paga não precisa do catálogo */
+  useEffect(() => { if (podeGerir) listarPlanos().then(setPlanos).catch(() => setPlanos([])); }, [podeGerir]);
   const nomePlano = planoSel || tenant?.plano || "—";
   const planoInfo = (planos || []).find((p) => p.nome === nomePlano) || null;
   const precoMes = planoInfo ? Number(planoInfo.preco_mensal) : tenant?.precoPlano;
@@ -7188,6 +7362,25 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
     finally { setGerando(false); }
   };
 
+  /* Quem só PAGA regulariza pelo portal RESTRITO da Stripe: a fatura em
+     atraso está lá, com o link de pagamento, e ali não há botão de cancelar
+     nem de trocar de plano. Não passa por assinarLicenca de propósito —
+     aquele caminho CRIA ou TROCA assinatura, que é decisão do dono.
+     Condomínio sem cliente na Stripe (licença nunca contratada) devolve 404:
+     a mensagem manda falar com o diretor, em vez de um botão que morre. */
+  const [abrindoPortal, setAbrindoPortal] = useState(false);
+  const regularizar = async () => {
+    setAbrindoPortal(true); setErro("");
+    try {
+      const resp = await abrirPortalCobranca(condominioId);
+      if (resp?.url) window.open(resp.url, "_blank", "noopener");
+    } catch (e) {
+      setErro(/pagamento cadastrado/i.test(e?.message || "")
+        ? L("A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.")
+        : (e?.message || String(e)));
+    } finally { setAbrindoPortal(false); }
+  };
+
   /* código de ativação (pagamento manual): chave de uso único que ativa a
      assinatura SEM checkout e SEM cartão, no valor cheio, em modo
      send_invoice — a Stripe envia a fatura de cada ciclo por e-mail, a
@@ -7242,12 +7435,12 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
         <div className="rounded-2xl border p-6 text-center" style={{ background: t.surface, borderColor: t.border, boxShadow: t.shadow }}>
           <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: t.goldSoft, color: t.gold, border: `1px solid ${t.border}` }}>
             <KeyRound size={26} /></div>
-          <h1 className="text-lg font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{ehDiretor ? L("Assinatura pendente") : L("Acesso indisponível")}</h1>
+          <h1 className="text-lg font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{podePagar ? L("Assinatura pendente") : L("Acesso indisponível")}</h1>
           <p className="mt-2 text-sm" style={{ color: t.dim }}>
-            {ehDiretor
+            {podePagar
               ? L(MSG[licenca] || "O acesso é liberado após a confirmação do pagamento da licença.")
               : L("O acesso ao condomínio está temporariamente indisponível. Procure a administração do condomínio.")}</p>
-          {ehDiretor && tenant && tenant.plano !== "—" && (
+          {podePagar && tenant && tenant.plano !== "—" && (
             <div className="mt-4 rounded-xl border p-3 text-sm" style={{ borderColor: t.borderSoft }}>
               <div className="flex items-center justify-between">
                 <span style={{ color: t.dim }}>{L("Plano")}</span><b>{nomePlano}</b></div>
@@ -7259,7 +7452,9 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
                       style={{ borderColor: nomePlano === p.nome ? t.gold : t.borderSoft, color: nomePlano === p.nome ? t.gold : t.dim, background: nomePlano === p.nome ? t.goldSoft : "transparent" }}>
                       {p.nome}</button>))}
                 </div>)}
-              {temAnual && (
+              {/* escolher o ciclo só faz sentido para quem vai ao checkout —
+                  quem apenas paga a fatura em atraso não escolhe nada */}
+              {podeGerir && temAnual && (
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   {[["mensal", L("Mensal")], ["anual", L("Anual")]].map(([v, rotulo]) => (
                     <button key={v} type="button" onClick={() => setCiclo(v)}
@@ -7278,20 +7473,26 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
             </div>)}
           {erro && <div className="mt-3 rounded-xl border p-2.5 text-xs" style={{ borderColor: t.danger, color: t.danger }}>{erro}</div>}
           <div className="mt-5 space-y-2">
-            {ehDiretor && (
+            {podeGerir && (
               <Btn t={t} kind="primary" className="w-full" disabled={gerando} onClick={pagar}>
                 <QrCode size={15} /> {gerando ? L("Gerando checkout…") : trialNovo ? L("Iniciar teste gratuito de 30 dias") : L("Pagar assinatura")}</Btn>)}
+            {/* administrador predial: regulariza o atraso pelo portal restrito */}
+            {podePagar && !podeGerir && (
+              <Btn t={t} kind="primary" className="w-full" disabled={abrindoPortal} onClick={regularizar}>
+                <CreditCard size={15} /> {abrindoPortal ? L("Abrindo…") : L("Pagar fatura em atraso")}</Btn>)}
             <Btn t={t} className="w-full" disabled={verificando}
-              onClick={async () => { setErro(""); if (!(await verificar())) setErro(ehDiretor ? L("A Stripe ainda não confirmou este pagamento. Aguarde alguns instantes e verifique de novo.") : L("O acesso ainda não foi liberado. Tente novamente mais tarde.")); }}>
-              <RefreshCw size={15} className={verificando ? "vpulse" : ""} /> {ehDiretor ? L("Já paguei — verificar") : L("Tentar novamente")}</Btn>
+              onClick={async () => { setErro(""); if (!(await verificar())) setErro(podePagar ? L("A Stripe ainda não confirmou este pagamento. Aguarde alguns instantes e verifique de novo.") : L("O acesso ainda não foi liberado. Tente novamente mais tarde.")); }}>
+              <RefreshCw size={15} className={verificando ? "vpulse" : ""} /> {podePagar ? L("Já paguei — verificar") : L("Tentar novamente")}</Btn>
             <Btn t={t} className="w-full" onClick={onLogout}><LogOut size={15} /> {L("Sair")}</Btn>
           </div>
-          {ehDiretor && !mostrarCodigo && (
+          {/* código de ativação ATIVA uma assinatura nova (pagamento manual):
+              é contratar, não pagar — fica com o dono */}
+          {podeGerir && !mostrarCodigo && (
             <button type="button" onClick={() => setMostrarCodigo(true)}
               className="mt-3 text-[11px] underline opacity-70 hover:opacity-100"
               style={{ color: t.dim, background: "none", border: "none" }}>
               {L("Tenho um código de ativação")}</button>)}
-          {ehDiretor && mostrarCodigo && (
+          {podeGerir && mostrarCodigo && (
             <div className="mt-3 space-y-2">
               <div className="flex gap-2">
                 <input value={codigo} onChange={(e) => setCodigo(e.target.value.toUpperCase())}
@@ -7306,7 +7507,7 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
                 <div className="rounded-xl border p-2.5 text-xs" style={{ borderColor: t.gold + "55", background: t.goldSoft, color: t.gold }}>
                   {avisoCodigo}</div>)}
             </div>)}
-          {ehDiretor && (
+          {podePagar && (
           <p className="mt-4 text-[11px]" style={{ color: t.dim }}>
             {L("O pagamento abre em uma nova aba, em ambiente seguro. A liberação é automática após a confirmação.")}</p>)}
         </div>
@@ -7703,6 +7904,7 @@ export default function App() {
        e a tela fica inalcançável. O componente continua logo acima, pronto
        para religar em duas linhas se a fila voltar. */
     emails: <GerenciarEmails t={t} role={role} />, planos: <Planos t={t} />,
+    fatura: <FaturaLicenca t={t} />,
     historico: <Historico t={t} />,
     reservas: <Reservas t={t} />, assembleias: <Assembleias t={t} />,
   };

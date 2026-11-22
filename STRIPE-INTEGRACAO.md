@@ -53,7 +53,8 @@ COBRANÇAS CONDOMINIAIS
 | `api/stripe/licenca.js` | verificação ativa ("Já paguei") + sync |
 | `api/stripe/plano.js` | grava o plano escolhido em saas_assinaturas |
 | `api/stripe/cancelar-assinatura.js` | cancelamento agendado (cancel_at_period_end) |
-| `api/stripe/portal.js` | Billing Portal (trocar cartão, faturas) |
+| `api/stripe/portal.js` | Billing Portal — COMPLETO para `licenca.gerir`, RESTRITO para quem só tem `licenca.pagar` |
+| `api/stripe/faturas.js` | faturas da licença lidas da Stripe (`licenca.gerir` ou `licenca.pagar`) |
 | `api/stripe/webhook.js` | eventos da conta própria → status da licença |
 | `api/stripe/connect/onboarding.js` | cria a conta conectada (país do seletor, `PAISES_CONNECT`) + Account Link |
 | `api/stripe/connect/status.js` | flags da conta (charges/payouts/pendências) |
@@ -272,6 +273,18 @@ pagas (vencidas ficam `past_due` — decisão manual, alertada pelo workflow
 nº 2) e Portal do cliente com configuração padrão salva (faturas, dados,
 formas de pagamento, cancelamento no fim do período com coleta de motivo;
 troca de plano/quantidade desativada — é pelo app).
+
+**Segunda configuração do portal — a RESTRITA** (22/11/2026). O administrador
+predial paga a mensalidade mas não é dono do contrato, então o portal dele sai
+de uma configuração própria, marcada com `metadata.condomaster=restrito_v1`:
+`invoice_history` e `payment_method_update` **ligados**;
+`subscription_cancel`, `subscription_update` e `customer_update`
+**desligados**. Ela é criada sob demanda por `api/stripe/portal.js` (e pelo
+`preparar-stripe-producao.mjs`, que a reaperta se achar frouxa) — nada a fazer
+no dashboard, e test/live se resolvem cada um na sua conta. Se a configuração
+não puder ser resolvida, o endpoint responde **503**: abrir o portal padrão
+nesse caso entregaria o botão de cancelar assinatura a quem não pode cancelar
+— é o único ponto do projeto que degrada FECHADO de propósito.
 
 ## 8. Taxas e split
 

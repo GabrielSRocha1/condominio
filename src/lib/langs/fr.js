@@ -1,5 +1,20 @@
 /* Français */
 export default {
+  /* Fatura da licença (22/11/2026) */
+  "Licença da plataforma": "Licence de la plateforme",
+  "Faturas": "Factures",
+  "Fatura": "Facture",
+  "Emissão": "Émission",
+  "Não recebida": "Non encaissée",
+  "sem data de renovação": "sans date de renouvellement",
+  "Carregando faturas…": "Chargement des factures…",
+  "Nenhuma fatura emitida até agora.": "Aucune facture émise pour l'instant.",
+  "Pagar fatura em atraso": "Payer la facture en retard",
+  "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "Vous pouvez consulter et payer les factures de la plateforme et changer la carte. Souscrire, changer de forfait et résilier l'abonnement relèvent du directeur de la copropriété.",
+  "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "La licence n'a pas encore été souscrite — il n'y a aucune facture. Parlez-en au directeur de la copropriété.",
+  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "La licence de cette copropriété n'a pas encore été souscrite dans Stripe — parlez-en au directeur.",
+  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "Les factures viennent de Stripe, dans la devise où elles ont été prélevées. « Payer » ouvre la facture hébergée par Stripe ; « Gérer le paiement » ouvre le portail, où l'on change aussi la carte.",
+
   "Condomínio": "Copropriété", "Unidades": "Unités", "Pessoas": "Personnes", "Financeiro": "Finances",
   "Cobranças QR": "Paiements QR", "Multas": "Amendes", "Comunicados": "Annonces", "Documentos": "Documents",
   "Manutenção": "Maintenance", "Portaria": "Accueil", "Gerenciar Acessos": "Gérer les accès", 

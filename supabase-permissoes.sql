@@ -91,6 +91,7 @@ insert into public.permissoes (codigo, descricao) values
   ('tela.portaria',      'Ver a tela Portaria'),
   ('tela.acessos',       'Ver a tela Gerenciar Acessos'),
   ('tela.planos',        'Ver a tela Planos e licença'),
+  ('tela.fatura',        'Ver a tela Fatura da licença'),
   ('tela.portal',        'Entrar no portal do morador'),
   ('condominio.editar',  'Editar o cadastro do condomínio'),
   ('unidade.criar',      'Criar unidades e editar área privativa'),
@@ -111,6 +112,10 @@ insert into public.permissoes (codigo, descricao) values
   ('reserva.decidir',    'Confirmar ou recusar reservas (gera a cobrança da taxa)'),
   ('acesso.gerir',       'Criar e remover acessos'),
   ('licenca.gerir',      'Contratar, trocar e cancelar a licença'),
+  -- 22/11/2026: a CONTA separada do CONTRATO. Quem administra o prédio paga a
+  -- mensalidade da plataforma (portal restrito da Stripe: faturas, recibos e
+  -- cartão), mas não contrata, não troca de plano e não cancela.
+  ('licenca.pagar',      'Ver e pagar a fatura da licença (sem cancelar nem trocar de plano)'),
   ('dados.escrever',     'Escrever nos dados do condomínio (coringa)'),
   ('permissao.gerir',    'Editar a matriz de permissões'),
   ('saas.gerir',         'Administrar planos, assinaturas e clientes do SaaS')
@@ -272,15 +277,30 @@ do $$
 declare t record;
 begin
   for t in
-    select table_name from information_schema.columns
-    where table_schema = 'public' and column_name = 'condominio_id'
+    select c.table_name from information_schema.columns c
+    join information_schema.tables tb
+      on tb.table_schema = c.table_schema and tb.table_name = c.table_name
+    -- SÓ TABELA-BASE. `information_schema.columns` também lista as colunas
+    -- de VIEWS, e policy em view não existe: `create policy` devolve
+    -- 42809 "não é uma tabela" e, como o SQL Editor roda o arquivo em UMA
+    -- transação, o arquivo INTEIRO volta atrás — inclusive o catálogo do
+    -- bloco B, que já tinha sido semeado. O sintoma é cruel: a mensagem fala
+    -- de uma relação que nada tem a ver com o que se queria mudar, e o banco
+    -- fica exatamente como estava.
+    -- Quem trouxe uma view com `condominio_id` foi o `historico_unificado`
+    -- (supabase-historico.sql, passo 12). Em instalação NOVA isto nunca
+    -- aparece — o passo 10 roda antes do 12, a view ainda não existe. Só
+    -- quebra no RE-RUN do passo 10 sobre um banco completo, que é
+    -- justamente o caminho que o README manda seguir.
+    where tb.table_type = 'BASE TABLE'
+      and c.table_schema = 'public' and c.column_name = 'condominio_id'
       -- as 3 últimas são a PRÓPRIA matriz e os vínculos de perfil: escrita
       -- só pelo backend (/api/auth/permissoes e /api/auth/acessos, service
       -- role). No loop, um síndico com dados.escrever editaria o próprio
       -- override e se promoveria a tudo.
       -- auditoria: trilha append-only do Histórico (supabase-historico.sql) —
       -- leitura só com tela.historico, escrita só por gatilho definer
-      and table_name not in ('condominios', 'integracoes_pagamento',
+      and c.table_name not in ('condominios', 'integracoes_pagamento',
                              'saas_assinaturas', 'pagamentos_informados',
                              'auth_sessoes', 'auditoria_eventos', 'auditoria',
                              'perfil_permissoes', 'perfil_overrides', 'usuario_perfis')

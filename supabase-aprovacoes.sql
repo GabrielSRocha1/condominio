@@ -15,10 +15,14 @@
 --      nem aparece na listagem dele;
 --   3. não EXCLUI a pessoa ligada ao Diretor — seção E deste arquivo, por
 --      gatilho, porque esse caminho sai direto do navegador;
---   4. não vê a tela PLANOS — `tela.planos` e `licenca.gerir` ficam fora do
---      conjunto dele e são vedadas em src/lib/permissoes.js. As duas são
---      uma exceção só: sem a segunda o Paywall ainda mostraria o botão de
---      pagar. Licença e plano são do dono do condomínio.
+--   4. não é DONO DO CONTRATO da licença — `tela.planos` e `licenca.gerir`
+--      ficam fora do conjunto dele e são vedadas em src/lib/permissoes.js.
+--      As duas são uma exceção só: sem a segunda o Paywall ainda ofereceria
+--      a escolha de plano e o checkout. Contratar, trocar de plano e
+--      CANCELAR é do dono — cancelar é o que destrói a conta.
+--      Desde 22/11/2026 a exceção é só o contrato: a CONTA ele paga.
+--      `tela.fatura` + `licenca.pagar` entraram no conjunto dele — vê plano,
+--      valor, vencimento e faturas, e paga pelo portal RESTRITO da Stripe.
 --
 -- ── A FILA DE APROVAÇÃO ESTÁ INSTALADA E INERTE ──
 -- Até 02/11/2026 este arquivo fazia outra coisa: um gatilho CANCELAVA cada
@@ -70,7 +74,7 @@ grant execute on function public.perfis_sob_aprovacao() to anon, authenticated;
 -- A) Perfil e permissões
 -- ─────────────────────────────────────────────────────────────────
 insert into public.perfis (nome, descricao, sistema) values
-  ('administrador_predial', 'Administra o prédio: opera como o diretor, menos licença e acesso de diretor', true)
+  ('administrador_predial', 'Administra o prédio: opera como o diretor; paga a fatura da plataforma, mas não contrata nem cancela a licença, e não mexe em acesso de diretor', true)
 on conflict (nome) do update set descricao = excluded.descricao, atualizado_em = now();
 
 insert into public.permissoes (codigo, descricao) values
@@ -93,15 +97,23 @@ begin
   end if;
 end $$;
 
-/* Conjunto do administrador: 26 dos 33 códigos do catálogo — todas as telas
+/* Conjunto do administrador: 31 dos 41 códigos do catálogo — todas as telas
    de operação e todas as escritas, inclusive `financeiro.baixar` e
    `cobranca.cancelar`, que entraram em 02/11/2026 (sem fila, não havia mais
    motivo para segurá-las; `pagamento.rejeitar` não tem código próprio, a RPC
    dela exige financeiro.baixar).
+   DENTRO desde 22/11/2026: `tela.fatura` + `licenca.pagar` — a CONTA da
+   plataforma. Quem administra o prédio paga as contas dele, e a mensalidade é
+   uma delas: ele vê plano, valor, vencimento e faturas, e paga pelo portal
+   RESTRITO da Stripe (api/stripe/portal.js passa uma billing_portal
+   configuration com subscription_cancel e subscription_update DESLIGADOS).
    FORA, de propósito:
-     · `tela.planos` + `licenca.gerir` — a 4ª exceção. Licença e plano são do
-       dono do condomínio, e as duas andam juntas: o Paywall decide por
-       `licenca.gerir`, o menu por `tela.planos`;
+     · `tela.planos` + `licenca.gerir` — a 4ª exceção, e o que ela protege é o
+       CONTRATO, não a fatura: contratar, trocar de plano e CANCELAR. Cancelar
+       é o que destrói a conta (webhook marca "cancelada" → o paywall tranca
+       para sempre), e não existe outra ação de exclusão de conta no app. O
+       Paywall decide a escolha de plano por `licenca.gerir`, o menu da tela
+       Planos por `tela.planos`;
      · `alteracao.aprovar` — a fila está congelada e esse código passou a ser
        indelegável (`fixo: true` em src/lib/permissoes.js, e o veto por perfil
        dentro de aprovar/rejeitar_alteracao, seção D);
@@ -116,6 +128,8 @@ select c as codigo from unnest(array[
   'tela.portaria','tela.acessos',
   -- Reservas e Assembleias (09/11/2026): ele opera como o diretor
   'tela.reservas','tela.assembleias','reserva.decidir',
+  -- a CONTA da plataforma (22/11/2026) — o CONTRATO segue fora
+  'tela.fatura','licenca.pagar',
   'condominio.editar','unidade.criar','financeiro.lancar','financeiro.aprovar',
   'financeiro.baixar','cobranca.emitir','cobranca.cancelar',
   'multa.registrar','multa.aprovar','comunicado.publicar',
@@ -853,7 +867,10 @@ create trigger trg_a_protege_diretor before update or delete on public.pessoa_vi
 --   select public.perfis_sob_aprovacao();                      -- esperado: {}
 --   select status, count(*) from alteracoes_pendentes group by status;
 --   select count(*) from perfil_permissoes pp join perfis pf on pf.id = pp.perfil_id
---    where pf.nome = 'administrador_predial' and pp.condominio_id is null;  -- esperado: 26
+--    where pf.nome = 'administrador_predial' and pp.condominio_id is null;  -- esperado: 31
+--   (era 26 em 02/11/2026; 29 com Reservas/Assembleias em 09/11; 31 com
+--    tela.fatura + licenca.pagar em 22/11. A contagem que vale é sempre
+--    `select count(*) from public._padrao_administrador`.)
 --   -- ninguém, em nenhum condomínio, tem alteracao.aprovar por linha:
 --   select count(*) from perfil_permissoes pp join permissoes pm on pm.id = pp.permissao_id
 --    where pm.codigo = 'alteracao.aprovar';                    -- esperado: 0

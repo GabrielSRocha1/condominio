@@ -1,5 +1,20 @@
 /* العربية */
 export default {
+  /* Fatura da licença (22/11/2026) */
+  "Licença da plataforma": "ترخيص المنصة",
+  "Faturas": "الفواتير",
+  "Fatura": "فاتورة",
+  "Emissão": "تاريخ الإصدار",
+  "Não recebida": "غير محصّلة",
+  "sem data de renovação": "بدون تاريخ تجديد",
+  "Carregando faturas…": "جارٍ تحميل الفواتير…",
+  "Nenhuma fatura emitida até agora.": "لم تُصدر أي فاتورة حتى الآن.",
+  "Pagar fatura em atraso": "سدّد الفاتورة المتأخرة",
+  "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "يمكنك عرض فواتير المنصة وسدادها وتغيير البطاقة. أما التعاقد وتغيير الخطة وإلغاء الاشتراك فهي من صلاحيات مدير المجمع.",
+  "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "لم يتم التعاقد على الترخيص بعد — لا توجد فواتير. تحدّث مع مدير المجمع.",
+  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "لم يتم التعاقد على ترخيص هذا المجمع في Stripe بعد — تحدّث مع المدير.",
+  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "تأتي الفواتير من Stripe بالعملة التي تم تحصيلها بها. «سدّد» يفتح الفاتورة المستضافة على Stripe؛ «إدارة الدفع» يفتح البوابة، حيث تُغيَّر البطاقة أيضًا.",
+
   "Condomínio": "المجمّع السكني", "Unidades": "الوحدات", "Pessoas": "الأشخاص", "Financeiro": "المالية",
   "Cobranças QR": "مدفوعات QR", "Multas": "الغرامات", "Comunicados": "الإعلانات", "Documentos": "المستندات",
   "Manutenção": "الصيانة", "Portaria": "الاستقبال", "Gerenciar Acessos": "إدارة الحسابات", 

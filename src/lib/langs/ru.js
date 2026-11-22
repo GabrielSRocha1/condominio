@@ -1,5 +1,20 @@
 /* Русский */
 export default {
+  /* Fatura da licença (22/11/2026) */
+  "Licença da plataforma": "Лицензия платформы",
+  "Faturas": "Счета",
+  "Fatura": "Счёт",
+  "Emissão": "Выставлен",
+  "Não recebida": "Не получен",
+  "sem data de renovação": "без даты продления",
+  "Carregando faturas…": "Загрузка счетов…",
+  "Nenhuma fatura emitida até agora.": "Счета пока не выставлялись.",
+  "Pagar fatura em atraso": "Оплатить просроченный счёт",
+  "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "Вы можете смотреть и оплачивать счета платформы и менять карту. Оформление, смена тарифа и отмена подписки — за директором ТСЖ.",
+  "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "Лицензия ещё не оформлена — счетов нет. Обратитесь к директору ТСЖ.",
+  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "Лицензия этого ТСЖ ещё не оформлена в Stripe — обратитесь к директору.",
+  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "Счета приходят из Stripe, в валюте, в которой были списаны. «Оплатить» открывает счёт на стороне Stripe; «Управление оплатой» открывает портал, где также меняется карта.",
+
   "Condomínio": "ЖК", "Unidades": "Квартиры", "Pessoas": "Люди", "Financeiro": "Финансы",
   "Cobranças QR": "QR-платежи", "Multas": "Штрафы", "Comunicados": "Объявления", "Documentos": "Документы",
   "Manutenção": "Обслуживание", "Portaria": "Консьерж", "Gerenciar Acessos": "Управление доступами", 

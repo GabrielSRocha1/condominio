@@ -1035,9 +1035,20 @@ export async function cancelarAssinatura(condominioId) {
   return chamarStripe("cancelar-assinatura", { condominioId }, "ao cancelar a assinatura");
 }
 
-/* Billing Portal da Stripe: trocar o cartão da licença, ver faturas. */
+/* Billing Portal da Stripe: trocar o cartão da licença, ver faturas.
+   Devolve { url, restrito } — `restrito: true` quando quem pediu só tem
+   `licenca.pagar` (administrador predial): nesse portal não há como cancelar
+   a assinatura nem trocar de plano. */
 export async function abrirPortalCobranca(condominioId) {
   return chamarStripe("portal", { condominioId }, "ao abrir o portal de pagamento");
+}
+
+/* Faturas da LICENÇA da plataforma (lidas da Stripe, não do banco).
+   Devolve { faturas: [{ numero, status, criadaEm, vencimento, pagaEm, total,
+   aPagar, moeda, pagarUrl, pdfUrl }], semCliente? } — `total`/`aPagar` já
+   vêm em decimais na `moeda` da fatura. */
+export async function listarFaturasLicenca(condominioId) {
+  return chamarStripe("faturas", { condominioId }, "ao buscar as faturas da licença");
 }
 
 /* ── Stripe Connect: conta de recebimento das cobranças do condomínio ── */

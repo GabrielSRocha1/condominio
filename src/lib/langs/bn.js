@@ -1,5 +1,20 @@
 /* বাংলা */
 export default {
+  /* Fatura da licença (22/11/2026) */
+  "Licença da plataforma": "প্ল্যাটফর্ম লাইসেন্স",
+  "Faturas": "ইনভয়েস",
+  "Fatura": "ইনভয়েস",
+  "Emissão": "ইস্যুর তারিখ",
+  "Não recebida": "আদায় হয়নি",
+  "sem data de renovação": "নবায়নের তারিখ নেই",
+  "Carregando faturas…": "ইনভয়েস লোড হচ্ছে…",
+  "Nenhuma fatura emitida até agora.": "এখনও কোনো ইনভয়েস ইস্যু হয়নি।",
+  "Pagar fatura em atraso": "বকেয়া ইনভয়েস পরিশোধ করুন",
+  "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "আপনি প্ল্যাটফর্মের ইনভয়েস দেখতে ও পরিশোধ করতে এবং কার্ড বদলাতে পারেন। সাবস্ক্রিপশন নেওয়া, প্ল্যান বদলানো ও বাতিল করা কমপ্লেক্সের পরিচালকের এখতিয়ার।",
+  "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "লাইসেন্স এখনও নেওয়া হয়নি — কোনো ইনভয়েস নেই। কমপ্লেক্সের পরিচালকের সঙ্গে কথা বলুন।",
+  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "এই কমপ্লেক্সের লাইসেন্স এখনও Stripe-এ নেওয়া হয়নি — পরিচালকের সঙ্গে কথা বলুন।",
+  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "ইনভয়েস Stripe থেকে আসে, যে মুদ্রায় চার্জ করা হয়েছে সেই মুদ্রাতেই। “পরিশোধ করুন” Stripe-এ হোস্ট করা ইনভয়েস খোলে; “পেমেন্ট পরিচালনা” পোর্টাল খোলে, যেখানে কার্ডও বদলানো যায়।",
+
   "Condomínio": "আবাসন", "Unidades": "ইউনিট", "Pessoas": "ব্যক্তি", "Financeiro": "অর্থ",
   "Cobranças QR": "QR বিল", "Multas": "জরিমানা", "Comunicados": "নোটিশ", "Documentos": "নথি",
   "Manutenção": "রক্ষণাবেক্ষণ", "Portaria": "রিসেপশন", "Gerenciar Acessos": "অ্যাক্সেস ব্যবস্থাপনা", 

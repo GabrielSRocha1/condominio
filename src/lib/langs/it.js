@@ -1,5 +1,20 @@
 /* Italiano */
 export default {
+  /* Fatura da licença (22/11/2026) */
+  "Licença da plataforma": "Licenza della piattaforma",
+  "Faturas": "Fatture",
+  "Fatura": "Fattura",
+  "Emissão": "Emissione",
+  "Não recebida": "Non incassata",
+  "sem data de renovação": "senza data di rinnovo",
+  "Carregando faturas…": "Caricamento fatture…",
+  "Nenhuma fatura emitida até agora.": "Nessuna fattura emessa finora.",
+  "Pagar fatura em atraso": "Paga la fattura scaduta",
+  "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "Puoi vedere e pagare le fatture della piattaforma e cambiare la carta. Sottoscrivere, cambiare piano e disdire l'abbonamento spettano al direttore del condominio.",
+  "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "La licenza non è ancora stata sottoscritta — non ci sono fatture. Parlane con il direttore del condominio.",
+  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "La licenza di questo condominio non è ancora stata sottoscritta in Stripe — parlane con il direttore.",
+  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "Le fatture arrivano da Stripe, nella valuta in cui sono state addebitate. «Paga» apre la fattura ospitata da Stripe; «Gestisci il pagamento» apre il portale, dove si cambia anche la carta.",
+
   "Condomínio": "Condominio", "Unidades": "Unità", "Pessoas": "Persone", "Financeiro": "Finanze",
   "Cobranças QR": "Pagamenti QR", "Multas": "Multe", "Comunicados": "Comunicazioni", "Documentos": "Documenti",
   "Manutenção": "Manutenzione", "Portaria": "Portineria", "Gerenciar Acessos": "Gestisci accessi", 

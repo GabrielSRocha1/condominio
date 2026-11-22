@@ -142,6 +142,29 @@ idiomas, instalável como PWA.
    update saas_planos set preco_mensal = 420.00, preco_anual = 4200.00, atualizado_em = now() where nome = 'Premium';
    ```
 
+   **Fatura da licença (22/11/2026)?** O administrador predial passou a ver e
+   pagar a mensalidade da plataforma: rode `supabase-permissoes.sql` (passo
+   10, semeia `tela.fatura` + `licenca.pagar`) e depois
+   `supabase-aprovacoes.sql` (passo 11, põe as duas no conjunto dele —
+   `_padrao_administrador` vai a 31 códigos). **Nesta ordem**: é o passo 11
+   que reconcilia o conjunto do administrador. Antes do SQL o app funciona
+   igual, só sem a novidade: o item "Fatura" não aparece e
+   `/api/stripe/faturas` responde 403. Nenhuma policy nova — `licenca.pagar`
+   é enforçada na API, como `licenca.gerir` sempre foi.
+
+   **Erro que fala de outra coisa** (corrigido em 22/11/2026, registre se
+   voltar): `ERROR 42809: "historico_unificado" is not a table`. Os laços que
+   varrem `information_schema.columns` por `condominio_id` (bloco F do
+   `permissoes`, e o equivalente no `rls`) listavam também as colunas de
+   **view**, e policy em view não existe. O SQL Editor roda o arquivo em UMA
+   transação, então o RUN inteiro voltava atrás — inclusive a semeadura do
+   catálogo, que já havia passado. O banco ficava idêntico e a mensagem
+   apontava uma relação sem nenhuma relação com a mudança. Só acontecia no
+   **re-run** sobre banco completo (em instalação nova a view do passo 12
+   ainda não existe), que é exatamente o caminho prescrito aqui. Os laços
+   agora filtram `table_type = 'BASE TABLE'`; a sonda `testar-permissoes`
+   cobre os três arquivos.
+
    Atenção: re-rodar o `supabase-rls.sql` exige re-rodar seguranca 1→5 **e o
    `supabase-permissoes.sql`** em seguida (ele derruba e recria todas as
    policies — inclusive as que decidem por permissão). E re-rodar o

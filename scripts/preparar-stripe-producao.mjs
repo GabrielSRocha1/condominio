@@ -170,6 +170,45 @@ for (const h of HOOKS) {
   }
 }
 
+/* ── 4. configuração RESTRITA do Billing Portal (licenca.pagar) ──
+   O administrador predial paga a mensalidade da plataforma mas não é dono do
+   contrato: o portal dele mostra faturas, recibos e troca de cartão, e NÃO
+   mostra "Cancel plan" nem "Update plan" — cancelar a assinatura é a única
+   ação que de fato destrói a conta do condomínio.
+   api/stripe/portal.js cria esta mesma configuração sob demanda (reconhecida
+   pela metadata) para o deploy não depender deste script; aqui ela é
+   provisionada à vista, para o estado da Stripe ficar auditável. */
+const PORTAL_FEATURES = {
+  invoice_history:       { enabled: true },
+  payment_method_update: { enabled: true },
+  subscription_cancel:   { enabled: false },
+  subscription_update:   { enabled: false },
+  customer_update:       { enabled: false },
+};
+const MARCA_PORTAL = "restrito_v1";
+const configs = await stripe.billingPortal.configurations.list({ limit: 100 });
+const portalRestrito = configs.data.find((c) => c.metadata?.condomaster === MARCA_PORTAL);
+if (portalRestrito) {
+  const f = portalRestrito.features;
+  const frouxa = f?.subscription_cancel?.enabled || f?.subscription_update?.enabled;
+  console.log(`  portal restrito: já existe (${portalRestrito.id})${frouxa ? " — FROUXA, reapertando" : ""}`);
+  if (executar && frouxa) await stripe.billingPortal.configurations.update(portalRestrito.id, { features: PORTAL_FEATURES });
+} else {
+  console.log("  portal restrito: criar (faturas + cartão; sem cancelar e sem trocar de plano)");
+  if (executar) {
+    const nova = await stripe.billingPortal.configurations.create({
+      features: PORTAL_FEATURES,
+      metadata: { condomaster: MARCA_PORTAL },
+      business_profile: {
+        headline: "CondoMaster Pro · fatura da licença",
+        privacy_policy_url: `${BASE}/privacidade`,
+        terms_of_service_url: `${BASE}/termos`,
+      },
+    });
+    console.log(`    ✔ criada ${nova.id}`);
+  }
+}
+
 if (!executar) console.log("\nSimulação — rode com --executar para efetivar.");
 else console.log(`\nFalta (manual, dashboard):
   · Settings → Payments → Adaptive Pricing: ATIVAR (test e live) — sem isso, cliente não-BR/não-USD vê a base BRL

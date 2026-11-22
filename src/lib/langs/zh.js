@@ -1,5 +1,20 @@
 /* 中文（简体） */
 export default {
+  /* Fatura da licença (22/11/2026) */
+  "Licença da plataforma": "平台许可",
+  "Faturas": "发票",
+  "Fatura": "发票",
+  "Emissão": "开具日期",
+  "Não recebida": "未收款",
+  "sem data de renovação": "无续订日期",
+  "Carregando faturas…": "正在加载发票…",
+  "Nenhuma fatura emitida até agora.": "目前尚未开具任何发票。",
+  "Pagar fatura em atraso": "支付逾期发票",
+  "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "您可以查看和支付平台发票并更换银行卡。订购、更换套餐和取消订阅属于小区负责人的权限。",
+  "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "许可尚未订购——没有发票。请与小区负责人联系。",
+  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "本小区的许可尚未在 Stripe 订购——请与负责人联系。",
+  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "发票来自 Stripe，以实际收费的币种显示。“支付”会打开 Stripe 托管的发票；“管理付款”会打开门户，也可在那里更换银行卡。",
+
   "Condomínio": "小区", "Unidades": "单元", "Pessoas": "人员", "Financeiro": "财务",
   "Cobranças QR": "二维码收费", "Multas": "罚款", "Comunicados": "公告", "Documentos": "文件",
   "Manutenção": "维修", "Portaria": "门卫", "Gerenciar Acessos": "访问管理", 

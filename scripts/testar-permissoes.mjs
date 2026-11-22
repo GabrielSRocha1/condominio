@@ -25,6 +25,7 @@ import {
   PERMISSOES_FIXAS, PERFIS_EDITAVEIS, PERMS_DO_MORADOR, PERMS_VEDADAS_AO_ADMIN,
   permsPadrao, permsEfetivas, pode, podeTela, sanearPerms, mesmoConjunto,
 } from "../src/lib/permissoes.js";
+import { liberarEmailDaSonda } from "./_contas-de-sonda.mjs";
 
 const env = Object.fromEntries(
   readFileSync(new URL("../.env", import.meta.url), "utf8").split(/\r?\n/)
@@ -80,10 +81,12 @@ ok("todo código tem rótulo e grupo",
   const bloco = jsx.slice(jsx.indexOf("const NAV = ["), jsx.indexOf("const PermsCtx"));
   const itens = [...bloco.matchAll(/\{\s*id:\s*"([a-z]+)".*?perm:\s*"([a-z.]+)"/gs)]
     .map(([, id, perm]) => ({ id, perm }));
-  /* 16 desde 09/11/2026: entraram "Reservas" e "Assembleias" (as tabelas
-     órfãs ganharam telas) além do "Histórico de alterações" do mesmo dia;
+  /* 17 desde 22/11/2026: entrou "Fatura" (a CONTA da plataforma, separada do
+     CONTRATO da tela Planos — o administrador predial paga a mensalidade);
+     16 desde 09/11/2026, com "Reservas", "Assembleias" (as tabelas órfãs
+     ganharam telas) e o "Histórico de alterações" do mesmo dia;
      13 desde 02/11/2026, quando "Aprovações" saiu com a fila congelada */
-  ok("NAV declara perm em todas as telas", itens.length === 16, `${itens.length} itens`);
+  ok("NAV declara perm em todas as telas", itens.length === 17, `${itens.length} itens`);
   const semCatalogo = itens.filter((i) => !CODIGOS.includes(i.perm));
   ok("toda perm do NAV existe no catálogo", semCatalogo.length === 0,
     semCatalogo.map((i) => i.perm).join(", "));
@@ -177,6 +180,51 @@ ok("diretor ignora override", mesmoConjunto(permsEfetivas({ perfil: "diretor", o
   ok("o administrador agora também dá baixa e cancela",
     ["financeiro.baixar", "cobranca.cancelar"].every((c) =>
       sanearPerms("administrador_predial", [c]).includes(c)));
+
+  /* ── A CONTA ≠ O CONTRATO (22/11/2026) ──
+     A vedação antiga tratava "pagar a mensalidade" e "ser dono do contrato"
+     como a mesma coisa, e quem administra o prédio paga as contas dele. O par
+     novo entrou no conjunto do administrador; o par antigo continua vedado.
+     As duas asserções andam juntas de propósito: separadas, uma passa
+     enquanto a outra mente. */
+  ok("o administrador vê e paga a fatura da licença",
+    ["tela.fatura", "licenca.pagar"].every((c) =>
+      sanearPerms("administrador_predial", [c]).includes(c)));
+  ok("mas não contrata, não troca de plano e não cancela",
+    ["tela.planos", "licenca.gerir"].every((c) =>
+      !sanearPerms("administrador_predial", [c]).includes(c)));
+  /* na MESMA chamada: o que fica e o que cai */
+  {
+    const misto = sanearPerms("administrador_predial",
+      ["tela.fatura", "licenca.pagar", "tela.planos", "licenca.gerir"]);
+    ok("conta e contrato separados na mesma chamada",
+      mesmoConjunto(misto, ["licenca.pagar", "tela.fatura"]), misto.join(","));
+  }
+  ok("pagar a fatura não é vedada ao administrador",
+    ["tela.fatura", "licenca.pagar"].every((c) => !PERMS_VEDADAS_AO_ADMIN.includes(c)));
+}
+
+/* ── "pagar" nunca pode virar "cancelar" ──
+   licenca.pagar abre o portal RESTRITO (api/stripe/portal.js) e lê as faturas
+   (api/stripe/faturas.js). Os três endpoints que mexem no CONTRATO só podem
+   conhecer licenca.gerir: um copiar-colar que acrescentasse licenca.pagar ali
+   entregaria o cancelamento da assinatura — a única ação do app que de fato
+   destrói a conta do condomínio — a quem só deveria pagá-la. */
+{
+  const DO_CONTRATO = ["assinatura.js", "plano.js", "cancelar-assinatura.js"];
+  const infratores = DO_CONTRATO.filter((f) =>
+    readFileSync(new URL(`../api/stripe/${f}`, import.meta.url), "utf8").includes("licenca.pagar"));
+  ok("endpoints do CONTRATO não aceitam licenca.pagar",
+    infratores.length === 0, infratores.join(", "));
+  const guardados = DO_CONTRATO.filter((f) =>
+    readFileSync(new URL(`../api/stripe/${f}`, import.meta.url), "utf8").includes('"licenca.gerir"'));
+  ok("endpoints do CONTRATO seguem exigindo licenca.gerir",
+    guardados.length === DO_CONTRATO.length, `${guardados.length}/${DO_CONTRATO.length}`);
+  /* e o portal restrito não pode abrir sem a configuração que o restringe:
+     cair na configuração padrão devolveria o botão "Cancel plan" */
+  const portal = readFileSync(new URL("../api/stripe/portal.js", import.meta.url), "utf8");
+  ok("portal de quem só paga é o restrito, ou nenhum",
+    portal.includes("configPortalRestrito") && /503/.test(portal));
 }
 
 /* ── PARIDADE com o SQL (o arquivo é a fonte do banco) ── */
@@ -238,6 +286,27 @@ ok("diretor ignora override", mesmoConjunto(permsEfetivas({ perfil: "diretor", o
   const loop = s.slice(s.indexOf("-- F) Escrita por PERMISSÃO"), s.indexOf("-- G) Aprovação"));
   ok("perfil_overrides fora do loop de escrita", loop.includes("'perfil_overrides'"));
   ok("perfil_permissoes fora do loop de escrita", loop.includes("'perfil_permissoes'"));
+  /* o loop lê `information_schema.columns`, que também lista colunas de
+     VIEW — e policy em view não existe (42809 "is not a table"). Como o SQL
+     Editor roda o arquivo em UMA transação, isso derrubava o arquivo INTEIRO,
+     revertendo até o catálogo do bloco B: o banco ficava idêntico e a
+     mensagem de erro falava de uma relação sem relação com a mudança.
+     Apareceu em 22/11/2026 com o `historico_unificado` (view do passo 12) e
+     só no RE-RUN do passo 10 — que é o caminho que o README prescreve. */
+  ok("o loop de escrita só alcança TABELA-BASE (view estoura 42809)",
+    /table_type\s*=\s*'BASE TABLE'/.test(loop));
+  /* o mesmo laço existe em outros dois arquivos, e todos os três são
+     re-rodáveis por projeto: um só sem o filtro basta para o RUN inteiro
+     voltar atrás. A sonda cobre os três de uma vez. */
+  {
+    const semFiltro = ["supabase-rls.sql", "supabase-schema.sql"].filter((f) => {
+      const txt = sql(f);
+      const i = txt.indexOf("from information_schema.columns");
+      return i >= 0 && !/table_type\s*=\s*'BASE TABLE'/.test(txt);
+    });
+    ok("nenhum laço por information_schema alcança VIEW",
+      semFiltro.length === 0, semFiltro.join(", "));
+  }
 
   /* nenhuma policy de ESCRITA pode ter sobrado olhando perfil em vez de
      permissão — era por aí que a tesouraria escrevia no que não via */
@@ -443,6 +512,7 @@ if (temMatriz.error) {
       await admin.from("perfil_overrides").delete().eq("condominio_id", COND).eq("perfil_id", pf.id);
     }
     if (usuarioTes) await post("auth/acessos", { acao: "remover", usuarioId: usuarioTes }, login.token);
+    await liberarEmailDaSonda(admin, EMAIL_TES);
   }
 }
 

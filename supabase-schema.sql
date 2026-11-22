@@ -714,8 +714,16 @@ do $$
 declare t record;
 begin
   for t in
-    select table_name from information_schema.columns
-    where table_schema = 'public' and column_name = 'atualizado_em'
+    -- SÓ TABELA-BASE: `information_schema.columns` lista também colunas de
+    -- VIEW, e gatilho em view precisaria ser INSTEAD OF — `before update`
+    -- estoura. Hoje nenhuma view tem `atualizado_em`, então o filtro é
+    -- preventivo; a mesma omissão em supabase-rls.sql e
+    -- supabase-permissoes.sql derrubou o RUN inteiro em 22/11/2026.
+    select c.table_name from information_schema.columns c
+    join information_schema.tables tb
+      on tb.table_schema = c.table_schema and tb.table_name = c.table_name
+    where tb.table_type = 'BASE TABLE'
+      and c.table_schema = 'public' and c.column_name = 'atualizado_em'
   loop
     execute format(
       'create trigger trg_%I_atualizado before update on public.%I

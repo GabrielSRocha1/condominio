@@ -52,14 +52,24 @@ do $$
 declare t record;
 begin
   for t in
-    select table_name from information_schema.columns
-    where table_schema = 'public' and column_name = 'condominio_id'
+    select c.table_name from information_schema.columns c
+    join information_schema.tables tb
+      on tb.table_schema = c.table_schema and tb.table_name = c.table_name
+    -- SÓ TABELA-BASE: `information_schema.columns` lista também as colunas de
+    -- VIEW, e view não aceita RLS nem policy (42809 "is not a table"). Como o
+    -- SQL Editor roda o arquivo em UMA transação, uma view aqui derruba o
+    -- arquivo TODO e nada é aplicado. Em instalação nova não aparece (nenhuma
+    -- view existe ainda); quebra no RE-RUN sobre banco completo, que é
+    -- caminho documentado no README — o `historico_unificado` (passo 12) tem
+    -- `condominio_id`. Mesma correção no supabase-permissoes.sql (bloco F).
+    where tb.table_type = 'BASE TABLE'
+      and c.table_schema = 'public' and c.column_name = 'condominio_id'
       -- fora do loop: condominios tem policies próprias abaixo; as demais são
       -- exceções (escrita só backend) tratadas no fim do arquivo; auth_sessoes
       -- e auditoria_eventos pertencem às etapas de segurança (seguranca 1/3);
       -- auditoria é a trilha append-only do Histórico (supabase-historico.sql:
       -- leitura só com tela.historico, escrita só por gatilho definer)
-      and table_name not in ('condominios', 'integracoes_pagamento',
+      and c.table_name not in ('condominios', 'integracoes_pagamento',
                              'saas_assinaturas', 'pagamentos_informados',
                              'auth_sessoes', 'auditoria_eventos', 'auditoria')
   loop

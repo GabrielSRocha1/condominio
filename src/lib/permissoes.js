@@ -43,6 +43,8 @@ export const PERMISSOES = [
     ajuda: "Toda movimentação do condomínio: quem criou, alterou ou excluiu, e quando. Padrão: só o diretor." },
   { codigo: "tela.acessos",     grupo: "tela", tela: "emails",      rotulo: "Gerenciar Acessos" },
   { codigo: "tela.planos",      grupo: "tela", tela: "planos",      rotulo: "Planos e licença" },
+  { codigo: "tela.fatura",      grupo: "tela", tela: "fatura",      rotulo: "Fatura da licença",
+    ajuda: "Plano contratado e faturas da plataforma em LEITURA, com o portal de pagamento. Não troca de plano nem cancela a assinatura: é a conta, não o contrato." },
   { codigo: "tela.portal",      grupo: "tela", tela: null,          rotulo: "Portal do morador" },
 
   /* ações sensíveis */
@@ -71,7 +73,9 @@ export const PERMISSOES = [
   { codigo: "acesso.gerir",        grupo: "acao", rotulo: "Criar e remover acessos",
     ajuda: "Criar e remover valem na hora. O acesso de DIRETOR é a exceção: só outro diretor cria, remove — ou enxerga na lista." },
   { codigo: "licenca.gerir",       grupo: "acao", rotulo: "Contratar, trocar e cancelar a licença",
-    ajuda: "Inclui o portal de cobrança da Stripe e o onboarding de recebimento. Anda junto com a tela Planos: as duas são do dono do condomínio." },
+    ajuda: "Inclui o portal de cobrança COMPLETO da Stripe e o onboarding de recebimento. Anda junto com a tela Planos: as duas são do dono do condomínio." },
+  { codigo: "licenca.pagar",       grupo: "acao", rotulo: "Ver e pagar a fatura da licença",
+    ajuda: "Abre o portal da Stripe em modo RESTRITO — faturas, recibos e troca de cartão, sem cancelar a assinatura e sem trocar de plano. Pagar a conta é de quem administra o prédio; o contrato segue com o dono (licenca.gerir)." },
   { codigo: "historico.desfazer",  grupo: "acao", rotulo: "Desfazer alterações pelo Histórico",
     ajuda: "Reverte criação, edição e exclusão de cadastros. Movimentos de dinheiro ficam de fora: cancelamento e rejeição têm caminho próprio." },
   { codigo: "alteracao.aprovar",   grupo: "acao", fixo: true, rotulo: "Decidir alterações pendentes",
@@ -127,7 +131,19 @@ export const PERFIS_SOB_APROVACAO = [];
    trocar e cancelar a licença é do dono do condomínio, não de quem o
    administra. As duas andam juntas porque são a mesma tela por dois ângulos:
    `tela.planos` libera o item do menu, `licenca.gerir` é o que o Paywall lê
-   para mostrar valores e botão de pagar (e o que /api/stripe/* exige).
+   para mostrar a escolha de plano e o checkout (e o que assinatura/plano/
+   cancelar-assinatura exigem).
+
+   O QUE ESTA LISTA **NÃO** PROÍBE (22/11/2026): pagar a mensalidade. Quem
+   administra o prédio paga as contas dele, e a licença é uma delas — a
+   vedação antiga era grossa demais, tratava "pagar a conta" e "ser dono do
+   contrato" como a mesma coisa. Daí o par novo `tela.fatura` +
+   `licenca.pagar`, que entrou no padrão do administrador: ele vê plano,
+   valor, vencimento e faturas, e paga pelo portal RESTRITO da Stripe (sem
+   cancelar, sem trocar de plano). A fronteira ficou no que destrói a conta —
+   e o que destrói a conta é cancelar a assinatura, não pagá-la. Esta lista
+   segue com os MESMOS 4 códigos: nada aqui foi afrouxado, abriu-se uma porta
+   estreita ao lado.
    Saíram daqui em 02/11/2026: `financeiro.baixar` e `cobranca.cancelar` —
    sem fila, não havia mais o que segurar, e agora estão no padrão dele.
    Deixá-las aqui teria sido pior que inútil: qualquer override salvo pelo
@@ -189,12 +205,12 @@ export const MATRIZ_PADRAO = {
     "dados.escrever", "financeiro.lancar", "financeiro.aprovar", "financeiro.baixar",
     "cobranca.emitir", "cobranca.cancelar", "documento.emitir",
   ],
-  /* 29 dos 39 códigos do catálogo: todas as telas de operação e todas as
-     escritas. Fora, de propósito: `tela.planos` + `licenca.gerir` e
-     `tela.historico` + `historico.desfazer` (propriedade do dono — ver
-     PERMS_VEDADAS_AO_ADMIN), `alteracao.aprovar`, `permissao.gerir` e
-     `saas.gerir` (indelegáveis) e `tela.portal` + `pagamento.informar` +
-     `reserva.solicitar` (são do morador).
+  /* 31 dos 41 códigos do catálogo: todas as telas de operação, todas as
+     escritas e a CONTA da plataforma. Fora, de propósito: `tela.planos` +
+     `licenca.gerir` e `tela.historico` + `historico.desfazer` (propriedade do
+     dono — ver PERMS_VEDADAS_AO_ADMIN), `alteracao.aprovar`,
+     `permissao.gerir` e `saas.gerir` (indelegáveis) e `tela.portal` +
+     `pagamento.informar` + `reserva.solicitar` (são do morador).
      Espelha a view _padrao_administrador do supabase-aprovacoes.sql — a
      sonda compara os dois lados e falha se divergirem. */
   administrador_predial: [
@@ -212,6 +228,10 @@ export const MATRIZ_PADRAO = {
     "acesso.gerir",
     /* Reservas e Assembleias (09/11/2026): ele opera como o diretor */
     "tela.reservas", "tela.assembleias", "reserva.decidir",
+    /* A CONTA da plataforma (22/11/2026): ver as faturas e pagá-las pelo
+       portal restrito. O CONTRATO (contratar, trocar de plano, cancelar)
+       segue vedado — ver PERMS_VEDADAS_AO_ADMIN. */
+    "tela.fatura", "licenca.pagar",
   ],
   morador: ["tela.portal", "chamado.abrir", "pagamento.informar", "reserva.solicitar"],
   administradora: ["saas.gerir"],

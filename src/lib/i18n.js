@@ -769,6 +769,9 @@ const EN = {
 
   /* Reservas e Assembleias */
   "Reservas": "Bookings", "Assembleias": "Assemblies",
+  /* ficaram de fora quando as telas entraram em 09/11/2026 */
+  "Áreas ativas": "Active areas", "Áreas com taxa": "Areas with a fee",
+  "Confirmadas (futuras)": "Confirmed (upcoming)", "Nada encontrado": "Nothing found",
   "Áreas comuns: solicitações do portal, confirmação e taxa de uso": "Common areas: portal requests, confirmation and usage fee",
   "Convocação, presenças, quórum e atas": "Call notice, attendance, quorum and minutes",
   "Aguardando confirmação": "Awaiting confirmation", "Confirmada": "Confirmed", "Concluída": "Completed",
@@ -897,6 +900,17 @@ const EN = {
   "Carregando planos…": "Loading plans…", "Gerenciar pagamento": "Manage payment",
   "Verificar pagamento": "Check payment", "renova em": "renews on",
   "A licença ainda não está ativa — escolha o ciclo abaixo e conclua o pagamento do plano contratado.": "The licence isn't active yet — pick a billing cycle below and complete the payment for the contracted plan.",
+  /* Fatura da licença — a CONTA da plataforma (22/11/2026) */
+  "Licença da plataforma": "Platform licence", "Faturas": "Invoices", "Fatura": "Invoice",
+  "Emissão": "Issued", "Não recebida": "Not collected",
+  "sem data de renovação": "no renewal date",
+  "Carregando faturas…": "Loading invoices…",
+  "Nenhuma fatura emitida até agora.": "No invoices issued yet.",
+  "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "You can view and pay the platform invoices and change the card. Subscribing, changing plans and cancelling the subscription belong to the condominium director.",
+  "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "The licence hasn't been subscribed yet — there are no invoices. Talk to the condominium director.",
+  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "Invoices come from Stripe, in the currency they were charged in. “Pay” opens the Stripe-hosted invoice; “Manage payment” opens the portal, where you can also change the card.",
+  "Pagar fatura em atraso": "Pay overdue invoice",
+  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "This condominium's licence hasn't been subscribed in Stripe yet — talk to the director.",
   "Ciclo de pagamento:": "Billing cycle:", "Preço em dólares (USD), cobrado na sua moeda local": "Priced in US dollars (USD), billed in your local currency",
   "Plano atual": "Current plan", "Até": "Up to", "Unidades ilimitadas": "Unlimited units",
   "Contratado": "Contracted", "Pagar agora": "Pay now",
@@ -1747,6 +1761,9 @@ const ES = {
 
   /* Reservas e Assembleias */
   "Reservas": "Reservas", "Assembleias": "Asambleas",
+  /* quedaron fuera cuando las pantallas entraron el 09/11/2026 */
+  "Áreas ativas": "Áreas activas", "Áreas com taxa": "Áreas con tasa",
+  "Confirmadas (futuras)": "Confirmadas (futuras)", "Nada encontrado": "Sin resultados",
   "Áreas comuns: solicitações do portal, confirmação e taxa de uso": "Áreas comunes: solicitudes del portal, confirmación y tarifa de uso",
   "Convocação, presenças, quórum e atas": "Convocatoria, asistencia, quórum y actas",
   "Aguardando confirmação": "Esperando confirmación", "Confirmada": "Confirmada", "Concluída": "Concluida",
@@ -1873,6 +1890,17 @@ const ES = {
   "Troca de plano aplicada na assinatura atual — sem novo checkout; a anterior foi substituída automaticamente.": "Cambio de plan aplicado en la suscripción actual — sin nuevo checkout; la anterior fue reemplazada automáticamente.",
   "Carregando planos…": "Cargando planes…", "Gerenciar pagamento": "Gestionar el pago",
   "Verificar pagamento": "Verificar pago", "renova em": "se renueva el",
+  /* Fatura da licença — la CUENTA de la plataforma (22/11/2026) */
+  "Licença da plataforma": "Licencia de la plataforma", "Faturas": "Facturas", "Fatura": "Factura",
+  "Emissão": "Emisión", "Não recebida": "No cobrada",
+  "sem data de renovação": "sin fecha de renovación",
+  "Carregando faturas…": "Cargando facturas…",
+  "Nenhuma fatura emitida até agora.": "Ninguna factura emitida hasta ahora.",
+  "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "Puede ver y pagar las facturas de la plataforma y cambiar la tarjeta. Contratar, cambiar de plan y cancelar la suscripción son del director del condominio.",
+  "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "La licencia aún no fue contratada — no hay facturas. Hable con el director del condominio.",
+  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "Las facturas vienen de Stripe, en la moneda en que fueron cobradas. “Pagar” abre la factura alojada por Stripe; “Gestionar el pago” abre el portal, donde también se cambia la tarjeta.",
+  "Pagar fatura em atraso": "Pagar factura vencida",
+  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "La licencia de este condominio aún no fue contratada en Stripe — hable con el director.",
   "A licença ainda não está ativa — escolha o ciclo abaixo e conclua o pagamento do plano contratado.": "La licencia todavía no está activa — elija el ciclo de abajo y complete el pago del plan contratado.",
   "Ciclo de pagamento:": "Ciclo de pago:", "Preço em dólares (USD), cobrado na sua moeda local": "Precio en dólares (USD), cobrado en su moneda local",
   "Plano atual": "Plan actual", "Até": "Hasta", "Unidades ilimitadas": "Unidades ilimitadas",
