@@ -1,6 +1,9 @@
 /* 한국어 */
 export default {
   /* Fatura da licença (22/11/2026) */
+  "O cadastro de cobrança desta licença não foi entregue.": "이 라이선스의 청구 정보가 전달되지 않았습니다.",
+  "Não foi possível carregar as faturas agora. Tente de novo em instantes.": "지금은 청구서를 불러올 수 없습니다. 잠시 후 다시 시도하세요.",
+  "A próxima cobrança está prevista para": "다음 청구 예정일은",
   "Licença da plataforma": "플랫폼 라이선스",
   "Faturas": "청구서",
   "Fatura": "청구서",
@@ -12,8 +15,8 @@ export default {
   "Pagar fatura em atraso": "연체 청구서 결제",
   "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "플랫폼 청구서를 보고 결제하고 카드를 변경할 수 있습니다. 가입, 요금제 변경, 구독 해지는 입주자 대표의 권한입니다.",
   "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "라이선스가 아직 가입되지 않았습니다 — 청구서가 없습니다. 입주자 대표에게 문의하세요.",
-  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "이 아파트의 라이선스가 아직 Stripe에 가입되지 않았습니다 — 대표에게 문의하세요.",
-  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "청구서는 Stripe에서 가져오며 실제로 청구된 통화로 표시됩니다. ‘결제’는 Stripe가 호스팅하는 청구서를 열고, ‘결제 관리’는 포털을 열어 카드도 변경할 수 있습니다.",
+  "A licença deste condomínio ainda não foi contratada — fale com o diretor.": "이 아파트의 라이선스가 아직 가입되지 않았습니다 — 대표에게 문의하세요.",
+  "As faturas aparecem na moeda em que foram cobradas. “Pagar” abre a página segura de pagamento; “Gerenciar pagamento” abre o portal de cobrança, onde também se troca o cartão.": "청구서는 실제로 청구된 통화로 표시됩니다. ‘결제’는 보안 결제 페이지를 열고, ‘결제 관리’는 청구 포털을 열어 카드도 변경할 수 있습니다.",
 
   "Condomínio": "단지", "Unidades": "세대", "Pessoas": "인원", "Financeiro": "재무",
   "Cobranças QR": "QR 청구", "Multas": "과태료", "Comunicados": "공지", "Documentos": "문서",

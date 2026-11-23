@@ -6994,6 +6994,7 @@ function FaturaLicenca({ t, embutida = false }) {
   const tenant = (db.tenants || []).find((x) => x.id === db.ctx.condominioId);
   const [faturas, setFaturas] = useState(null);
   const [semCliente, setSemCliente] = useState(false);
+  const [clienteAusente, setClienteAusente] = useState(false);
   const [erro, setErro] = useState("");
   const [abrindo, setAbrindo] = useState(false);
   const [verificando, setVerificando] = useState(false);
@@ -7001,6 +7002,9 @@ function FaturaLicenca({ t, embutida = false }) {
   /* a fatura vem na moeda que a Stripe cobrou (Adaptive Pricing), que não é
      a moeda de gestão do condomínio nem a âncora USD do preço de tabela */
   const valor = (v, m) => Number(v).toLocaleString(LOCALE_MOEDA[m] || "en-US", { style: "currency", currency: m || "USD" });
+  /* sem fatura na lista, a data de renovação é a informação útil: é por ela
+     que se sabe quando a próxima cobrança cai */
+  const proximoVenc = tenant?.vencFull && tenant.vencFull !== "—" ? tenant.vencFull : null;
 
   const carregar = useCallback(async () => {
     setErro("");
@@ -7008,6 +7012,7 @@ function FaturaLicenca({ t, embutida = false }) {
       const r = await listarFaturasLicenca(db.ctx.condominioId);
       setFaturas(r?.faturas || []);
       setSemCliente(Boolean(r?.semCliente));
+      setClienteAusente(Boolean(r?.clienteAusente));
     } catch (e) { setErro(e?.message || String(e)); setFaturas([]); }
   }, [db.ctx.condominioId]);
   useEffect(() => { carregar(); }, [carregar]);
@@ -7060,15 +7065,28 @@ function FaturaLicenca({ t, embutida = false }) {
               <CreditCard size={13} /> {abrindo ? "Abrindo…" : L("Gerenciar pagamento")}</Btn>
           : null}>
           Faturas</SectionTitle>
-        {erro && <div className="rounded-xl border p-2.5 text-xs" style={{ borderColor: t.danger, color: t.danger }}>{erro}</div>}
+        {/* UMA mensagem por vez, e âmbar — não vermelho. Vermelho é para erro
+            de verdade; "ainda não há fatura" não é erro, e nem falha de
+            carregamento é: em todos esses casos a licença está em dia e não
+            há nada para a pessoa consertar. Antes a caixa vermelha aparecia
+            JUNTO com "Nenhuma fatura emitida até agora", dizendo duas coisas
+            contraditórias ao mesmo tempo. Em todos eles vale a mesma âncora:
+            a data do próximo vencimento, que é o que a pessoa veio ver. */}
         {faturas === null ? (
           <div className="vfade text-xs" style={{ color: t.dim }}>{L("Carregando faturas…")}</div>
-        ) : semCliente ? (
+        ) : (erro || semCliente || clienteAusente || !faturas.length) ? (
           <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.warn + "55", background: t.warn + "12", color: t.warn }}>
             <AlertCircle size={13} className="mr-1 inline" />
-            {L("A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.")}</div>
-        ) : !faturas.length ? (
-          <div className="text-xs" style={{ color: t.dim }}>{L("Nenhuma fatura emitida até agora.")}</div>
+            {semCliente
+              ? L("A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.")
+              : clienteAusente
+                ? L("O cadastro de cobrança desta licença não foi entregue.")
+                : erro
+                  ? L("Não foi possível carregar as faturas agora. Tente de novo em instantes.")
+                  : L("Nenhuma fatura emitida até agora.")}
+            {!semCliente && proximoVenc && (
+              <span> {L("A próxima cobrança está prevista para")} <b>{proximoVenc}</b>.</span>)}
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -7113,7 +7131,7 @@ function FaturaLicenca({ t, embutida = false }) {
           </div>
         )}
         <div className="mt-3 text-[11px]" style={{ color: t.dim }}>
-          {L("As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.")}</div>
+          {L("As faturas aparecem na moeda em que foram cobradas. “Pagar” abre a página segura de pagamento; “Gerenciar pagamento” abre o portal de cobrança, onde também se troca o cartão.")}</div>
       </Card>
     </div>
   );
@@ -7376,7 +7394,7 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
       if (resp?.url) window.open(resp.url, "_blank", "noopener");
     } catch (e) {
       setErro(/pagamento cadastrado/i.test(e?.message || "")
-        ? L("A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.")
+        ? L("A licença deste condomínio ainda não foi contratada — fale com o diretor.")
         : (e?.message || String(e)));
     } finally { setAbrindoPortal(false); }
   };

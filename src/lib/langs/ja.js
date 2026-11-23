@@ -1,6 +1,9 @@
 /* 日本語 */
 export default {
   /* Fatura da licença (22/11/2026) */
+  "O cadastro de cobrança desta licença não foi entregue.": "このライセンスの請求情報は取得できませんでした。",
+  "Não foi possível carregar as faturas agora. Tente de novo em instantes.": "請求書を読み込めませんでした。しばらくしてからもう一度お試しください。",
+  "A próxima cobrança está prevista para": "次回の請求予定日は",
   "Licença da plataforma": "プラットフォームのライセンス",
   "Faturas": "請求書",
   "Fatura": "請求書",
@@ -12,8 +15,8 @@ export default {
   "Pagar fatura em atraso": "延滞請求書を支払う",
   "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "プラットフォームの請求書の閲覧と支払い、カードの変更ができます。契約、プラン変更、解約は管理組合の代表者の権限です。",
   "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "ライセンスはまだ契約されていません — 請求書はありません。管理組合の代表者にご相談ください。",
-  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "このマンションのライセンスはまだ Stripe で契約されていません — 代表者にご相談ください。",
-  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "請求書は Stripe から取得し、請求された通貨で表示されます。「支払う」は Stripe がホストする請求書を開きます。「支払いの管理」はポータルを開き、カードの変更もできます。",
+  "A licença deste condomínio ainda não foi contratada — fale com o diretor.": "このマンションのライセンスはまだ契約されていません — 代表者にご相談ください。",
+  "As faturas aparecem na moeda em que foram cobradas. “Pagar” abre a página segura de pagamento; “Gerenciar pagamento” abre o portal de cobrança, onde também se troca o cartão.": "請求書は請求された通貨で表示されます。「支払う」は安全な決済ページを開きます。「支払いの管理」は請求ポータルを開き、カードの変更もできます。",
 
   "Condomínio": "マンション", "Unidades": "住戸", "Pessoas": "住民・関係者", "Financeiro": "会計",
   "Cobranças QR": "QR請求", "Multas": "違約金", "Comunicados": "お知らせ", "Documentos": "書類",

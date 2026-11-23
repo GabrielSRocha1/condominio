@@ -1,6 +1,9 @@
 /* Italiano */
 export default {
   /* Fatura da licença (22/11/2026) */
+  "O cadastro de cobrança desta licença não foi entregue.": "Il registro di fatturazione di questa licenza non è stato consegnato.",
+  "Não foi possível carregar as faturas agora. Tente de novo em instantes.": "Non è stato possibile caricare le fatture adesso. Riprova tra un istante.",
+  "A próxima cobrança está prevista para": "Il prossimo addebito è previsto per il",
   "Licença da plataforma": "Licenza della piattaforma",
   "Faturas": "Fatture",
   "Fatura": "Fattura",
@@ -12,8 +15,8 @@ export default {
   "Pagar fatura em atraso": "Paga la fattura scaduta",
   "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "Puoi vedere e pagare le fatture della piattaforma e cambiare la carta. Sottoscrivere, cambiare piano e disdire l'abbonamento spettano al direttore del condominio.",
   "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "La licenza non è ancora stata sottoscritta — non ci sono fatture. Parlane con il direttore del condominio.",
-  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "La licenza di questo condominio non è ancora stata sottoscritta in Stripe — parlane con il direttore.",
-  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "Le fatture arrivano da Stripe, nella valuta in cui sono state addebitate. «Paga» apre la fattura ospitata da Stripe; «Gestisci il pagamento» apre il portale, dove si cambia anche la carta.",
+  "A licença deste condomínio ainda não foi contratada — fale com o diretor.": "La licenza di questo condominio non è ancora stata sottoscritta — parlane con il direttore.",
+  "As faturas aparecem na moeda em que foram cobradas. “Pagar” abre a página segura de pagamento; “Gerenciar pagamento” abre o portal de cobrança, onde também se troca o cartão.": "Le fatture compaiono nella valuta in cui sono state addebitate. «Paga» apre la pagina di pagamento sicura; «Gestisci il pagamento» apre il portale di fatturazione, dove si cambia anche la carta.",
 
   "Condomínio": "Condominio", "Unidades": "Unità", "Pessoas": "Persone", "Financeiro": "Finanze",
   "Cobranças QR": "Pagamenti QR", "Multas": "Multe", "Comunicados": "Comunicazioni", "Documentos": "Documenti",

@@ -52,7 +52,21 @@ export default async function handler(req, res) {
        erro — a tela mostra o aviso de licença não contratada */
     if (!ass?.stripe_customer_id) return res.status(200).json({ faturas: [], semCliente: true });
 
-    const lista = await stripe.invoices.list({ customer: ass.stripe_customer_id, limit: 12 });
+    /* "No such customer" é CONDIÇÃO, não falha: acontece sempre que a chave
+       configurada aponta para o outro ambiente da Stripe (condomínio live
+       aberto no dev local, que roda em test), e também se o cliente foi
+       removido do dashboard. Um 500 genérico aqui vira "Erro ao buscar as
+       faturas" na tela — vermelho, alarmante e que não diz o que houve. */
+    let lista;
+    try {
+      lista = await stripe.invoices.list({ customer: ass.stripe_customer_id, limit: 12 });
+    } catch (e) {
+      if (e?.code === "resource_missing" || /No such customer/i.test(e?.message || "")) {
+        logSeguro("[stripe/faturas] cliente fora do ambiente desta chave", e);
+        return res.status(200).json({ faturas: [], clienteAusente: true });
+      }
+      throw e;
+    }
 
     const faturas = lista.data
       .filter((inv) => inv.status !== "draft")

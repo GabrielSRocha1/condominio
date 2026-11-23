@@ -1,6 +1,9 @@
 /* Deutsch */
 export default {
   /* Fatura da licença (22/11/2026) */
+  "O cadastro de cobrança desta licença não foi entregue.": "Der Abrechnungsdatensatz dieser Lizenz wurde nicht übermittelt.",
+  "Não foi possível carregar as faturas agora. Tente de novo em instantes.": "Die Rechnungen konnten gerade nicht geladen werden. Versuchen Sie es gleich noch einmal.",
+  "A próxima cobrança está prevista para": "Die nächste Abbuchung ist vorgesehen für den",
   "Licença da plataforma": "Plattform-Lizenz",
   "Faturas": "Rechnungen",
   "Fatura": "Rechnung",
@@ -12,8 +15,8 @@ export default {
   "Pagar fatura em atraso": "Offene Rechnung bezahlen",
   "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "Sie können die Rechnungen der Plattform ansehen und bezahlen sowie die Karte wechseln. Abschließen, Tarifwechsel und Kündigung des Abonnements liegen beim Direktor der Eigentümergemeinschaft.",
   "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "Die Lizenz wurde noch nicht abgeschlossen — es gibt keine Rechnungen. Sprechen Sie mit dem Direktor der Eigentümergemeinschaft.",
-  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "Die Lizenz dieser Eigentümergemeinschaft wurde noch nicht in Stripe abgeschlossen — sprechen Sie mit dem Direktor.",
-  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "Die Rechnungen kommen von Stripe, in der Währung, in der sie abgebucht wurden. „Bezahlen“ öffnet die von Stripe gehostete Rechnung; „Zahlung verwalten“ öffnet das Portal, wo auch die Karte gewechselt wird.",
+  "A licença deste condomínio ainda não foi contratada — fale com o diretor.": "Die Lizenz dieser Eigentümergemeinschaft wurde noch nicht abgeschlossen — sprechen Sie mit dem Direktor.",
+  "As faturas aparecem na moeda em que foram cobradas. “Pagar” abre a página segura de pagamento; “Gerenciar pagamento” abre o portal de cobrança, onde também se troca o cartão.": "Die Rechnungen erscheinen in der Währung, in der sie abgebucht wurden. „Bezahlen“ öffnet die sichere Zahlungsseite; „Zahlung verwalten“ öffnet das Abrechnungsportal, wo auch die Karte gewechselt wird.",
 
   "Condomínio": "Wohnanlage", "Unidades": "Einheiten", "Pessoas": "Personen", "Financeiro": "Finanzen",
   "Cobranças QR": "QR-Zahlungen", "Multas": "Bußgelder", "Comunicados": "Mitteilungen", "Documentos": "Dokumente",

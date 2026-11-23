@@ -1,6 +1,9 @@
 /* Türkçe */
 export default {
   /* Fatura da licença (22/11/2026) */
+  "O cadastro de cobrança desta licença não foi entregue.": "Bu lisansın fatura kaydı iletilmedi.",
+  "Não foi possível carregar as faturas agora. Tente de novo em instantes.": "Faturalar şu anda yüklenemedi. Birazdan tekrar deneyin.",
+  "A próxima cobrança está prevista para": "Sonraki tahsilat şu tarihte bekleniyor:",
   "Licença da plataforma": "Platform lisansı",
   "Faturas": "Faturalar",
   "Fatura": "Fatura",
@@ -12,8 +15,8 @@ export default {
   "Pagar fatura em atraso": "Gecikmiş faturayı öde",
   "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "Platform faturalarını görüntüleyip ödeyebilir ve kartı değiştirebilirsiniz. Abone olmak, plan değiştirmek ve aboneliği iptal etmek site yöneticisinin yetkisindedir.",
   "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "Lisans henüz alınmadı — fatura yok. Site yöneticisiyle görüşün.",
-  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "Bu sitenin lisansı Stripe'ta henüz alınmadı — yöneticiyle görüşün.",
-  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "Faturalar Stripe'tan gelir, tahsil edildikleri para biriminde. “Öde” Stripe'ın barındırdığı faturayı açar; “Ödemeyi yönet” portalı açar, kart da oradan değiştirilir.",
+  "A licença deste condomínio ainda não foi contratada — fale com o diretor.": "Bu sitenin lisansı henüz alınmadı — yöneticiyle görüşün.",
+  "As faturas aparecem na moeda em que foram cobradas. “Pagar” abre a página segura de pagamento; “Gerenciar pagamento” abre o portal de cobrança, onde também se troca o cartão.": "Faturalar tahsil edildikleri para biriminde görünür. “Öde” güvenli ödeme sayfasını açar; “Ödemeyi yönet” fatura portalını açar, kart da oradan değiştirilir.",
 
   "Condomínio": "Site", "Unidades": "Daireler", "Pessoas": "Kişiler", "Financeiro": "Finans",
   "Cobranças QR": "QR Tahsilat", "Multas": "Cezalar", "Comunicados": "Duyurular", "Documentos": "Belgeler",

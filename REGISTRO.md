@@ -123,6 +123,18 @@ um copiar-colar futuro entregaria o cancelamento a quem só deveria pagar.
 **Nenhuma policy nova**: `saas_assinaturas` é somente-leitura para o navegador e os dados de
 fatura vivem na Stripe; `licenca.pagar` é enforçada na API, como `licenca.gerir` sempre foi.
 Quem procurar `jwt_pode('licenca.pagar')` no banco não vai achar — e está certo.
+**Ajustes vindos da primeira olhada na tela** (22/11/2026): a caixa de falha era **vermelha** e
+aparecia **junto** com "Nenhuma fatura emitida até agora", afirmando duas coisas contraditórias.
+Agora os quatro estados sem lista (sem cliente · cadastro não entregue · falha ao carregar ·
+lista vazia) moram num ramo só, em **âmbar** — vermelho fica para erro de verdade, e nenhum
+desses é: em todos a licença está em dia e não há nada para a pessoa consertar. Os três trazem a
+âncora que ela veio ver: **a data do próximo vencimento** (`tenant.vencFull`, campo novo). E a
+tela **não nomeia o provedor de pagamento**: a plataforma atende em domínio próprio e quem
+processa o cartão é detalhe de implementação — sonda nova varre os `L()` do componente.
+`/api/stripe/faturas` passou a tratar `No such customer` como CONDIÇÃO (200 + `clienteAusente`),
+não como 500: acontece sempre que a chave aponta para o outro ambiente — foi o que apareceu na
+tela ao abrir um condomínio **live** no dev local, que roda em **test**.
+
 **O bug que esta mudança desenterrou, e que valia mais que ela** (22/11/2026): rodar o
 `supabase-permissoes.sql` num banco completo falhava com
 `ERROR 42809: "historico_unificado" is not a table`. Os laços que varrem

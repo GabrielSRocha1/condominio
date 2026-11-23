@@ -44,7 +44,7 @@ export default async function handler(req, res) {
       .limit(1).maybeSingle();
     if (error) throw new Error(error.message);
     if (!ass?.stripe_customer_id)
-      return res.status(404).json({ error: "Este condomínio ainda não tem pagamento cadastrado na Stripe." });
+      return res.status(404).json({ error: "Este condomínio ainda não tem pagamento cadastrado." });
 
     const origem = req.headers.origin || `https://${req.headers.host}`;
 

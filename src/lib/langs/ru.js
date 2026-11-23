@@ -1,6 +1,9 @@
 /* Русский */
 export default {
   /* Fatura da licença (22/11/2026) */
+  "O cadastro de cobrança desta licença não foi entregue.": "Платёжная запись этой лицензии не получена.",
+  "Não foi possível carregar as faturas agora. Tente de novo em instantes.": "Сейчас не удалось загрузить счета. Повторите попытку через мгновение.",
+  "A próxima cobrança está prevista para": "Следующее списание ожидается",
   "Licença da plataforma": "Лицензия платформы",
   "Faturas": "Счета",
   "Fatura": "Счёт",
@@ -12,8 +15,8 @@ export default {
   "Pagar fatura em atraso": "Оплатить просроченный счёт",
   "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "Вы можете смотреть и оплачивать счета платформы и менять карту. Оформление, смена тарифа и отмена подписки — за директором ТСЖ.",
   "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "Лицензия ещё не оформлена — счетов нет. Обратитесь к директору ТСЖ.",
-  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "Лицензия этого ТСЖ ещё не оформлена в Stripe — обратитесь к директору.",
-  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "Счета приходят из Stripe, в валюте, в которой были списаны. «Оплатить» открывает счёт на стороне Stripe; «Управление оплатой» открывает портал, где также меняется карта.",
+  "A licença deste condomínio ainda não foi contratada — fale com o diretor.": "Лицензия этого ТСЖ ещё не оформлена — обратитесь к директору.",
+  "As faturas aparecem na moeda em que foram cobradas. “Pagar” abre a página segura de pagamento; “Gerenciar pagamento” abre o portal de cobrança, onde também se troca o cartão.": "Счета отображаются в валюте, в которой были списаны. «Оплатить» открывает защищённую страницу оплаты; «Управление оплатой» открывает платёжный портал, где также меняется карта.",
 
   "Condomínio": "ЖК", "Unidades": "Квартиры", "Pessoas": "Люди", "Financeiro": "Финансы",
   "Cobranças QR": "QR-платежи", "Multas": "Штрафы", "Comunicados": "Объявления", "Documentos": "Документы",

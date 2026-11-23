@@ -1,6 +1,9 @@
 /* Français */
 export default {
   /* Fatura da licença (22/11/2026) */
+  "O cadastro de cobrança desta licença não foi entregue.": "L'enregistrement de facturation de cette licence n'a pas été livré.",
+  "Não foi possível carregar as faturas agora. Tente de novo em instantes.": "Impossible de charger les factures pour le moment. Réessayez dans un instant.",
+  "A próxima cobrança está prevista para": "Le prochain prélèvement est prévu le",
   "Licença da plataforma": "Licence de la plateforme",
   "Faturas": "Factures",
   "Fatura": "Facture",
@@ -12,8 +15,8 @@ export default {
   "Pagar fatura em atraso": "Payer la facture en retard",
   "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "Vous pouvez consulter et payer les factures de la plateforme et changer la carte. Souscrire, changer de forfait et résilier l'abonnement relèvent du directeur de la copropriété.",
   "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "La licence n'a pas encore été souscrite — il n'y a aucune facture. Parlez-en au directeur de la copropriété.",
-  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "La licence de cette copropriété n'a pas encore été souscrite dans Stripe — parlez-en au directeur.",
-  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "Les factures viennent de Stripe, dans la devise où elles ont été prélevées. « Payer » ouvre la facture hébergée par Stripe ; « Gérer le paiement » ouvre le portail, où l'on change aussi la carte.",
+  "A licença deste condomínio ainda não foi contratada — fale com o diretor.": "La licence de cette copropriété n'a pas encore été souscrite — parlez-en au directeur.",
+  "As faturas aparecem na moeda em que foram cobradas. “Pagar” abre a página segura de pagamento; “Gerenciar pagamento” abre o portal de cobrança, onde também se troca o cartão.": "Les factures s'affichent dans la devise où elles ont été prélevées. « Payer » ouvre la page de paiement sécurisée ; « Gérer le paiement » ouvre le portail de facturation, où l'on change aussi la carte.",
 
   "Condomínio": "Copropriété", "Unidades": "Unités", "Pessoas": "Personnes", "Financeiro": "Finances",
   "Cobranças QR": "Paiements QR", "Multas": "Amendes", "Comunicados": "Annonces", "Documentos": "Documents",

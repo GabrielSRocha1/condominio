@@ -1,6 +1,9 @@
 /* বাংলা */
 export default {
   /* Fatura da licença (22/11/2026) */
+  "O cadastro de cobrança desta licença não foi entregue.": "এই লাইসেন্সের বিলিং রেকর্ড পাওয়া যায়নি।",
+  "Não foi possível carregar as faturas agora. Tente de novo em instantes.": "এখন ইনভয়েস লোড করা গেল না। কিছুক্ষণ পর আবার চেষ্টা করুন।",
+  "A próxima cobrança está prevista para": "পরবর্তী চার্জ প্রত্যাশিত",
   "Licença da plataforma": "প্ল্যাটফর্ম লাইসেন্স",
   "Faturas": "ইনভয়েস",
   "Fatura": "ইনভয়েস",
@@ -12,8 +15,8 @@ export default {
   "Pagar fatura em atraso": "বকেয়া ইনভয়েস পরিশোধ করুন",
   "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "আপনি প্ল্যাটফর্মের ইনভয়েস দেখতে ও পরিশোধ করতে এবং কার্ড বদলাতে পারেন। সাবস্ক্রিপশন নেওয়া, প্ল্যান বদলানো ও বাতিল করা কমপ্লেক্সের পরিচালকের এখতিয়ার।",
   "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "লাইসেন্স এখনও নেওয়া হয়নি — কোনো ইনভয়েস নেই। কমপ্লেক্সের পরিচালকের সঙ্গে কথা বলুন।",
-  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "এই কমপ্লেক্সের লাইসেন্স এখনও Stripe-এ নেওয়া হয়নি — পরিচালকের সঙ্গে কথা বলুন।",
-  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "ইনভয়েস Stripe থেকে আসে, যে মুদ্রায় চার্জ করা হয়েছে সেই মুদ্রাতেই। “পরিশোধ করুন” Stripe-এ হোস্ট করা ইনভয়েস খোলে; “পেমেন্ট পরিচালনা” পোর্টাল খোলে, যেখানে কার্ডও বদলানো যায়।",
+  "A licença deste condomínio ainda não foi contratada — fale com o diretor.": "এই কমপ্লেক্সের লাইসেন্স এখনও নেওয়া হয়নি — পরিচালকের সঙ্গে কথা বলুন।",
+  "As faturas aparecem na moeda em que foram cobradas. “Pagar” abre a página segura de pagamento; “Gerenciar pagamento” abre o portal de cobrança, onde também se troca o cartão.": "ইনভয়েস সেই মুদ্রায় দেখানো হয় যাতে চার্জ করা হয়েছে। “পরিশোধ করুন” নিরাপদ পেমেন্ট পেজ খোলে; “পেমেন্ট পরিচালনা” বিলিং পোর্টাল খোলে, যেখানে কার্ডও বদলানো যায়।",
 
   "Condomínio": "আবাসন", "Unidades": "ইউনিট", "Pessoas": "ব্যক্তি", "Financeiro": "অর্থ",
   "Cobranças QR": "QR বিল", "Multas": "জরিমানা", "Comunicados": "নোটিশ", "Documentos": "নথি",

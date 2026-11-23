@@ -94,6 +94,32 @@ for (const f of ["faturas.js", "portal.js"]) {
 ok("portal.js nega quando a configuração restrita falta (não cai no padrão)",
   /configPortalRestrito[\s\S]{0,400}503/.test(arquivo("api/stripe/portal.js")));
 
+/* ── a cor diz o que aconteceu (22/11/2026, da tela) ──
+   VERMELHO é para erro de verdade. "Ainda não há fatura" não é erro, e nem
+   falha de carregamento é: em ambos a licença está em dia e não há nada para
+   a pessoa consertar — isso é âmbar. A primeira versão pintava de vermelho e
+   ainda mostrava a caixa JUNTO com "Nenhuma fatura emitida até agora",
+   afirmando duas coisas contraditórias na mesma tela. */
+{
+  const jsx = arquivo("CondoMasterPro.jsx");
+  const comp = jsx.slice(jsx.indexOf("function FaturaLicenca"), jsx.indexOf("/* ══════════════ PAYWALL"));
+  ok("a tela Fatura existe e foi isolada para a sonda", comp.length > 500, `${comp.length} chars`);
+  ok("nenhum estado da tela Fatura é pintado de vermelho", !comp.includes("t.danger"));
+  /* os quatro estados sem lista moram num ramo só — é o que impede a volta
+     da mensagem dupla */
+  ok("os estados sem lista são mutuamente exclusivos",
+    /erro \|\| semCliente \|\| clienteAusente \|\| !faturas\.length/.test(comp));
+  ok("sem fatura, a tela mostra o próximo vencimento", comp.includes("proximoVenc"));
+  /* o provedor é detalhe de implementação nosso: a plataforma atende em
+     domínio próprio e não anuncia de quem é a API que processa o cartão.
+     Vale para o que a PESSOA lê — comentário de código citando Stripe é
+     documentação, e continua certo. */
+  const visiveis = [...comp.matchAll(/L\("((?:[^"\\]|\\.)*)"\)/g)].map(([, s]) => s);
+  const comProvedor = visiveis.filter((s) => /stripe/i.test(s));
+  ok("a tela Fatura não nomeia o provedor de pagamento",
+    comProvedor.length === 0, comProvedor.join(" · "));
+}
+
 /* ══════════ B · endpoints com uma conta de administrador real ══════════ */
 console.log("\n━━ B · o administrador contra /api/stripe/* (banco + API + Stripe) ━━");
 const NOMES_B = [

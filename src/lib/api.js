@@ -577,6 +577,8 @@ export async function loadAll(condominioId) {
       precoPlano: num(a?.saas_planos?.preco_mensal),
       precoPlanoAnual: num(a?.saas_planos?.preco_anual),
       venc: a?.renovacao ? ddmm(a.renovacao) : "—",
+      /* por extenso para o aviso de próximo vencimento da tela Fatura */
+      vencFull: a?.renovacao ? ddmmyyyy(a.renovacao) : "—",
       /* teste gratuito: NULL em testeFim = teste ainda não iniciado na Stripe */
       testeFim: a?.teste_fim || null,
       testeEstendido: !!a?.teste_estendido,

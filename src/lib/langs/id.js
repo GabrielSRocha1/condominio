@@ -1,6 +1,9 @@
 /* Bahasa Indonesia */
 export default {
   /* Fatura da licença (22/11/2026) */
+  "O cadastro de cobrança desta licença não foi entregue.": "Catatan penagihan lisensi ini tidak terkirim.",
+  "Não foi possível carregar as faturas agora. Tente de novo em instantes.": "Faktur tidak dapat dimuat sekarang. Coba lagi sebentar.",
+  "A próxima cobrança está prevista para": "Penagihan berikutnya diperkirakan pada",
   "Licença da plataforma": "Lisensi platform",
   "Faturas": "Faktur",
   "Fatura": "Faktur",
@@ -12,8 +15,8 @@ export default {
   "Pagar fatura em atraso": "Bayar faktur terlambat",
   "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "Anda dapat melihat dan membayar faktur platform serta mengganti kartu. Berlangganan, mengganti paket, dan membatalkan langganan adalah wewenang direktur perumahan.",
   "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "Lisensi belum dilangganan — tidak ada faktur. Bicarakan dengan direktur perumahan.",
-  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "Lisensi perumahan ini belum dilangganan di Stripe — bicarakan dengan direktur.",
-  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "Faktur berasal dari Stripe, dalam mata uang saat ditagih. “Bayar” membuka faktur yang dihosting Stripe; “Kelola pembayaran” membuka portal, tempat kartu juga diganti.",
+  "A licença deste condomínio ainda não foi contratada — fale com o diretor.": "Lisensi perumahan ini belum dilangganan — bicarakan dengan direktur.",
+  "As faturas aparecem na moeda em que foram cobradas. “Pagar” abre a página segura de pagamento; “Gerenciar pagamento” abre o portal de cobrança, onde também se troca o cartão.": "Faktur ditampilkan dalam mata uang saat ditagih. “Bayar” membuka halaman pembayaran aman; “Kelola pembayaran” membuka portal penagihan, tempat kartu juga diganti.",
 
   "Condomínio": "Kompleks", "Unidades": "Unit", "Pessoas": "Orang", "Financeiro": "Keuangan",
   "Cobranças QR": "Tagihan QR", "Multas": "Denda", "Comunicados": "Pengumuman", "Documentos": "Dokumen",

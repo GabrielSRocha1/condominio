@@ -1,6 +1,9 @@
 /* العربية */
 export default {
   /* Fatura da licença (22/11/2026) */
+  "O cadastro de cobrança desta licença não foi entregue.": "لم يتم تسليم سجل الفوترة الخاص بهذا الترخيص.",
+  "Não foi possível carregar as faturas agora. Tente de novo em instantes.": "تعذّر تحميل الفواتير الآن. أعد المحاولة بعد لحظات.",
+  "A próxima cobrança está prevista para": "الخصم التالي متوقع في",
   "Licença da plataforma": "ترخيص المنصة",
   "Faturas": "الفواتير",
   "Fatura": "فاتورة",
@@ -12,8 +15,8 @@ export default {
   "Pagar fatura em atraso": "سدّد الفاتورة المتأخرة",
   "Você pode ver e pagar as faturas da plataforma e trocar o cartão. Contratar, trocar de plano e cancelar a assinatura são do diretor do condomínio.": "يمكنك عرض فواتير المنصة وسدادها وتغيير البطاقة. أما التعاقد وتغيير الخطة وإلغاء الاشتراك فهي من صلاحيات مدير المجمع.",
   "A licença ainda não foi contratada — não há faturas. Fale com o diretor do condomínio.": "لم يتم التعاقد على الترخيص بعد — لا توجد فواتير. تحدّث مع مدير المجمع.",
-  "A licença deste condomínio ainda não foi contratada na Stripe — fale com o diretor.": "لم يتم التعاقد على ترخيص هذا المجمع في Stripe بعد — تحدّث مع المدير.",
-  "As faturas vêm da Stripe, na moeda em que foram cobradas. “Pagar” abre a fatura hospedada pela Stripe; “Gerenciar pagamento” abre o portal, onde também se troca o cartão.": "تأتي الفواتير من Stripe بالعملة التي تم تحصيلها بها. «سدّد» يفتح الفاتورة المستضافة على Stripe؛ «إدارة الدفع» يفتح البوابة، حيث تُغيَّر البطاقة أيضًا.",
+  "A licença deste condomínio ainda não foi contratada — fale com o diretor.": "لم يتم التعاقد على ترخيص هذا المجمع بعد — تحدّث مع المدير.",
+  "As faturas aparecem na moeda em que foram cobradas. “Pagar” abre a página segura de pagamento; “Gerenciar pagamento” abre o portal de cobrança, onde também se troca o cartão.": "تظهر الفواتير بالعملة التي تم تحصيلها بها. «سدّد» يفتح صفحة الدفع الآمنة؛ «إدارة الدفع» يفتح بوابة الفوترة، حيث تُغيَّر البطاقة أيضًا.",
 
   "Condomínio": "المجمّع السكني", "Unidades": "الوحدات", "Pessoas": "الأشخاص", "Financeiro": "المالية",
   "Cobranças QR": "مدفوعات QR", "Multas": "الغرامات", "Comunicados": "الإعلانات", "Documentos": "المستندات",
