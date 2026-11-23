@@ -77,6 +77,27 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 
 ## Histórico (mais recente primeiro)
 
+### 23/11/2026 — Primeiros passos também para o Administrador
+O guia de implantação aparecia só para diretor, síndico e tesouraria: o `administrador_predial`
+não tinha **nenhum** passo, e por isso a entrada "Primeiros passos" do menu nem existia para
+ele — `obVisivel` exige `obSteps.length`. Era uma sobra da época anterior à matriz, não uma
+decisão: quem implanta o prédio é ele tanto quanto o diretor, e o conjunto dele já traz **todas**
+as ações que os oito passos pedem (`condominio.editar`, `unidade.criar`, `cobranca.emitir`,
+`financeiro.lancar`, `comunicado.publicar`, `acesso.gerir`). Entrou nos **oito**.
+O passo dos meios de pagamento vale inteiro para ele pelos meios manuais (Verum Wallet e conta
+bancária); só o recebimento ONLINE é do dono — é conta bancária e ID fiscal do condomínio —, e
+aquele bloco da tela Condomínio **já era vedado a ele**, então não há botão que leve a um 403.
+A busca de `obExtras` (status do recebimento + acessos criados, os dois checks que não saem do
+db) passou a valer para ele: `connect/status` devolve `online` para qualquer perfil e a listagem
+de acessos decide pela matriz. Síndico e tesouraria seguem fora dessa busca — nenhum passo deles
+precisa, seria chamada à toa.
+`roles` aqui **continua decidindo por nome de perfil**, ao contrário do NAV. Não foi convertido
+junto de propósito: os passos não mapeiam 1:1 para um código — o de "unidades" vale para o
+síndico, que **não** tem `unidade.criar` — e trocar o critério mudaria em silêncio o que síndico
+e tesouraria enxergam hoje. Em troca, sonda nova cruza os dois mundos: **todo passo oferecido a
+um perfil aponta para uma tela que a matriz lhe dá** (8 para o administrador, 5 para o síndico,
+3 para a tesouraria) — passo em tela escondida seria beco sem saída, e nada impedia a divergência.
+
 ### 22/11/2026 — O administrador paga a fatura da plataforma, sem poder matar a conta
 **EM PRODUÇÃO**: SQL rodado, commits `d3f364c` → `6b95280` → `207f34b` com push em `main`
 (a Vercel deploya dela), e a configuração restrita do portal provisionada na conta **LIVE**

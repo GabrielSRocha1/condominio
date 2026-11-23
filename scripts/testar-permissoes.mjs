@@ -93,6 +93,24 @@ ok("todo código tem rótulo e grupo",
   const telasCat = PERMISSOES.filter((p) => p.grupo === "tela" && p.tela).map((p) => p.tela);
   const orfas = telasCat.filter((tl) => !itens.some((i) => i.id === tl));
   ok("toda tela do catálogo existe no NAV", orfas.length === 0, orfas.join(", "));
+
+  /* ── Primeiros passos × matriz ──
+     O guia de implantação ainda decide por NOME de perfil (`roles`), e o NAV
+     por permissão: nada impede os dois de divergirem. Um passo oferecido a
+     quem não tem a tela vira beco sem saída — o clique leva a uma tela que o
+     menu esconde. O administrador entrou nos oito passos em 23/11/2026, e é
+     esta sonda que prova que os oito são alcançáveis por ele. */
+  const guia = jsx.slice(jsx.indexOf("const ONBOARDING_STEPS = ["), jsx.indexOf("const K_ONB"));
+  const passos = [...guia.matchAll(/screen:\s*"([a-z]+)"[\s\S]*?roles:\s*\[([^\]]+)\]/g)]
+    .map(([, screen, rs]) => ({ screen, roles: [...rs.matchAll(/"([a-z_]+)"/g)].map(([, r]) => r) }));
+  ok("Primeiros passos: todos os passos foram lidos", passos.length === 8, `${passos.length} passos`);
+  for (const perfil of ["administrador_predial", "sindico", "tesouraria"]) {
+    const p = permsPadrao(perfil);
+    const becos = passos.filter((s) => s.roles.includes(perfil) && !podeTela(p, s.screen));
+    ok(`passos do ${perfil} apontam para telas que ele tem`, becos.length === 0,
+      becos.length ? becos.map((s) => s.screen).join(", ")
+        : `${passos.filter((s) => s.roles.includes(perfil)).length} passos`);
+  }
 }
 
 /* o padrão TEM de reproduzir o que cada perfil via ANTES da matriz — esta

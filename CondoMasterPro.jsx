@@ -223,47 +223,62 @@ const telaLiberada = (perms, id) => {
 /* Guia de implantação: cada passo aponta para uma tela e é dado como concluído
    pelos DADOS reais (nunca por clique) — o db recarrega após toda mutação, então
    os checks se atualizam sozinhos. `x` traz as checagens que não vivem no db:
-   status da conta Stripe e acessos criados (ambas exclusivas do diretor). */
+   status da conta de recebimento e acessos criados.
+
+   O ADMINISTRADOR vê os OITO passos (23/11/2026): quem implanta o prédio é ele
+   tanto quanto o diretor, e a matriz já lhe dá todas as ações que os passos
+   pedem — `condominio.editar`, `unidade.criar`, `cobranca.emitir`,
+   `financeiro.lancar`, `comunicado.publicar` e `acesso.gerir`. O passo dos
+   meios de pagamento continua inteiro para ele pelos meios manuais (Verum
+   Wallet e conta bancária); só o recebimento ONLINE é do dono — é conta
+   bancária e ID fiscal do condomínio, e aquele bloco da tela Condomínio já é
+   vedado a ele, então não há botão que leve a um 403.
+
+   `roles` aqui ainda decide por NOME de perfil, ao contrário do NAV, que
+   decide por permissão. Não foi convertido junto de propósito: os passos não
+   mapeiam 1:1 para um código (o de "unidades" vale para o síndico, que NÃO
+   tem `unidade.criar`), e trocar o critério mudaria em silêncio o que síndico
+   e tesouraria enxergam hoje. */
 const ONBOARDING_STEPS = [
   { id: "dados", screen: "condominio", tour: "cond-salvar",
     titulo: "Complete os dados do condomínio",
     desc: "Defina o país do condomínio e o síndico atual — eles controlam telefones, documentos e a gestão do dia a dia.",
-    roles: ["diretor"],
+    roles: ["diretor", "administrador_predial"],
     done: (db) => !!(db.cond.pais && db.cond.sindico) },
   { id: "unidades", screen: "unidades", tour: "unidades-nova",
     titulo: "Cadastre as unidades",
     desc: "Crie blocos e unidades — a base de todo rateio, cobrança e do portal do morador.",
-    roles: ["diretor", "sindico", "tesouraria"],
+    roles: ["diretor", "administrador_predial", "sindico", "tesouraria"],
     done: (db) => db.unidades.length > 0 },
   { id: "pessoas", screen: "pessoas", tour: "pessoas-nova",
     titulo: "Cadastre pessoas e responsáveis",
     desc: "Vincule proprietários e inquilinos às unidades — só unidades com responsável financeiro entram na geração de cobranças. Dá para importar por planilha.",
-    roles: ["diretor", "sindico"],
+    roles: ["diretor", "administrador_predial", "sindico"],
     done: (db) => db.pessoas.length > 0 && db.ctx.unidades.some((u) => u.responsavelId) },
   { id: "pagamentos", screen: "condominio", tour: "cond-tab-pagamentos", tab: "pagamentos",
     titulo: "Configure os meios de pagamento",
     desc: "Ative o recebimento online, cripto ou conta bancária — é como o morador paga a cota condominial.",
-    roles: ["diretor"],
+    roles: ["diretor", "administrador_predial"],
     done: (db, x) => !!(db.cond.pagamentos.verumWallet || db.cond.pagamentos.banco?.conta || db.cond.pagamentos.banco?.iban || x.stripe?.chargesEnabled || x.stripe?.online) },
   { id: "cobrancas", screen: "cobrancas", tour: "cobr-gerar",
     titulo: "Gere as cobranças do mês",
     desc: "Rateio automático pela fração ideal ou em partes iguais — cada unidade recebe a sua com QR de pagamento no portal.",
-    roles: ["diretor", "sindico", "tesouraria"],
+    roles: ["diretor", "administrador_predial", "sindico", "tesouraria"],
     done: (db) => db.cobr.length > 0 },
   { id: "financeiro", screen: "financeiro", tour: "fin-novo",
     titulo: "Registre o primeiro lançamento",
     desc: "Receitas e despesas com aprovação do síndico — o dashboard passa a mostrar o caixa real.",
-    roles: ["diretor", "sindico", "tesouraria"],
+    roles: ["diretor", "administrador_predial", "sindico", "tesouraria"],
     done: (db) => db.lanc.length > 0 },
   { id: "comunicado", screen: "comunicados", tour: "comunic-novo",
     titulo: "Publique o primeiro comunicado",
     desc: "Avise os moradores — os comunicados aparecem no portal e podem ser enviados por WhatsApp.",
-    roles: ["diretor", "sindico"],
+    roles: ["diretor", "administrador_predial", "sindico"],
     done: (db) => db.comunic.length > 0 },
   { id: "acessos", screen: "emails", tour: "acessos-novo",
     titulo: "Crie os acessos da equipe e dos moradores",
     desc: "Contas de síndico, tesouraria e moradores — cada pessoa entra com o próprio perfil.",
-    roles: ["diretor"],
+    roles: ["diretor", "administrador_predial"],
     done: (db, x) => (x.acessos?.length ?? 0) > 0 },
 ];
 const K_ONB = "cm_primeiros_passos"; // { [condominioId]: { welcomed, hidden } } — só estado de UI; conclusão vem dos dados
@@ -7789,13 +7804,20 @@ export default function App() {
   /* ── Primeiros passos (onboarding): conclusão derivada do db; só o estado de
      UI (welcomed/hidden) persiste, por condomínio, em localStorage ── */
   const [obOpen, setObOpen] = useState(false);
-  const [obExtras, setObExtras] = useState({ stripe: null, acessos: null }); // checagens fora do db (diretor)
+  const [obExtras, setObExtras] = useState({ stripe: null, acessos: null }); // checagens fora do db
   const obSteps = role ? ONBOARDING_STEPS.filter((s) => s.roles.includes(role)) : [];
   const obDone = db && !db.vazio ? obSteps.filter((s) => { try { return !!s.done(db, obExtras); } catch { return false; } }).length : 0;
   const obCompleto = obSteps.length > 0 && obDone === obSteps.length;
   const obVisivel = !!(role && role !== "morador" && obSteps.length && db && !db.vazio && condId && !lerOnb(condId).hidden);
-  useEffect(() => { // status Stripe e acessos criados — endpoints do diretor; param quando tudo concluído/oculto
-    if (role !== "diretor" || !obVisivel || obCompleto) return;
+  /* status do recebimento e acessos criados — os dois passos que não se
+     decidem pelo db. Vale para o ADMINISTRADOR também (23/11/2026): são os
+     passos dele igualmente, e os dois endpoints o atendem — `connect/status`
+     devolve `online` para qualquer perfil (os campos extras seguem só do
+     diretor) e a listagem de acessos passa pela matriz (`acesso.gerir`).
+     Síndico e tesouraria não têm nenhum passo que precise disto, por isso
+     seguem fora: seria chamada à toa. Para quando tudo concluir/ocultar. */
+  useEffect(() => {
+    if (!["diretor", "administrador_predial"].includes(role) || !obVisivel || obCompleto) return;
     statusStripeConnect().then((s) => setObExtras((x) => ({ ...x, stripe: s }))).catch(() => { /* sem rede: passo fica pendente */ });
     listarAcessos().then((a) => setObExtras((x) => ({ ...x, acessos: a }))).catch(() => { /* idem */ });
   }, [db, role]); // eslint-disable-line react-hooks/exhaustive-deps
