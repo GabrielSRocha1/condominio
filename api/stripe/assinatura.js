@@ -90,7 +90,14 @@ export default async function handler(req, res) {
     const chavePreco = lookupKey(plano.nome, anual ? "anual" : "mensal");
     const precos = await stripe.prices.list({ lookup_keys: [chavePreco], active: true, limit: 1 });
     const price = precos.data[0];
-    if (!price) return res.status(502).json({ error: `Preço "${chavePreco}" não existe na Stripe — rode scripts/preparar-stripe-producao.mjs.` });
+    /* diagnóstico de CONFIGURAÇÃO (o preço não foi provisionado): o detalhe
+       vai para o log do servidor, não para a tela — a mensagem antiga
+       entregava ao condomínio o nome do provedor e o caminho de um script
+       nosso, dentro de um alert. */
+    if (!price) {
+      console.error(`[stripe/assinatura] price "${chavePreco}" ausente — rode scripts/preparar-stripe-producao.mjs`);
+      return res.status(502).json({ error: "Este plano ainda não está disponível para contratação. Tente mais tarde." });
+    }
 
     /* cliente Stripe: 1 por condomínio, persistido JÁ AQUI (o webhook e a
        verificação dependem desse vínculo — nada de id implícito) */

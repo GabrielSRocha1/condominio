@@ -118,6 +118,21 @@ ok("portal.js nega quando a configuração restrita falta (não cai no padrão)"
   const comProvedor = visiveis.filter((s) => /stripe/i.test(s));
   ok("a tela Fatura não nomeia o provedor de pagamento",
     comProvedor.length === 0, comProvedor.join(" · "));
+
+  /* e a regra vale para o APP INTEIRO (varredura de 22/11/2026): eram 11
+     textos — onboarding de recebimento, QR do Pix, confirmação de pagamento,
+     Planos e paywall. Ficam de fora, de propósito:
+       · os COMENTÁRIOS de código, que são documentação e devem nomear o que
+         de fato está sendo integrado;
+       · as PÁGINAS LEGAIS (src/legal/*), onde identificar o processador de
+         pagamento é disclosure devido, não cópia de produto;
+       · a página hospedada do checkout, que é do provedor e não é nossa. */
+  const todas = [...jsx.matchAll(/L\("((?:[^"\\]|\\.)*)"\)/g)].map(([, s]) => s);
+  const vazando = [...new Set(todas.filter((s) => /stripe/i.test(s)))];
+  ok("nenhum texto de UI do app nomeia o provedor de pagamento",
+    vazando.length === 0, vazando.map((s) => s.slice(0, 40)).join(" · "));
+  const rotulos = arquivo("src/lib/api.js");
+  ok("o rótulo da forma de pagamento também não", !/Pagamento online \(Stripe\)/.test(rotulos));
 }
 
 /* ══════════ B · endpoints com uma conta de administrador real ══════════ */

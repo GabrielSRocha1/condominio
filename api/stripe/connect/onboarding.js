@@ -54,7 +54,7 @@ export default async function handler(req, res) {
       const pais = String(corpoJson(req).pais || "BR").toUpperCase().slice(0, 2);
       const infoPais = Object.prototype.hasOwnProperty.call(PAISES_CONNECT, pais) ? PAISES_CONNECT[pais] : null;
       if (!infoPais)
-        return res.status(400).json({ error: "País não suportado pela Stripe para contas de recebimento — use os meios de pagamento manuais." });
+        return res.status(400).json({ error: "País não suportado para contas de recebimento online — use os meios de pagamento manuais." });
       const { data: cond } = await supabase.from("condominios")
         .select("nome_fantasia, cnpj").eq("id", condominioId).maybeSingle();
       const conta = await stripe.v2.core.accounts.create({

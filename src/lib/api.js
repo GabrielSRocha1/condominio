@@ -216,7 +216,7 @@ const UNIDADE_TIPO_ENUM = { Apartamento: "apartamento", "Sala comercial": "sala"
 const UNIDADE_STATUS_ENUM = { Ocupada: "ocupada", Vaga: "vaga", Alugada: "alugada", Vendida: "vendida", Reservada: "reservada", Inativa: "inativa" };
 
 const LANC_STATUS_UI = { pago: "pago", aguardando_aprovacao: "aguardando", aprovado: "aberto", rejeitado: "cancelado", cancelado: "cancelado" };
-const FORMA_LABEL = { verum_pay: "QR Verum Pay", transferencia: "Transferência", debito_automatico: "Débito automático", dinheiro: "Dinheiro", stripe: "Pagamento online (Stripe)" };
+const FORMA_LABEL = { verum_pay: "QR Verum Pay", transferencia: "Transferência", debito_automatico: "Débito automático", dinheiro: "Dinheiro", stripe: "Pagamento online" };
 const FORMA_ENUM = Object.fromEntries(Object.entries(FORMA_LABEL).map(([k, v]) => [v, k]));
 
 const COBR_STATUS_UI = { paga: "pago", paga_em_atraso: "pago", rascunho: "emitida", emitida: "emitida", vencida: "vencida", cancelada: "cancelada", pagamento_informado: "informado", pagamento_divergente: "divergente" };

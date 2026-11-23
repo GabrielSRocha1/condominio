@@ -242,7 +242,7 @@ const ONBOARDING_STEPS = [
     done: (db) => db.pessoas.length > 0 && db.ctx.unidades.some((u) => u.responsavelId) },
   { id: "pagamentos", screen: "condominio", tour: "cond-tab-pagamentos", tab: "pagamentos",
     titulo: "Configure os meios de pagamento",
-    desc: "Ative o recebimento online (Stripe), cripto ou conta bancária — é como o morador paga a cota condominial.",
+    desc: "Ative o recebimento online, cripto ou conta bancária — é como o morador paga a cota condominial.",
     roles: ["diretor"],
     done: (db, x) => !!(db.cond.pagamentos.verumWallet || db.cond.pagamentos.banco?.conta || db.cond.pagamentos.banco?.iban || x.stripe?.chargesEnabled || x.stripe?.online) },
   { id: "cobrancas", screen: "cobrancas", tour: "cobr-gerar",
@@ -1698,13 +1698,13 @@ function Condominio({ t, role }) {
         </div>
         <div className="space-y-3" style={mostra("pagamentos")}>
           {role === "diretor" && (<>
-            <div className="text-xs font-semibold" style={{ color: t.gold, fontFamily: "'Sora',sans-serif" }}>{L("Pagamento online")} · Stripe</div>
+            <div className="text-xs font-semibold" style={{ color: t.gold, fontFamily: "'Sora',sans-serif" }}>{L("Pagamento online")}</div>
             <div className="rounded-xl border px-3 py-3 text-xs" style={{ borderColor: t.borderSoft, background: t.surface2 }}>
               {stripeInfo === null ? (
                 <span style={{ color: t.dim }}>{L("Consultando a conta de recebimento…")}</span>
               ) : !stripeInfo.configurado ? (<>
                 <div style={{ color: t.dim }}>
-                  {L("Receba as cobranças online direto na conta bancária do condomínio, com baixa automática no sistema (no Brasil por Pix e cartão; nos demais países, cartão e métodos locais). O cadastro é feito em ambiente seguro da Stripe (ID fiscal e conta bancária do condomínio).")}</div>
+                  {L("Receba as cobranças online direto na conta bancária do condomínio, com baixa automática no sistema (no Brasil por Pix e cartão; nos demais países, cartão e métodos locais). O cadastro é feito em ambiente seguro (ID fiscal e conta bancária do condomínio).")}</div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <select value={paisConta} onChange={(e) => setPaisConta(e.target.value)}
                     style={{ ...inputStyle(t), width: "auto", height: 34, padding: "0 10px" }}>
@@ -1714,11 +1714,11 @@ function Condominio({ t, role }) {
                     <QrCode size={13} /> {abrindoStripe ? "Abrindo…" : L("Ativar recebimento online")}</Btn>
                 </div>
                 <div className="mt-1 text-[11px]" style={{ color: t.dim }}>
-                  {L("O país define a moeda de recebimento")} ({(PAISES_STRIPE.find(([c]) => c === paisConta) || [])[2] || "?"}) {L("e não pode ser alterado depois. A moeda de gestão (Dados gerais) precisa ser a mesma. Países fora da lista não são atendidos pela Stripe — use os meios manuais abaixo.")}</div>
+                  {L("O país define a moeda de recebimento")} ({(PAISES_STRIPE.find(([c]) => c === paisConta) || [])[2] || "?"}) {L("e não pode ser alterado depois. A moeda de gestão (Dados gerais) precisa ser a mesma. Países fora da lista não são atendidos — use os meios manuais abaixo.")}</div>
               </>) : !stripeInfo.chargesEnabled ? (<>
                 <div style={{ color: t.warn }}>
                   <AlertCircle size={13} className="mr-1 inline" />
-                  {L("Cadastro iniciado — a Stripe ainda precisa de informações para liberar os recebimentos.")}</div>
+                  {L("Cadastro iniciado — ainda faltam informações para liberar os recebimentos.")}</div>
                 {(stripeInfo.pendencias || []).length > 0 && (
                   <div className="mt-1 break-all" style={{ color: t.dim }}>{L("Pendências")}: {stripeInfo.pendencias.join(", ")}</div>)}
                 <div className="mt-2">
@@ -1731,7 +1731,7 @@ function Condominio({ t, role }) {
                   {stripeInfo.contaMoeda === "BRL"
                     ? L("Recebimento online ativo — os moradores podem pagar as cobranças por Pix e cartão pelo portal.")
                     : `${L("Recebimento online ativo — os moradores podem pagar as cobranças pelo portal (cartão e métodos locais, em")} ${stripeInfo.contaMoeda}).`}
-                  {!stripeInfo.payoutsEnabled && <> {L("(repasses bancários ainda em liberação pela Stripe)")}</>}</div>
+                  {!stripeInfo.payoutsEnabled && <> {L("(repasses bancários ainda em liberação)")}</>}</div>
                 <div className="mt-1" style={{ color: t.dim }}>
                   {`${L("A plataforma retém 1% da cobrança, limitado a")} 1 ${stripeInfo.contaMoeda || "BRL"}${L(", por pagamento online.")} ${L("Gerencie recebimentos e repasses em")}`}{" "}
                   <a href={stripeInfo.dashboardUrl || "https://dashboard.stripe.com"} target="_blank" rel="noreferrer" style={{ color: t.gold, textDecoration: "underline" }}>dashboard.stripe.com</a>.</div>
@@ -3252,7 +3252,7 @@ function Cobrancas({ t }) {
             {abaEfetiva === "pix" && (pix?.url ? (<>
               <QRReal value={pix.url} size={180} icon={<IconePix />} />
               <div className="text-[11px]" style={{ color: t.dim }}>
-                {L("Escaneie com a câmera do celular — abre o pagamento Pix no checkout seguro da Stripe, com baixa automática.")}
+                {L("Escaneie com a câmera do celular — abre o pagamento Pix no checkout seguro, com baixa automática.")}
                 <br />{L("QR Pix válido por 60 minutos — feche e abra o QR de novo para gerar outro.")}</div>
             </>) : pix?.erro ? (
               <div className="w-full space-y-2">
@@ -6159,7 +6159,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
         if (!vivo) return;
         if (Date.now() > limite) {
           setConfirmandoPagto(null);
-          setAvisoPagto(L("O pagamento ainda não foi confirmado — assim que a Stripe confirmar, a cobrança é baixada automaticamente."));
+          setAvisoPagto(L("O pagamento ainda não foi confirmado — assim que for confirmado, a cobrança é baixada automaticamente."));
           return;
         }
         await new Promise((r) => setTimeout(r, 3000));
@@ -6487,7 +6487,7 @@ function PortalMorador({ t, onLogout, dark, setDark, lang, onLang, morador }) {
             {confirmandoPagto && (
               <div className="flex items-center gap-2 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.gold + "55", background: t.goldSoft, color: t.gold }}>
                 <div className="vspin h-4 w-4 shrink-0 rounded-full border-2" style={{ borderColor: t.borderSoft, borderTopColor: t.gold }} />
-                {L("Confirmando seu pagamento com a Stripe…")}</div>)}
+                {L("Confirmando seu pagamento…")}</div>)}
             {avisoPagto && !confirmandoPagto && (
               <div className="rounded-xl border px-3 py-2 text-xs" style={{ borderColor: t.gold + "55", background: t.goldSoft, color: t.gold }}>{avisoPagto}</div>)}
             {boletos.length === 0 && <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: t.borderSoft, color: t.dim }}>
@@ -7245,7 +7245,7 @@ function Planos({ t }) {
         {[["mensal", "Mensal"], ["anual", "Anual"]].map(([k, l]) => (
           <button key={k} onClick={() => setCiclo(k)} className="rounded-lg px-3 py-1.5 text-xs font-medium"
             style={{ background: ciclo === k ? t.goldSoft : "transparent", color: ciclo === k ? t.gold : t.dim, border: `1px solid ${ciclo === k ? t.border : t.borderSoft}` }}>{L(l)}</button>))}
-        <span className="text-[11px]" style={{ color: t.dim }}>{L("Preço em dólares (USD), cobrado na sua moeda local")} · Stripe</span>
+        <span className="text-[11px]" style={{ color: t.dim }}>{L("Preço em dólares (USD), cobrado na sua moeda local")}</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         {planos.map((p) => {
@@ -7272,7 +7272,7 @@ function Planos({ t }) {
         })}
       </div>
       <div className="text-[11px]" style={{ color: t.dim }}>
-        {L("Na troca de plano, a assinatura atual é atualizada automaticamente na Stripe (a diferença é cobrada ou creditada com rateio) — sem cobrança dupla. Após pagar, use \"Verificar pagamento\" para sincronizar o status.")}</div>
+        {L("Na troca de plano, a assinatura atual é atualizada automaticamente (a diferença é cobrada ou creditada com rateio) — sem cobrança dupla. Após pagar, use \"Verificar pagamento\" para sincronizar o status.")}</div>
       {/* mesmas faturas da tela Fatura — o dono as vê aqui, em contexto, sem
           lógica duplicada (o componente é um só) */}
       <FaturaLicenca t={t} embutida />
@@ -7361,7 +7361,7 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
         if (!vivo) return;
         if (Date.now() > limite) {
           setConfirmandoRetorno(false);
-          setErro(L("A Stripe ainda não confirmou este pagamento. Aguarde alguns instantes e use \"Já paguei — verificar\"."));
+          setErro(L("O pagamento ainda não foi confirmado. Aguarde alguns instantes e use \"Já paguei — verificar\"."));
           return;
         }
         await new Promise((r) => setTimeout(r, 3000));
@@ -7442,7 +7442,7 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
       <div className="vspin h-10 w-10 rounded-full border-2" style={{ borderColor: t.borderSoft, borderTopColor: t.gold }} />
       <div className="text-sm font-bold" style={{ fontFamily: "'Sora',sans-serif" }}>{L("Confirmando seu pagamento…")}</div>
       <p className="max-w-xs text-center text-xs" style={{ color: t.dim }}>
-        {L("Estamos verificando a confirmação com a Stripe. Isso costuma levar poucos segundos — você entrará no painel automaticamente.")}</p>
+        {L("Estamos verificando a confirmação do pagamento. Isso costuma levar poucos segundos — você entrará no painel automaticamente.")}</p>
     </div>
   );
 
@@ -7499,7 +7499,7 @@ function Paywall({ t, role, licenca, tenant, condominioId, onLogout, onReload })
               <Btn t={t} kind="primary" className="w-full" disabled={abrindoPortal} onClick={regularizar}>
                 <CreditCard size={15} /> {abrindoPortal ? L("Abrindo…") : L("Pagar fatura em atraso")}</Btn>)}
             <Btn t={t} className="w-full" disabled={verificando}
-              onClick={async () => { setErro(""); if (!(await verificar())) setErro(podePagar ? L("A Stripe ainda não confirmou este pagamento. Aguarde alguns instantes e verifique de novo.") : L("O acesso ainda não foi liberado. Tente novamente mais tarde.")); }}>
+              onClick={async () => { setErro(""); if (!(await verificar())) setErro(podePagar ? L("O pagamento ainda não foi confirmado. Aguarde alguns instantes e verifique de novo.") : L("O acesso ainda não foi liberado. Tente novamente mais tarde.")); }}>
               <RefreshCw size={15} className={verificando ? "vpulse" : ""} /> {podePagar ? L("Já paguei — verificar") : L("Tentar novamente")}</Btn>
             <Btn t={t} className="w-full" onClick={onLogout}><LogOut size={15} /> {L("Sair")}</Btn>
           </div>

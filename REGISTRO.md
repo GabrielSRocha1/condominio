@@ -130,7 +130,21 @@ lista vazia) moram num ramo só, em **âmbar** — vermelho fica para erro de ve
 desses é: em todos a licença está em dia e não há nada para a pessoa consertar. Os três trazem a
 âncora que ela veio ver: **a data do próximo vencimento** (`tenant.vencFull`, campo novo). E a
 tela **não nomeia o provedor de pagamento**: a plataforma atende em domínio próprio e quem
-processa o cartão é detalhe de implementação — sonda nova varre os `L()` do componente.
+processa o cartão é detalhe de implementação.
+
+**Varredura do nome do provedor em TODA a UI** (22/11/2026, pedida na mesma olhada): saíram **11
+textos** — ativação do recebimento online, seletor de país, status do cadastro, QR do Pix,
+confirmação de pagamento do morador, aviso de troca de plano e as três mensagens do paywall —,
+mais dois literais " · Stripe" soltos ao lado de um `L()`, o passo "Primeiros passos" e o rótulo
+`FORMA_LABEL` ("Pagamento online (Stripe)" → "Pagamento online"). O 502 de
+`api/stripe/assinatura.js` entregava ao condomínio, dentro de um `alert`, o nome do provedor **e
+o caminho de um script nosso**: o diagnóstico foi para o log do servidor e a tela recebe "Este
+plano ainda não está disponível para contratação." Os 12 dicionários secundários não tinham
+nenhuma dessas chaves (caem no inglês), então foram 11 chaves × EN + ES.
+**Ficam de fora, de propósito**: os comentários de código (documentação deve nomear o que está
+integrado), as **páginas legais** (`src/legal/*`, 10 menções em cada idioma — identificar o
+processador de pagamento é disclosure devido, não cópia de produto) e a página hospedada do
+checkout, que é do provedor. Sonda nova varre os `L()` do app inteiro + o `FORMA_LABEL`.
 `/api/stripe/faturas` passou a tratar `No such customer` como CONDIÇÃO (200 + `clienteAusente`),
 não como 500: acontece sempre que a chave aponta para o outro ambiente — foi o que apareceu na
 tela ao abrir um condomínio **live** no dev local, que roda em **test**.
