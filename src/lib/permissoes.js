@@ -151,11 +151,16 @@ export const PERFIS_SOB_APROVACAO = [];
 export const PERMS_VEDADAS_AO_ADMIN = [
   "licenca.gerir",   // propriedade: licença é do dono (e /api/stripe/* exige)
   "tela.planos",     // propriedade: a tela que mostra e troca o plano
-  /* O Histórico entrou em 09/11/2026 pelo MESMO princípio: a trilha de
+  /* O DESFAZER entrou em 09/11/2026 pelo MESMO princípio: a trilha de
      alterações é o instrumento do dono para fiscalizar quem administra o
-     prédio. Dar a tela (ou o desfazer) ao administrador anularia a
-     fiscalização — ele leria e reverteria o próprio rastro. */
-  "tela.historico",
+     prédio, e reverter é o que anularia a fiscalização — ele apagaria o
+     efeito do próprio rastro, sem ninguém olhando.
+     A TELA saiu daqui em 23/11/2026: LER a trilha não anula fiscalização
+     nenhuma (o registro continua lá, e o `auditoria` é append-only por
+     gatilho), e quem administra o prédio precisa saber quem mexeu em quê —
+     é metade do trabalho dele. A assimetria é o ponto: ele lê tudo e não
+     reverte nada. Mesmo corte da licença: ver e pagar ≠ contratar e
+     cancelar. */
   "historico.desfazer",
 ];
 
@@ -205,10 +210,10 @@ export const MATRIZ_PADRAO = {
     "dados.escrever", "financeiro.lancar", "financeiro.aprovar", "financeiro.baixar",
     "cobranca.emitir", "cobranca.cancelar", "documento.emitir",
   ],
-  /* 31 dos 41 códigos do catálogo: todas as telas de operação, todas as
-     escritas e a CONTA da plataforma. Fora, de propósito: `tela.planos` +
-     `licenca.gerir` e `tela.historico` + `historico.desfazer` (propriedade do
-     dono — ver PERMS_VEDADAS_AO_ADMIN), `alteracao.aprovar`,
+  /* 32 dos 41 códigos do catálogo: todas as telas de operação, todas as
+     escritas, a CONTA da plataforma e a LEITURA do Histórico. Fora, de
+     propósito: `tela.planos` + `licenca.gerir` e `historico.desfazer`
+     (propriedade do dono — ver PERMS_VEDADAS_AO_ADMIN), `alteracao.aprovar`,
      `permissao.gerir` e `saas.gerir` (indelegáveis) e `tela.portal` +
      `pagamento.informar` + `reserva.solicitar` (são do morador).
      Espelha a view _padrao_administrador do supabase-aprovacoes.sql — a
@@ -232,6 +237,9 @@ export const MATRIZ_PADRAO = {
        portal restrito. O CONTRATO (contratar, trocar de plano, cancelar)
        segue vedado — ver PERMS_VEDADAS_AO_ADMIN. */
     "tela.fatura", "licenca.pagar",
+    /* A LEITURA do Histórico (23/11/2026): quem administra o prédio precisa
+       saber quem mexeu em quê. O DESFAZER continua fora. */
+    "tela.historico",
   ],
   morador: ["tela.portal", "chamado.abrir", "pagamento.informar", "reserva.solicitar"],
   administradora: ["saas.gerir"],

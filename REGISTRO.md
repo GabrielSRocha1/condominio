@@ -77,6 +77,23 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 
 ## Histórico (mais recente primeiro)
 
+### 23/11/2026 — O Administrador LÊ o Histórico, e segue sem poder reverter
+Em 09/11 o Histórico foi vedado ao `administrador_predial` em bloco — tela **e** desfazer —, com
+o argumento de que a trilha é o instrumento do dono para fiscalizar quem administra o prédio.
+O argumento vale para **reverter**, não para **ler**: o registro continua lá de qualquer jeito
+(`auditoria` é append-only por gatilho, DELETE só acima de 365 dias), e saber quem mexeu em quê
+é metade do trabalho de quem administra o prédio. `tela.historico` saiu de
+`PERMS_VEDADAS_AO_ADMIN` e entrou no padrão dele (**32 de 41**); `historico.desfazer`
+**continua vedado**. A aba abre sem o botão Desfazer sem precisar de código novo — ele já era
+gated por `historico.desfazer` em separado. É o mesmo corte da licença: ver e pagar ≠ contratar
+e cancelar; aqui, ler ≠ reverter. **Ele lê tudo e não reverte nada.**
+SQL: só o `supabase-aprovacoes.sql` (passo 11) — `tela.historico` já estava no catálogo desde o
+`supabase-historico.sql`, e o que mudou foi a view `_padrao_administrador`. Conferido no banco:
+32 códigos, `tela.historico` presente e `historico.desfazer` ausente. Sondas: `testar-historico`
+ganhou 5 asserções que travam a assimetria (incluindo "a tela é do administrador, e só dele além
+do diretor") e `testar-permissoes` outra no mesmo espírito; as duas 0 falhas, mais
+`fatura-licenca`, `aprovacoes`, `reservas` e `idioma-moeda` 0, build OK.
+
 ### 23/11/2026 — Primeiros passos também para o Administrador
 O guia de implantação aparecia só para diretor, síndico e tesouraria: o `administrador_predial`
 não tinha **nenhum** passo, e por isso a entrada "Primeiros passos" do menu nem existia para

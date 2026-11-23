@@ -24,6 +24,13 @@
 --      `tela.fatura` + `licenca.pagar` entraram no conjunto dele — vê plano,
 --      valor, vencimento e faturas, e paga pelo portal RESTRITO da Stripe.
 --
+-- Uma QUINTA, da mesma família (23/11/2026): não DESFAZ pelo Histórico —
+-- `historico.desfazer` fica fora do conjunto dele e é vedada em
+-- src/lib/permissoes.js. A TELA ele tem desde 23/11: ler a trilha não anula
+-- fiscalização (o registro fica, e `auditoria` é append-only por gatilho) e
+-- saber quem mexeu em quê é metade do trabalho dele. Reverter é que apagaria
+-- o efeito do próprio rastro. Ele lê tudo e não reverte nada.
+--
 -- ── A FILA DE APROVAÇÃO ESTÁ INSTALADA E INERTE ──
 -- Até 02/11/2026 este arquivo fazia outra coisa: um gatilho CANCELAVA cada
 -- escrita do administrador (e do síndico) e a guardava em
@@ -97,11 +104,16 @@ begin
   end if;
 end $$;
 
-/* Conjunto do administrador: 31 dos 41 códigos do catálogo — todas as telas
+/* Conjunto do administrador: 32 dos 41 códigos do catálogo — todas as telas
    de operação e todas as escritas, inclusive `financeiro.baixar` e
    `cobranca.cancelar`, que entraram em 02/11/2026 (sem fila, não havia mais
    motivo para segurá-las; `pagamento.rejeitar` não tem código próprio, a RPC
    dela exige financeiro.baixar).
+   DENTRO desde 23/11/2026: `tela.historico` — a LEITURA da trilha. Ler não
+   anula fiscalização (o registro continua lá, e `auditoria` é append-only por
+   gatilho); quem administra o prédio precisa saber quem mexeu em quê.
+   `historico.desfazer` segue FORA: reverter é que apagaria o efeito do
+   próprio rastro. Ele lê tudo e não reverte nada.
    DENTRO desde 22/11/2026: `tela.fatura` + `licenca.pagar` — a CONTA da
    plataforma. Quem administra o prédio paga as contas dele, e a mensalidade é
    uma delas: ele vê plano, valor, vencimento e faturas, e paga pelo portal
@@ -130,6 +142,8 @@ select c as codigo from unnest(array[
   'tela.reservas','tela.assembleias','reserva.decidir',
   -- a CONTA da plataforma (22/11/2026) — o CONTRATO segue fora
   'tela.fatura','licenca.pagar',
+  -- a LEITURA do Histórico (23/11/2026) — o DESFAZER segue fora
+  'tela.historico',
   'condominio.editar','unidade.criar','financeiro.lancar','financeiro.aprovar',
   'financeiro.baixar','cobranca.emitir','cobranca.cancelar',
   'multa.registrar','multa.aprovar','comunicado.publicar',
@@ -867,9 +881,10 @@ create trigger trg_a_protege_diretor before update or delete on public.pessoa_vi
 --   select public.perfis_sob_aprovacao();                      -- esperado: {}
 --   select status, count(*) from alteracoes_pendentes group by status;
 --   select count(*) from perfil_permissoes pp join perfis pf on pf.id = pp.perfil_id
---    where pf.nome = 'administrador_predial' and pp.condominio_id is null;  -- esperado: 31
+--    where pf.nome = 'administrador_predial' and pp.condominio_id is null;  -- esperado: 32
 --   (era 26 em 02/11/2026; 29 com Reservas/Assembleias em 09/11; 31 com
---    tela.fatura + licenca.pagar em 22/11. A contagem que vale é sempre
+--    tela.fatura + licenca.pagar em 22/11; 32 com tela.historico em 23/11.
+--    A contagem que vale é sempre
 --    `select count(*) from public._padrao_administrador`.)
 --   -- ninguém, em nenhum condomínio, tem alteracao.aprovar por linha:
 --   select count(*) from perfil_permissoes pp join permissoes pm on pm.id = pp.permissao_id

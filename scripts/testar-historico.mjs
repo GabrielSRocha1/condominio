@@ -187,14 +187,27 @@ ok("F4d view com security_invoker", sHist.includes("security_invoker = true"));
     await import("../src/lib/permissoes.js");
   ok("F6 tela.historico e historico.desfazer no catálogo",
     CODIGOS.includes("tela.historico") && CODIGOS.includes("historico.desfazer"));
-  ok("F6b vedadas ao administrador",
-    PERMS_VEDADAS_AO_ADMIN.includes("tela.historico") && PERMS_VEDADAS_AO_ADMIN.includes("historico.desfazer"));
-  ok("F6c fora da MATRIZ_PADRAO de todos os perfis (padrão: só o diretor)",
-    Object.values(MATRIZ_PADRAO).every((lista) =>
-      !lista.includes("tela.historico") && !lista.includes("historico.desfazer")));
-  ok("F6d _padrao_administrador (SQL) não os contém",
-    !sAprov.slice(sAprov.indexOf("_padrao_administrador"), sAprov.indexOf("revoke all on public._padrao_administrador"))
-      .match(/tela\.historico|historico\.desfazer/));
+  /* 23/11/2026: o administrador passou a LER a trilha — ler não anula
+     fiscalização (o registro continua lá, e `auditoria` é append-only por
+     gatilho) e quem administra o prédio precisa saber quem mexeu em quê.
+     REVERTER é que apagaria o efeito do próprio rastro: `historico.desfazer`
+     segue vedado, e é essa assimetria que as sondas abaixo travam. */
+  ok("F6b desfazer vedado ao administrador",
+    PERMS_VEDADAS_AO_ADMIN.includes("historico.desfazer"));
+  ok("F6b2 mas a TELA não é mais vedada a ele",
+    !PERMS_VEDADAS_AO_ADMIN.includes("tela.historico"));
+  ok("F6c desfazer fora da MATRIZ_PADRAO de todos os perfis (padrão: só o diretor)",
+    Object.values(MATRIZ_PADRAO).every((lista) => !lista.includes("historico.desfazer")));
+  ok("F6c2 a tela é do administrador, e só dele além do diretor",
+    (MATRIZ_PADRAO.administrador_predial || []).includes("tela.historico")
+    && Object.entries(MATRIZ_PADRAO).every(([p, lista]) =>
+      p === "administrador_predial" || !lista.includes("tela.historico")));
+  {
+    const vw = sAprov.slice(sAprov.indexOf("_padrao_administrador"),
+      sAprov.indexOf("revoke all on public._padrao_administrador"));
+    ok("F6d _padrao_administrador (SQL) traz a tela e NÃO o desfazer",
+      vw.includes("'tela.historico'") && !vw.includes("'historico.desfazer'"));
+  }
 }
 
 /* F7 · a aba existe no app: NAV + SCREENS + consulta fora do loadAll */

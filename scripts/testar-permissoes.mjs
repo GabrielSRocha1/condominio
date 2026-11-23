@@ -184,12 +184,19 @@ ok("diretor ignora override", mesmoConjunto(permsEfetivas({ perfil: "diretor", o
      mesma tela por dois ângulos (o menu e o Paywall), e licença é do dono.
      `alteracao.aprovar` não está aqui porque virou FIXA: vale para todo
      perfil, não só para o administrador. */
-  /* tela.historico + historico.desfazer entraram em 09/11/2026: a trilha de
-     alterações fiscaliza justamente quem administra o prédio */
-  ok("vedadas ao administrador: licença, Planos e Histórico (propriedade)",
+  /* `historico.desfazer` entrou em 09/11/2026: a trilha fiscaliza justamente
+     quem administra o prédio, e REVERTER apagaria o efeito do próprio rastro.
+     `tela.historico` SAIU em 23/11/2026 — LER não anula fiscalização nenhuma
+     (o registro fica, e `auditoria` é append-only por gatilho) e é metade do
+     trabalho de quem administra o prédio. Mesmo corte da licença: ver e pagar
+     ≠ contratar e cancelar. */
+  ok("vedadas ao administrador: licença, Planos e o DESFAZER (propriedade)",
     mesmoConjunto(PERMS_VEDADAS_AO_ADMIN,
-      ["licenca.gerir", "tela.planos", "tela.historico", "historico.desfazer"]),
+      ["licenca.gerir", "tela.planos", "historico.desfazer"]),
     PERMS_VEDADAS_AO_ADMIN.join(","));
+  ok("o administrador LÊ a trilha e NÃO a reverte",
+    sanearPerms("administrador_predial", ["tela.historico"]).includes("tela.historico")
+    && !sanearPerms("administrador_predial", ["historico.desfazer"]).includes("historico.desfazer"));
   ok("alteracao.aprovar é vetada a todos os perfis editáveis",
     PERFIS_EDITAVEIS.every((pf) => !sanearPerms(pf, ["alteracao.aprovar", "chamado.abrir"]).includes("alteracao.aprovar")));
   ok("o síndico mantém a baixa",
