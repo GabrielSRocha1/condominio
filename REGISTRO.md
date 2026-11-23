@@ -68,15 +68,25 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 - **Sonda dos manuais**: ~10 ❌ falsos a partir de 28/09/2026 (fixture com cenário vencido).
 - Testes visuais pendentes: import de contas a pagar, unificação de pessoa e o cancelamento de
   reserva (este provado no banco pelo bloco B — falta só a olhada na tela).
-- **Fatura da licença (22/11/2026)**: SQL rodado e provado — `testar-permissoes` 0 falhas
-  (bloco B incluído) e `testar-fatura-licenca` **17/17**, as duas rodadas duas vezes seguidas.
-  Falta só a olhada visual e confirmar no navegador que o portal restrito deixa pagar a fatura
-  em aberto — se não deixar, o botão "Pagar" da linha já vai no `hosted_invoice_url` que o
-  endpoint devolve.
+- **Fatura da licença (22/11/2026)**: EM PRODUÇÃO (push `207f34b`, portal restrito provisionado
+  em live). Falta a olhada visual **em produção** — no dev local o condomínio Hotel Cassino Ross
+  é cliente **live** e o `.env` daqui é **test**, então a lista de faturas dele nunca carrega
+  aqui (cai em "cadastro de cobrança não entregue", que é o comportamento certo para esse
+  caso). Confirmar também que o portal restrito deixa pagar a fatura em aberto — se não deixar,
+  o botão "Pagar" da linha já vai no `hosted_invoice_url` que o endpoint devolve.
 
 ## Histórico (mais recente primeiro)
 
 ### 22/11/2026 — O administrador paga a fatura da plataforma, sem poder matar a conta
+**EM PRODUÇÃO**: SQL rodado, commits `d3f364c` → `6b95280` → `207f34b` com push em `main`
+(a Vercel deploya dela), e a configuração restrita do portal provisionada na conta **LIVE**
+(`bpc_1UemLrRtL3V8lKdYI2lhNX4C`, conferida: `cancel=false`, `update=false`, faturas e cartão
+ligados; a padrão do diretor segue com `cancel=true`). Ordem cumprida: **SQL primeiro, deploy
+depois**. Sondas: `testar-fatura-licenca` **23/23**, `testar-permissoes` 0 falhas (bloco B
+incluído), `testar-aprovacoes`/`historico`/`reservas`/`idioma-moeda` 0, build OK — as duas
+principais rodadas **duas vezes seguidas** para provar o teardown. Falta só a olhada visual em
+produção.
+
 Quem administra o prédio por contrato paga e gere as contas do condomínio, e a licença da
 plataforma é uma dessas contas — mas o `administrador_predial` não conseguia nem **ver** a
 fatura: a 4ª exceção vedava `tela.planos` + `licenca.gerir` em bloco, e todo
