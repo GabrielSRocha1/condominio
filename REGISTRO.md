@@ -68,14 +68,32 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 - **Sonda dos manuais**: ~10 ❌ falsos a partir de 28/09/2026 (fixture com cenário vencido).
 - Testes visuais pendentes: import de contas a pagar, unificação de pessoa e o cancelamento de
   reserva (este provado no banco pelo bloco B — falta só a olhada na tela).
-- **Fatura da licença (22/11/2026)**: EM PRODUÇÃO (push `207f34b`, portal restrito provisionado
-  em live). Falta a olhada visual **em produção** — no dev local o condomínio Hotel Cassino Ross
-  é cliente **live** e o `.env` daqui é **test**, então a lista de faturas dele nunca carrega
-  aqui (cai em "cadastro de cobrança não entregue", que é o comportamento certo para esse
-  caso). Confirmar também que o portal restrito deixa pagar a fatura em aberto — se não deixar,
-  o botão "Pagar" da linha já vai no `hosted_invoice_url` que o endpoint devolve.
+- **Superfície do Administrador (22–23/11/2026)**: FECHADA — Fatura da licença, Primeiros passos
+  e leitura do Histórico estão em produção, com SQL rodado, sondas 0 falhas e **telas conferidas
+  pelo usuário em 23/11/2026**. Nada pendente. Lembrete de ambiente, não pendência: no dev local
+  a lista de faturas de um condomínio **live** (ex.: Hotel Cassino Ross) nunca carrega, porque o
+  `.env` daqui é **test** — cai em "cadastro de cobrança não entregue", que é o comportamento
+  certo para esse caso, não defeito.
 
 ## Histórico (mais recente primeiro)
+
+### 23/11/2026 — Telas do Administrador conferidas: a superfície dele está fechada
+Validação visual feita pelo usuário, sem ressalvas. Com isso o ciclo que começou em 22/11 está
+completo nas três frentes, e vale registrar o desenho que emergiu delas, porque é o mesmo em
+todas: **a fronteira do administrador não é o escopo do dado, é a propriedade da decisão.** Ele
+opera o prédio inteiro; o que fica com o dono é o que encerra ou apaga.
+
+| Ele faz | Fica com o diretor |
+|---|---|
+| Vê plano, valor e faturas; **paga** pelo portal restrito; troca o cartão | Contratar, trocar de plano, **cancelar a assinatura** |
+| **Lê** a trilha inteira de alterações | **Desfazer** pelo Histórico |
+| Cria e remove acessos da equipe | Criar/remover acesso de **diretor**; excluir a pessoa ligada a ele |
+| Os 8 passos do guia de implantação | Ativar o recebimento ONLINE (conta bancária e ID fiscal do condomínio) |
+
+O par "ver/fazer ≠ encerrar/apagar" se repete três vezes porque é a mesma pergunta respondida
+três vezes: **o que ele faz é reversível e rastreável; o que o dono guarda é o irreversível.**
+Conjunto dele: **32 de 41 códigos**. Nada disso decide por nome de perfil — tudo passa pela
+matriz, e o diretor pode revogar qualquer um em Gerenciar Acessos → Permissões.
 
 ### 23/11/2026 — O Administrador LÊ o Histórico, e segue sem poder reverter
 Em 09/11 o Histórico foi vedado ao `administrador_predial` em bloco — tela **e** desfazer —, com
