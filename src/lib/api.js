@@ -420,6 +420,9 @@ export async function loadAll(condominioId) {
     status: l.tipo === "receita" && l.status === "pago" ? "entrada" : (LANC_STATUS_UI[l.status] || l.status),
     forma: FORMA_LABEL[l.forma_pagamento] || "—", competencia: l.competencia,
     nf: l.nota_fiscal_url || null,
+    /* a exclusão na tela precisa saber a origem: lançamento nascido de
+       cobrança se gerencia pela tela de Cobranças, não some por aqui */
+    origem: l.origem_tipo || null,
   }));
 
   /* cobranças */
@@ -1782,6 +1785,34 @@ export async function decidirLancamento(ctx, id, aprovar, tipo) {
 /* Dar baixa numa conta a pagar (aba Contas a pagar do Financeiro) */
 export async function marcarLancamentoPago(ctx, id) {
   await q1(supabase.from("lancamentos").update({ status: "pago" }).eq("id", id).select(), "lancamentos", "Marcar o lançamento como pago");
+  if (escritaVaiParaFila()) throw erroFila();
+}
+
+/* Excluir lançamentos (aba Lançamentos — linha única ou seleção em lote).
+   DELETE de verdade, não soft: dado errado não pode poluir o dedupe da
+   reimportação nem as listas. A trilha fica — a auditoria grava a linha
+   inteira em `antes` (Histórico de alterações; Desfazer segue bloqueado
+   para lançamentos de propósito). PAGO não se exclui: o valor já está no
+   caixa — regra do usuário, travada aqui, no gatilho do banco e na UI.
+   Lançamento nascido de cobrança se gerencia pela tela de Cobranças. */
+export async function excluirLancamentos(ctx, ids) {
+  precisaUsuario(ctx);
+  const alvo = [...new Set((ids || []).filter(Boolean))];
+  if (!alvo.length) return;
+  const linhas = await q(supabase.from("lancamentos").select("id, status, origem_tipo")
+    .eq("condominio_id", ctx.condominioId).in("id", alvo), "lancamentos");
+  if (linhas.some((l) => l.status === "pago"))
+    throw new Error("Lançamento pago não pode ser excluído — o valor já está no caixa.");
+  if (linhas.some((l) => l.origem_tipo === "cobranca"))
+    throw new Error("Este lançamento nasceu de uma cobrança — gerencie pela tela de Cobranças.");
+  const { data: presas } = await supabase.from("penalidades").select("id").in("lancamento_id", alvo).limit(1);
+  if (presas?.length)
+    throw new Error("Não é possível excluir: há lançamento vinculado a uma multa — o histórico precisa ser preservado.");
+  const { error } = await supabase.from("lancamentos").delete().in("id", alvo).eq("condominio_id", ctx.condominioId);
+  if (error) throw new Error(String(error.code) === "42501" ? error.message
+    : /foreign key|violates/i.test(error.message)
+      ? "Não é possível excluir: há lançamento com histórico vinculado que precisa ser preservado."
+      : error.message);
   if (escritaVaiParaFila()) throw erroFila();
 }
 

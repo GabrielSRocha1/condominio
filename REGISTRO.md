@@ -78,6 +78,27 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 
 ## Histórico (mais recente primeiro)
 
+### 24/11/2026 — Excluir lançamentos na aba Lançamentos: linha e lote, pago é intocável
+Dado que sobe errado (import ou manual) agora tem saída: lixeira por linha e seleção múltipla
+com "Excluir selecionados" na aba Lançamentos — pedido do usuário depois do import das
+Expensas Comunes. Decisões:
+
+- **DELETE de verdade, não soft**: linha errada não pode poluir o dedupe da reimportação nem
+  as listas. A trilha fica — a auditoria grava a linha inteira em `antes` e a exclusão aparece
+  no Histórico de alterações. O **Desfazer segue bloqueado** para lançamentos (decisão de
+  09/11: dinheiro não se restaura por clique) — excluir é definitivo pela tela.
+- **Pago não se exclui** (decisão do usuário): o valor já está no caixa. "Entrada" (receita
+  paga) idem. Lançamento nascido de cobrança se gerencia pela tela de Cobranças, e vínculo
+  com multa é recusado (FK de `penalidades` preservada com mensagem clara).
+- **Sem código de permissão novo** (a armadilha do override congelado, de ontem): a regra usa
+  `financeiro.lancar`, o mesmo que a RLS já exigia para DELETE — nunca exposto na tela até hoje.
+- Três camadas: UI esconde (lixeira/checkbox só em excluível), API barra
+  (`excluirLancamentos`), banco impede (`trg_lancamentos_sem_delete_pago` before delete em
+  `supabase-permissoes.sql`; service_role passa para os reparos). **SQL pendente de rodar** —
+  só o trecho novo, sem re-rodar o arquivo nem a cadeia; sem ele o app degrada aberto (API barra).
+- `Tbl` ganhou `selection.rotulo` (o aria-label "Selecionar cobrança" era fixo); `db.lanc`
+  passou a expor `origem`. i18n EN/ES das frases novas. Sondas 27/27.
+
 ### 23/11/2026 — Lançamento manual nasce "À pagar": a forma de pagamento deixa de fingir que a conta já foi paga
 O modal Novo lançamento obrigava a escolher um meio de pagamento (abria em "QR Verum Pay")
 mesmo quando a despesa ainda nem foi paga — toda conta a pagar nascia com uma forma inventada.

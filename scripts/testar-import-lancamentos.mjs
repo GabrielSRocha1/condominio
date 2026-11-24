@@ -127,6 +127,23 @@ console.log("\n━━ o fluxo nas telas (fonte) ━━");
   ok("o modal manual abre em 'À pagar'/'À receber' (fora de FORMA_ENUM → forma nula até a baixa)",
     /<option>\{tipoNovo === "Receita" \? "À receber" : "À pagar"\}<\/option>/.test(tela)
     && /FORMA_ENUM\[f\.forma\] \|\| null/.test(api));
+
+  /* exclusão de lançamentos (24/11/2026): linha e lote, só não-pagos */
+  const sql = readFileSync(new URL("../supabase-permissoes.sql", import.meta.url), "utf8");
+  ok("excluirLancamentos existe na API e barra pago, origem cobrança e vínculo com multa",
+    /export async function excluirLancamentos\(/.test(api)
+    && /Lançamento pago não pode ser excluído/.test(api)
+    && /origem_tipo === "cobranca"/.test(api)
+    && /from\("penalidades"\)\.select\("id"\)\.in\("lancamento_id", alvo\)/.test(api));
+  ok("a aba Lançamentos tem lixeira por linha e seleção em lote (só excluíveis)",
+    /excluivel\(r\)\s*\?\s*\(<Btn t=\{t\} kind="danger"/.test(tela)
+    && /rotulo: "Selecionar lançamento"/.test(tela)
+    && /Excluir selecionados/.test(tela));
+  ok("o banco impede DELETE de pago/origem cobrança (gatilho before delete)",
+    /impedir_delete_lancamento/.test(sql)
+    && /trg_lancamentos_sem_delete_pago before delete on public\.lancamentos/.test(sql));
+  ok("db.lanc expõe a origem do lançamento (a tela decide o que é excluível)",
+    /origem: l\.origem_tipo \|\| null/.test(api));
 }
 
 console.log(falhas ? `\n❌ import-lancamentos: ${falhas} falha(s)` : "\n💸 IMPORT DE CONTAS A PAGAR OK");

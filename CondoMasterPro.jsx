@@ -26,7 +26,7 @@ import {
   solicitarLinkRecuperacao, redefinirSenhaPorLink,
   salvarLogoCondominio, removerLogoCondominio, salvarLogoMenuCondominio, removerLogoMenuCondominio,
   obterCondominio, salvarCondominio, salvarResponsavelUnidade, atualizarUnidade, excluirUnidade, recalcularFracoes,
-  atualizarPessoa, removerPessoa, unificarPessoas, marcarLancamentoPago, importarLancamentos, enviarPenalidade, criarDocumento, atualizarChamado,
+  atualizarPessoa, removerPessoa, unificarPessoas, marcarLancamentoPago, excluirLancamentos, importarLancamentos, enviarPenalidade, criarDocumento, atualizarChamado,
   listarPermissoes, salvarPermissoes, restaurarPermissoes,
   listarAlteracoesPendentes, aprovarAlteracao, rejeitarAlteracao,
   gerarQrAcesso, validarQrAcesso, confirmarEntradaQr, registrarOcorrencia, registrarEntrega,
@@ -612,16 +612,18 @@ const Skeleton = ({ t, rows = 4 }) => (
 
 /* Tabela responsiva: vira cards no mobile */
 /* selection (opcional) habilita checkboxes de seleção múltipla por linha:
-   { ids: Set, onToggle(r), selectable(r), disabledReason(r) → string|null }.
-   Sem a prop, a tabela fica exatamente como sempre foi. */
+   { ids: Set, onToggle(r), selectable(r), disabledReason(r) → string|null,
+     rotulo? } — rotulo nomeia o que se seleciona (padrão "Selecionar
+   cobrança", o primeiro uso). Sem a prop, a tabela fica como sempre foi. */
 const Tbl = ({ t, cols, rows, renderCell, onRowClick, empty, selection }) => {
   if (!rows.length) return empty;
+  const rotuloSel = selection?.rotulo || "Selecionar cobrança";
   const selBox = (r) => {
     if (!selection?.selectable(r)) return null;
     const motivo = selection.disabledReason?.(r) || null;
     return (
       <input type="checkbox" checked={selection.ids.has(r.id)} disabled={!!motivo}
-        title={motivo || undefined} aria-label={L("Selecionar cobrança")}
+        title={motivo || undefined} aria-label={L(rotuloSel)}
         onClick={(e) => e.stopPropagation()} onChange={() => selection.onToggle(r)}
         style={{ accentColor: t.gold, cursor: motivo ? "not-allowed" : "pointer" }} />
     );
@@ -649,7 +651,7 @@ const Tbl = ({ t, cols, rows, renderCell, onRowClick, empty, selection }) => {
           <div className="space-y-1.5">
             {selection?.selectable(r) && (
               <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-xs" style={{ color: t.dim }}>{L("Selecionar cobrança")}</span>
+                <span className="text-xs" style={{ color: t.dim }}>{L(rotuloSel)}</span>
                 <span className="text-right">{selBox(r)}</span>
               </div>)}
             {cols.map((c) => (
@@ -2670,6 +2672,26 @@ function Financeiro({ t }) {
     catch (err) { alert("Não foi possível dar baixa: " + (err?.message || err)); }
     finally { setBaixando(null); }
   };
+  /* exclusão (linha e lote) — para limpar dado que subiu errado. Só não-pago
+     e não nascido de cobrança ("entrada" é receita paga, também intocável);
+     a mesma regra barra na API e no gatilho do banco. A trilha fica no
+     Histórico de alterações (sem Desfazer — exclusão é definitiva). */
+  const excluivel = (l) => l.status !== "pago" && l.status !== "entrada" && l.origem !== "cobranca";
+  const [selLanc, setSelLanc] = useState(() => new Set());
+  const [excluindo, setExcluindo] = useState(false);
+  useEffect(() => { // poda a seleção quando a lista recarrega
+    setSelLanc((s) => new Set([...s].filter((id) => db.lanc.some((l) => l.id === id && excluivel(l)))));
+  }, [db.lanc]);
+  const excluirLanc = async (ids) => {
+    const msg = ids.length === 1
+      ? L("Excluir este lançamento? Ele sai das listas e dos totais; o registro fica no Histórico de alterações.")
+      : `${L("Excluir")} ${ids.length} ${L("lançamentos? Eles saem das listas e dos totais; o registro fica no Histórico de alterações.")}`;
+    if (!confirm(msg)) return;
+    setExcluindo(true);
+    try { await excluirLancamentos(db.ctx, ids); setSelLanc(new Set()); await reload(); }
+    catch (err) { alert(L(err?.message || String(err))); }
+    finally { setExcluindo(false); }
+  };
   const receitas = db.lanc.filter((l) => l.tipo === "receita");
   /* aprovação: lançamento nasce "aguardando" e só vira conta a pagar depois de aprovado */
   const aAprovar = db.lanc.filter((l) => l.status === "aguardando");
@@ -2739,8 +2761,25 @@ function Financeiro({ t }) {
           action={<><Btn t={t} onClick={exportarLanc}><Download size={14} /> Exportar</Btn>
             {podeLancar && <Btn t={t} onClick={() => setImportar(true)}><Upload size={15} /> Importar</Btn>}
             {podeLancar && <Btn t={t} kind="primary" onClick={() => setNovo(true)} data-tour="fin-novo"><Plus size={15} /> Lançamento</Btn>}</>} />
-        <Tbl t={t} cols={[{k:"data",l:"Data"},{k:"tipo",l:"Tipo"},{k:"cat",l:"Categoria"},{k:"desc",l:"Descrição"},{k:"valor",l:"Valor"},{k:"nf",l:"NF"},{k:"status",l:"Status"}]}
+        {podeLancar && selLanc.size > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-xs"
+            style={{ background: t.goldSoft, borderColor: t.border }}>
+            <span style={{ color: t.dim }}><b style={{ color: t.gold }}>{selLanc.size}</b> {L("selecionado(s)")}</span>
+            <span className="flex-1" />
+            <Btn t={t} kind="ghost" className="!px-2 !py-1 text-xs" onClick={() => setSelLanc(new Set())}>
+              <X size={13} /> {L("Limpar seleção")}</Btn>
+            <Btn t={t} kind="danger" className="!px-2 !py-1 text-xs" disabled={excluindo} onClick={() => excluirLanc([...selLanc])}>
+              <Trash2 size={13} /> {excluindo ? L("Excluindo…") : L("Excluir selecionados")} ({selLanc.size})</Btn>
+          </div>)}
+        <Tbl t={t} cols={[{k:"data",l:"Data"},{k:"tipo",l:"Tipo"},{k:"cat",l:"Categoria"},{k:"desc",l:"Descrição"},{k:"valor",l:"Valor"},{k:"nf",l:"NF"},{k:"status",l:"Status"},...(podeLancar ? [{k:"acao",l:""}] : [])]}
           rows={rows}
+          selection={podeLancar ? {
+            ids: selLanc, rotulo: "Selecionar lançamento",
+            onToggle: (r) => setSelLanc((s) => { const n = new Set(s); if (n.has(r.id)) n.delete(r.id); else n.add(r.id); return n; }),
+            selectable: () => true,
+            disabledReason: (r) => excluivel(r) ? null
+              : (r.origem === "cobranca" ? L("Nasceu de uma cobrança — gerencie pela tela de Cobranças") : L("Pago não se exclui — o valor está no caixa")),
+          } : undefined}
           empty={<EmptyState t={t} icon={Wallet} title="Nenhum lançamento neste período"
             hint="Registre a primeira receita ou despesa da competência para começar a acompanhar o caixa." />}
           renderCell={(r, k) => {
@@ -2752,6 +2791,10 @@ function Financeiro({ t }) {
                   <FileText size={13} /> Ver NF</a>)
               : "—";
             if (k === "status") return <Badge t={t} s={r.status} />;
+            if (k === "acao") return excluivel(r)
+              ? (<Btn t={t} kind="danger" className="!px-2 !py-1" title={L("Excluir lançamento")} disabled={excluindo}
+                  onClick={() => excluirLanc([r.id])}><Trash2 size={13} /></Btn>)
+              : null;
             return r[k];
           }} />
       </>) : tab === "aprovar" ? (<>

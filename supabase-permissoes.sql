@@ -430,6 +430,29 @@ drop trigger if exists trg_penalidades_decisao on public.penalidades;
 create trigger trg_penalidades_decisao before update on public.penalidades
   for each row execute function public.exigir_permissao_decisao();
 
+-- Exclusão de lançamento (aba Lançamentos, 24/11/2026): a RLS já autoriza o
+-- DELETE para quem tem financeiro.lancar e a auditoria grava a linha inteira,
+-- mas duas linhas são intocáveis POR REGRA, não por permissão:
+--   · PAGO — o valor já está no caixa; excluir mudaria o saldo por fora;
+--   · origem 'cobranca' — espelho de outra tela; gerencie pela cobrança.
+-- service_role passa (reparos corrigir-*.mjs e o desvio da fila, se voltar).
+create or replace function public.impedir_delete_lancamento() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.jwt_role() = 'service_role' then return old; end if;
+  if old.status = 'pago' then
+    raise exception 'Lançamento pago não pode ser excluído — o valor já está no caixa.' using errcode = '42501';
+  end if;
+  if old.origem_tipo = 'cobranca' then
+    raise exception 'Este lançamento nasceu de uma cobrança — gerencie pela tela de Cobranças.' using errcode = '42501';
+  end if;
+  return old;
+end $$;
+
+drop trigger if exists trg_lancamentos_sem_delete_pago on public.lancamentos;
+create trigger trg_lancamentos_sem_delete_pago before delete on public.lancamentos
+  for each row execute function public.impedir_delete_lancamento();
+
 -- ─────────────────────────────────────────────────────────────────
 -- H) Guarda granular nas RPCs, por EMBRULHO
 --    O corpo real é renomeado para <nome>__base (uma vez) e o nome
