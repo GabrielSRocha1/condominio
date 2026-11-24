@@ -2919,7 +2919,10 @@ function Financeiro({ t }) {
               <Field t={t} label="Subcategoria / centro de custo"><input name="centro" style={inputStyle(t)} /></Field>
               <Field t={t} label="Data"><input name="data" type="date" style={inputStyle(t)} /></Field>
               <Field t={t} label="Competência"><input name="competencia" type="month" style={inputStyle(t)} /></Field>
-              <Field t={t} label="Forma de pagamento"><select name="forma" style={inputStyle(t)}><option>QR Verum Pay</option><option>Transferência</option><option>Débito automático</option><option>Dinheiro</option></select></Field>
+              {/* "À pagar"/"À receber" ficam FORA de FORMA_ENUM de propósito:
+                  viram forma_pagamento NULL — ainda não há meio de pagamento,
+                  ele é definido quando a conta é quitada de fato */}
+              <Field t={t} label="Forma de pagamento"><select name="forma" style={inputStyle(t)}><option>{tipoNovo === "Receita" ? "À receber" : "À pagar"}</option><option>QR Verum Pay</option><option>Transferência</option><option>Débito automático</option><option>Dinheiro</option></select></Field>
               <Field t={t} label="Rateio"><select style={inputStyle(t)}><option>Não ratear</option><option>Por fração ideal</option><option>Igual por unidade</option><option>Por bloco/torre</option></select></Field>
             </div>
             <Field t={t} label="Descrição"><input name="desc" required style={{ ...inputStyle(t), marginTop: 4 }} /></Field>

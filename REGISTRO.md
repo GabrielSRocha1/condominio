@@ -78,6 +78,16 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 
 ## Histórico (mais recente primeiro)
 
+### 23/11/2026 — Lançamento manual nasce "À pagar": a forma de pagamento deixa de fingir que a conta já foi paga
+O modal Novo lançamento obrigava a escolher um meio de pagamento (abria em "QR Verum Pay")
+mesmo quando a despesa ainda nem foi paga — toda conta a pagar nascia com uma forma inventada.
+Pedido do usuário: o modo **"À pagar"** na lista. Entrou como PRIMEIRA opção (padrão), e vira
+**"À receber"** quando o tipo é Receita. Implementação de uma linha por desenho: os dois rótulos
+ficam FORA de `FORMA_ENUM` de propósito — `FORMA_ENUM[f.forma] || null` já grava
+`forma_pagamento = NULL`, o mesmo valor que o import usa quando a planilha não traz forma.
+O meio de pagamento de verdade é definido quando a conta é quitada. Sem SQL, sem mudança de
+enum; sonda FONTE nova trava o par (opção no modal + `|| null` na API).
+
 ### 23/11/2026 — Override de permissões é um retrato congelado: reparo devolve ao Administrador o que entrou no padrão depois
 O menu do Administrador do Progreso I estava sem Fatura e Histórico — e também sem Reservas e
 Assembleias, que ninguém tinha notado. Causa: o condomínio tem **override** do perfil (criado

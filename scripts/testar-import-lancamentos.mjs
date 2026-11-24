@@ -124,6 +124,9 @@ console.log("\n━━ o fluxo nas telas (fonte) ━━");
     /\["ano", "Ano"\]/.test(tela));
   ok("a API recusa competência pré-1970 e o dia padrão da gravação é 12",
     /competencia < "1970"/.test(imp) && /data: l\.data \|\| `\$\{competencia\}-12`/.test(imp));
+  ok("o modal manual abre em 'À pagar'/'À receber' (fora de FORMA_ENUM → forma nula até a baixa)",
+    /<option>\{tipoNovo === "Receita" \? "À receber" : "À pagar"\}<\/option>/.test(tela)
+    && /FORMA_ENUM\[f\.forma\] \|\| null/.test(api));
 }
 
 console.log(falhas ? `\n❌ import-lancamentos: ${falhas} falha(s)` : "\n💸 IMPORT DE CONTAS A PAGAR OK");
