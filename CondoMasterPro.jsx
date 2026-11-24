@@ -3529,9 +3529,14 @@ function CelulaEditavel({ t, linha, col, onSalvar }) {
     <input autoFocus value={v} onChange={(e) => setV(e.target.value)} onBlur={fechar}
       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setEditando(false); }}
       style={{ ...inputStyle(t), padding: "2px 6px", fontSize: 13 }} />);
+  /* célula de UNIDADE: largura mínima e rótulo curto sem quebrar — "1-A"
+     partia no hífen quando a tabela aperta; texto longo (multi-unidade
+     "1-A,3-B, ENTRE PISO") continua quebrando normalmente */
+  const curto = String(valor ?? "").length <= 10;
   return (
     <button onClick={abrir} title={L("Clique para editar")} className="w-full rounded px-1 text-left"
-      style={{ opacity: salvando ? 0.4 : 1, textAlign: ehNumerica(col) ? "right" : "left" }}>
+      style={{ opacity: salvando ? 0.4 : 1, textAlign: ehNumerica(col) ? "right" : "left",
+        ...(col.papel === "unidade" ? { minWidth: 72, whiteSpace: curto ? "nowrap" : undefined } : {}) }}>
       {fmtCelula(valor, col) || <span style={{ color: t.dim }}>—</span>}
     </button>);
 }
@@ -3590,8 +3595,12 @@ function PlanilhaCobrancas({ t }) {
       if (sit !== "todas" && l.situacao !== sit) return false;
       if (!busca) return true;
       const u = l.unidadeId ? mapaU.get(l.unidadeId) : null;
+      /* da unidade resolvida entram só os RÓTULOS (label/rotulo) — nunca o
+         labelResp: ele embute o responsável do SISTEMA, e "domini" trazia a
+         linha do Amado só porque a 1-A é do Dominico no cadastro. A busca
+         casa o que está NA PLANILHA (Datos/RUC) + o rótulo da unidade. */
       const partes = chavesBusca.size
-        ? [l.nomeResp, l.docResp, u?.labelResp, u?.rotulo, ...[...chavesBusca].map((k) => l.dados?.[k])]
+        ? [l.nomeResp, l.docResp, u?.label, u?.rotulo, ...[...chavesBusca].map((k) => l.dados?.[k])]
         : Object.values(l.dados || {});
       return casaPorPrefixo(partes.filter(Boolean).join(" ").replace(/[,;/]+/g, " "), busca);
     });

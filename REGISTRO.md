@@ -78,6 +78,14 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 
 ## Histórico (mais recente primeiro)
 
+### 24/11/2026 — Busca do Historial corrigida: o responsável do SISTEMA saiu do alvo
+Ajuste fino na busca mirada entregue hoje cedo: o alvo incluía o `labelResp` da unidade
+resolvida, que embute o nome do responsável do CADASTRO — buscar "domini" trazia a linha do
+Amado Mendoza só porque a 1-A é do Dominico no sistema. Agora da unidade resolvida entram só
+os rótulos (`label`/`rotulo`); nome e documento vêm do que está NA PLANILHA (Datos/RUC).
+De quebra: célula de unidade com largura mínima (72px) e rótulo curto sem quebrar — "1-A"
+partia no hífen quando a tabela apertava; multi-unidade longa segue quebrando normal.
+
 ### 24/11/2026 — Historial (planilla): busca mirada por prefixo e "Recentes primeiro"
 A busca do histórico da planilha (Cobros QR) casava SUBSTRING em todas as colunas — "1-A"
 achava "11-A", datas, montos e texto solto ("corresponde - junio 2012"). Agora a busca é
