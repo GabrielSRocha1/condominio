@@ -2940,7 +2940,7 @@ function Financeiro({ t }) {
    abas Contas a pagar/Contas pagas. Quem pode aprovar importa já aprovado;
    linha paga vira "pago" para quem pode dar baixa (e aí entra no caixa). */
 const PAPEIS_LANC = [["", "— nenhum —"], ["valor", "Valor"], ["categoria", "Categoria"],
-  ["descricao", "Descrição"], ["data", "Data"], ["competencia", "Competência"],
+  ["descricao", "Descrição"], ["data", "Data"], ["competencia", "Competência"], ["ano", "Ano"],
   ["centro", "Centro de custo"], ["forma", "Forma de pagamento"], ["pago", "Pago"]];
 function ImportarLancamentos({ t, onClose, onPronto, podeAprovar, podeBaixar }) {
   const { db } = useData();

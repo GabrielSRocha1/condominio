@@ -53,7 +53,12 @@ export function paraISO(v) {
     if (isNaN(v)) return { erro: true };
     return montaISO(v.getUTCFullYear(), v.getUTCMonth() + 1, v.getUTCDate());
   }
-  if (typeof v === "number") return paraISO(new Date(Math.round((v - 25569) * 86400000)));
+  if (typeof v === "number") {
+    /* 2026 solto é um ANO, não o serial do Excel (o serial 2026 cairia em
+       1905) — serial de data real é sempre ≥ ~36500, o intervalo não colide */
+    if (Number.isInteger(v) && v >= 1900 && v <= 2100) return { erro: true };
+    return paraISO(new Date(Math.round((v - 25569) * 86400000)));
+  }
   const s = String(v).trim();
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if (m) return montaISO(+m[1], +m[2], +m[3]);
@@ -333,6 +338,7 @@ const PAPEIS_DESP = {
   descricao: ["Descrição", "Descricao", "Descripción", "Descripcion", "Concepto", "Detalle", "Detalhe", "Description", "Histórico", "Historico", "Proveedor", "Fornecedor"],
   data: ["Data", "Fecha", "Vencimento", "Vencimiento", "Data de pagamento", "Fecha de pago", "Due date", "Date"],
   competencia: ["Competência", "Competencia", "Mês", "Mes", "Mês/Ano", "Mes/Año", "Período", "Periodo", "Month", "Period", "Referência", "Referencia"],
+  ano: ["Ano", "Año", "Year", "Ejercicio"],
   centro: ["Centro de custo", "Centro de custos", "Centro de costos", "Subcategoria", "Subcategoría", "Cost center"],
   forma: ["Forma de pagamento", "Forma de pago", "Medio de pago", "Método de pago", "Metodo de pago", "Payment method", "Forma"],
   pago: ["Pago", "Pagado", "Paid", "Status", "Estado", "Situação", "Situacao"],
@@ -833,16 +839,27 @@ export function resolverLinha(colunas, dados, ctx) {
 
 /* Linha do import de CONTAS A PAGAR → campos do lançamento, pelo PAPEL das
    colunas (inferirPapelDespesa). Pura: quem valida e grava é o chamador.
-   Sem competência na planilha, o mês sai da data; a coluna de pagamento
-   segue a regra das cobranças (data, valor ou texto "pago"). */
+   A competência pode vir em DUAS colunas (ANO=2026 + "OCTUBRE"); sem
+   competência na planilha, o mês sai da data; sem data, o lançamento cai
+   no dia 12 do mês da competência. A coluna de pagamento segue a regra
+   das cobranças (data, valor ou texto "pago"). */
 export function resolverLinhaDespesa(colunas, dados) {
   const col = (papel) => colunas.find((c) => c.papel === papel);
   const bruto = (papel) => { const c = col(papel); return c ? dados?.[c.chave] : undefined; };
 
   const valor = paraNumero(bruto("valor"));
-  const data = paraISO(bruto("data")).iso || "";
+  let data = paraISO(bruto("data")).iso || "";
   let competencia = normalizarCompetencia(bruto("competencia"));
+  if (!competencia) {
+    const ano = texto(bruto("ano")).match(/^(19|20)\d{2}$/)?.[0];
+    const vComp = bruto("competencia");
+    /* com coluna de ANO explícita o mês numérico deixa de ser ambíguo */
+    const nComp = paraNumero(vComp);
+    const mes = mesDeTexto(vComp) ?? (Number.isInteger(nComp) && nComp >= 1 && nComp <= 12 ? nComp : null);
+    if (ano && mes) competencia = `${ano}-${pad2(mes)}`;
+  }
   if (!competencia && data) competencia = data.slice(0, 7);
+  if (!data && competencia) data = `${competencia}-12`;
 
   const colPago = col("pago");
   const vPago = bruto("pago");

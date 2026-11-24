@@ -10,7 +10,7 @@
    Uso: node scripts/testar-import-lancamentos.mjs */
 import { readFileSync } from "node:fs";
 import {
-  inferirPapelDespesa, resolverLinhaDespesa, formaEnumDe, inferirPapel,
+  inferirPapelDespesa, resolverLinhaDespesa, formaEnumDe, inferirPapel, paraISO,
 } from "../src/lib/planilha.js";
 
 let falhas = 0;
@@ -58,6 +58,41 @@ ok("valor \"1.234,56\" vira número e o mês sai da DATA quando falta",
 const r3 = resolverLinhaDespesa(COLS, { rubro: "Agua", importe: 0, fecha: "", mes: "" });
 ok("sem valor e sem mês a linha sai vazia (o chamador recusa)",
   !(Number(r3.valor) > 0) && r3.competencia === "" && r3.desc === "");
+const r4 = resolverLinhaDespesa(COLS, { rubro: "Seg", importe: 100, fecha: "", mes: "oct/2026" });
+ok("sem data na planilha o lançamento cai no DIA 12 da competência",
+  r4.competencia === "2026-10" && r4.data === "2026-10-12", JSON.stringify({ c: r4.competencia, d: r4.data }));
+
+/* a planilha real das Expensas Comunes: ANO e COMPETENCIA em colunas separadas */
+console.log("\n━━ ANO + mês por extenso em colunas separadas (puro) ━━");
+ok("'ANO'/'AÑO' agora têm papel no vocabulário de despesa",
+  inferirPapelDespesa("ANO") === "ano" && inferirPapelDespesa("AÑO") === "ano"
+  && inferirPapelDespesa("Ejercicio") === "ano");
+const COLS_ANO = [
+  { chave: "desc", titulo: "Expensas Comunes", tipo: "texto", papel: "descricao" },
+  { chave: "ano", titulo: "ANO", tipo: "numero", papel: "ano" },
+  { chave: "comp", titulo: "COMPETENCIA", tipo: "texto", papel: "competencia" },
+  { chave: "sub", titulo: "SUB CATEGORIA", tipo: "texto", papel: "categoria" },
+  { chave: "importe", titulo: "IMPORTE", tipo: "texto", papel: "valor" },
+];
+const a1 = resolverLinhaDespesa(COLS_ANO, { desc: "Salario Christian J. Cáceres", ano: 2026, comp: "OCTUBRE", sub: "SUELDOS Y RENUMERACIONES", importe: "Gs 6.000.000" });
+ok("ANO=2026 + 'OCTUBRE' viram 2026-10 com data no dia 12",
+  a1.competencia === "2026-10" && a1.data === "2026-10-12" && a1.valor === 6000000,
+  JSON.stringify({ c: a1.competencia, d: a1.data, v: a1.valor }));
+const a2 = resolverLinhaDespesa(COLS_ANO, { ano: "2026", comp: 10, importe: "100" });
+ok("mês NUMÉRICO vale quando há coluna de ano explícita",
+  a2.competencia === "2026-10" && a2.data === "2026-10-12");
+const a3 = resolverLinhaDespesa(COLS, { importe: "100", mes: 10, fecha: "" });
+ok("mês numérico SEM coluna de ano continua ambíguo (fica fora)",
+  a3.competencia === "" && a3.data === "");
+const a4 = resolverLinhaDespesa(COLS_ANO.concat({ chave: "fecha", titulo: "Fecha", tipo: "data", papel: "data" }),
+  { ano: 2026, comp: "OCTUBRE", importe: "100", fecha: "2026-10-05" });
+ok("data explícita na planilha vence o dia 12", a4.data === "2026-10-05" && a4.competencia === "2026-10");
+ok("paraISO não lê ano solto como serial do Excel (2026 ≠ 18/07/1905)",
+  paraISO(2026).erro === true && !paraISO(2026).iso && paraISO(45000).iso === "2023-03-15",
+  JSON.stringify(paraISO(2026)));
+const a5 = resolverLinhaDespesa(COLS, { importe: "100", fecha: 2026, mes: "" });
+ok("ANO mapeado como Data por engano não vira mais 1905 (linha sai sem mês e o chamador recusa)",
+  a5.data === "" && a5.competencia === "");
 
 ok("formaEnumDe cobre o vocabulário real e não inventa",
   formaEnumDe("Transferencia bancaria") === "transferencia" && formaEnumDe("Depósito") === "transferencia"
@@ -85,6 +120,10 @@ console.log("\n━━ o fluxo nas telas (fonte) ━━");
     /v\.pago && baixar \? "pago" : aprovar \? "aprovado" : "aguardando_aprovacao"/.test(imp));
   ok("o card 'A pagar' soma o enum CRU 'aprovado' (não o status de UI)",
     /aPagar: soma\(lancRaw, \(l\) => l\.tipo === "despesa" && l\.status === "aprovado"\)/.test(api));
+  ok("o dropdown do mapa oferece o papel Ano",
+    /\["ano", "Ano"\]/.test(tela));
+  ok("a API recusa competência pré-1970 e o dia padrão da gravação é 12",
+    /competencia < "1970"/.test(imp) && /data: l\.data \|\| `\$\{competencia\}-12`/.test(imp));
 }
 
 console.log(falhas ? `\n❌ import-lancamentos: ${falhas} falha(s)` : "\n💸 IMPORT DE CONTAS A PAGAR OK");

@@ -77,6 +77,26 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 
 ## Histórico (mais recente primeiro)
 
+### 23/11/2026 — Import de contas a pagar: ANO + mês por extenso viram competência, e o dia padrão é 12
+A planilha real das Expensas Comunes traz a competência em DUAS colunas — "ANO" (2026) e
+"COMPETENCIA" ("OCTUBRE") — e o import gravou tudo em **18/07**: o vocabulário de despesa não
+tinha o papel `ano`, a única saída no mapa era mapear ANO→Data, e `paraISO` leu 2026 como
+**serial do Excel** (= 18/07/1905). O mesmo bug já tinha sido consertado no lado de cobranças
+(5538637), mas a guarda ficou só em `normalizarCompetencia` — agora ela mora no `paraISO`
+(inteiro 1900–2100 é ano, não serial), protegendo os dois caminhos de uma vez. O que mudou:
+
+- `PAPEIS_DESP` ganhou `ano` (ANO/AÑO/Year/Ejercicio) e o mapa do modal oferece o papel "Ano";
+- `resolverLinhaDespesa` combina ano + mês (`mesDeTexto` já conhecia "OCTUBRE"; mês numérico
+  1–12 vale quando há coluna de ano explícita — aí deixa de ser ambíguo);
+- **sem data na planilha, o lançamento cai no dia 12 do mês da competência** (pedido do
+  usuário; antes o fallback da API era dia 1º);
+- a API recusa competência pré-1970 com motivo claro — lixo de serial nunca mais chega ao banco.
+
+Sondas 23/23 (`testar-import-lancamentos.mjs`, com os casos novos) + regressão completa de
+cobranças/mora OK (serial real 45061 segue virando 2023-05). Pendência: apagar os ~17
+lançamentos 1905-07 no SQL Editor (delete entregue) e reimportar a planilha pela UI — decisão
+do usuário: apagar e reimportar, validando o fluxo novo fim a fim.
+
 ### 23/11/2026 — Telas do Administrador conferidas: a superfície dele está fechada
 Validação visual feita pelo usuário, sem ressalvas. Com isso o ciclo que começou em 22/11 está
 completo nas três frentes, e vale registrar o desenho que emergiu delas, porque é o mesmo em

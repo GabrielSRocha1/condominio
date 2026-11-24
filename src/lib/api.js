@@ -1697,11 +1697,14 @@ export async function importarLancamentos(ctx, linhas, { aprovar = false, baixar
     if (!(Number(l.valor) > 0)) { recusadas.push({ linha: l, motivo: "Valor ausente ou igual a zero." }); continue; }
     const competencia = /^\d{4}-\d{2}$/.test(l.competencia || "") ? l.competencia : "";
     if (!competencia) { recusadas.push({ linha: l, motivo: "Sem competência nem data que diga o mês." }); continue; }
+    /* ano solto lido como serial do Excel cai em 1905 — nenhuma despesa é
+       anterior a 1970; recusar aqui barra o lixo antes do banco */
+    if (competencia < "1970") { recusadas.push({ linha: l, motivo: "Competência suspeita (ano " + competencia.slice(0, 4) + ") — confira o mapeamento das colunas." }); continue; }
     const categoria = (l.categoria || "Outros").slice(0, 80);
     validas.push({
       ...l, competencia, categoria,
       desc: (l.desc || categoria).slice(0, 240),
-      data: l.data || `${competencia}-01`,
+      data: l.data || `${competencia}-12`,
     });
   }
   if (!validas.length) return { criadas: 0, puladas: 0, recusadas };
