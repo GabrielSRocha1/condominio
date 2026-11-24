@@ -1379,6 +1379,13 @@ function Dashboard({ t, role, go = () => {}, leitura = false }) {
   );
   const fluxoDia = db.fluxoDiarioPorMes[mesGrafico] || [];
   const despesasMes = db.despesasPorMes[mesDespesas] || [];
+  /* o card é visão geral: além de 10 categorias vira top 9 + "Outras (N)"
+     agregadas — o detalhe vive em Finanças. Sem isso, um import grande
+     esmaga as barras e os rótulos se atropelam. */
+  const despTop = despesasMes.length > 10
+    ? [...despesasMes.slice(0, 9),
+      { cat: `${L("Outras")} (${despesasMes.length - 9})`, v: despesasMes.slice(9).reduce((s, x) => s + x.v, 0) }]
+    : despesasMes;
   const pieColors = [t.gold, t.info, t.danger, t.purple];
   const pie = (db.pieReceitasPorMes[mesReceitas] || []).map((p, i) => ({ ...p, color: pieColors[i % pieColors.length] }));
   const trendOf = (key) => {
@@ -1453,12 +1460,18 @@ function Dashboard({ t, role, go = () => {}, leitura = false }) {
         <Card t={t}>
           <SectionTitle t={t} action={selectMes(mesDespesas, setMesDespesas, db.despesasPorMes)}>
             Despesas por categoria</SectionTitle>
-          <div style={{ height: 200 }}>
-            {despesasMes.length ? (
-              <ResponsiveContainer><BarChart data={despesasMes} layout="vertical" margin={{ left: 10 }}>
-                <XAxis type="number" hide /><YAxis type="category" dataKey="cat" width={90} tick={{ fill: t.dim, fontSize: 11 }} axisLine={false} tickLine={false} />
+          {/* altura acompanha o nº de linhas (26px cada) — era 200px fixos e
+              os rótulos colidiam; nome longo é cortado no EIXO (uma linha) e
+              sai inteiro no tooltip, que também ganha nome de série legível
+              (antes vazava o dataKey "v") */}
+          <div style={{ height: Math.max(170, despTop.length * 26 + 14) }}>
+            {despTop.length ? (
+              <ResponsiveContainer><BarChart data={despTop} layout="vertical" margin={{ left: 10, right: 24, top: 4, bottom: 4 }}>
+                <XAxis type="number" hide /><YAxis type="category" dataKey="cat" width={112} interval={0}
+                  tick={{ fill: t.dim, fontSize: 11 }} axisLine={false} tickLine={false}
+                  tickFormatter={(s) => (String(s).length > 16 ? String(s).slice(0, 15) + "…" : s)} />
                 <RTooltip {...chartTip(t)} formatter={(v) => BRL(v)} cursor={false} />
-                <Bar dataKey="v" fill={t.gold} radius={[0, 6, 6, 0]} barSize={14} activeBar={false} />
+                <Bar dataKey="v" name={L("Gasto")} fill={t.gold} radius={[0, 6, 6, 0]} barSize={14} activeBar={false} />
               </BarChart></ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-xs" style={{ color: t.dim }}>

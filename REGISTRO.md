@@ -78,6 +78,15 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 
 ## Histórico (mais recente primeiro)
 
+### 24/11/2026 — Gráfico "Despesas por categoria" para de se atropelar
+O card do dashboard tinha 200px fixos e eixo de 90px — bastou o import das Expensas Comunes
+criar 17 categorias para as barras esmagarem e os rótulos colidirem (e o tooltip vazava o
+dataKey "v"). Conserto na anatomia, não na cor: altura acompanha o nº de linhas (26px cada);
+acima de 10 categorias o card agrega em **top 9 + "Outras (N)"** (visão geral — o detalhe vive
+em Finanças); nome longo é cortado no EIXO em uma linha e sai inteiro no tooltip; a série
+ganhou nome legível ("Gasto"); margens para a barra não encostar na borda. i18n EN/ES
+("Outras", "Gasto").
+
 ### 24/11/2026 — Excluir lançamentos na aba Lançamentos: linha e lote, pago é intocável
 Dado que sobe errado (import ou manual) agora tem saída: lixeira por linha e seleção múltipla
 com "Excluir selecionados" na aba Lançamentos — pedido do usuário depois do import das
