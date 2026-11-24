@@ -242,9 +242,13 @@ const telaLiberada = (perms, id) => {
 const ONBOARDING_STEPS = [
   { id: "dados", screen: "condominio", tour: "cond-salvar",
     titulo: "Complete os dados do condomínio",
-    desc: "Defina o país do condomínio e o síndico atual — eles controlam telefones, documentos e a gestão do dia a dia.",
+    desc: "Defina o país do condomínio — ele controla o DDI dos telefones, os documentos e o envio por WhatsApp.",
     roles: ["diretor", "administrador_predial"],
-    done: (db) => !!(db.cond.pais && db.cond.sindico) },
+    /* só o PAÍS conclui (24/11/2026): exigir também o síndico atual deixava
+       o passo aberto para sempre em prédio tocado por administrador — o
+       campo é opcional de verdade, e o texto prometia menos do que o check
+       cobrava */
+    done: (db) => !!db.cond.pais },
   { id: "unidades", screen: "unidades", tour: "unidades-nova",
     titulo: "Cadastre as unidades",
     desc: "Crie blocos e unidades — a base de todo rateio, cobrança e do portal do morador.",

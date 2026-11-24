@@ -78,6 +78,15 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 
 ## Histórico (mais recente primeiro)
 
+### 24/11/2026 — Passo 1 do guia conclui com o PAÍS: o síndico atual deixou de segurar o check
+O passo "Complete os dados do condomínio" exigia `pais && sindico` — mas o campo "Síndico
+atual" é opcional de verdade (prédio tocado por administrador não tem por que preenchê-lo), e
+o passo ficava aberto para sempre mesmo com o país salvo (Progreso I: `pais="PY"` no banco,
+`gestao.sindico=""`). A confusão era dupla: o select de país ainda EXIBE o palpite do IP
+(geoCache) quando nada foi salvo, então "parece preenchido" ≠ "está salvo". Ajuste: o check
+agora é só `!!db.cond.pais` (o que o passo realmente precisa garantir — DDI/máscara dos
+telefones e WhatsApp) e o texto do passo parou de prometer o síndico. i18n EN/ES da frase nova.
+
 ### 24/11/2026 — Gráfico "Despesas por categoria" para de se atropelar
 O card do dashboard tinha 200px fixos e eixo de 90px — bastou o import das Expensas Comunes
 criar 17 categorias para as barras esmagarem e os rótulos colidirem (e o tooltip vazava o
