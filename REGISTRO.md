@@ -94,8 +94,10 @@ Expensas Comunes. Decisões:
   `financeiro.lancar`, o mesmo que a RLS já exigia para DELETE — nunca exposto na tela até hoje.
 - Três camadas: UI esconde (lixeira/checkbox só em excluível), API barra
   (`excluirLancamentos`), banco impede (`trg_lancamentos_sem_delete_pago` before delete em
-  `supabase-permissoes.sql`; service_role passa para os reparos). **SQL pendente de rodar** —
-  só o trecho novo, sem re-rodar o arquivo nem a cadeia; sem ele o app degrada aberto (API barra).
+  `supabase-permissoes.sql`; service_role passa para os reparos). **SQL RODADO em 24/11/2026**
+  (Success no SQL Editor — só o trecho novo, sem re-rodar o arquivo nem a cadeia). Pendência:
+  só a olhada visual (lixeira/lote na aba, card "Por pagar" caindo, exclusão no Histórico sem
+  Desfazer).
 - `Tbl` ganhou `selection.rotulo` (o aria-label "Selecionar cobrança" era fixo); `db.lanc`
   passou a expor `origem`. i18n EN/ES das frases novas. Sondas 27/27.
 
