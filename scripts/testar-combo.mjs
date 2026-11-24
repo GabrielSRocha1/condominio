@@ -124,6 +124,12 @@ console.log("\n━━ o campo montado na tela (fonte) ━━");
      "1-a" volta a casar com toda unidade pela chave antiga */
   ok("a lista de cobranças filtra por casaPorPrefixo, não por includes",
     /casaPorPrefixo\(`\$\{c\.unidadeExib\} \$\{c\.unidade\} \$\{c\.resp\}`, q\)/.test(tela));
+  /* e o Historial (planilha) idem (24/11/2026): busca MIRADA em unidade/
+     nome/documento + ordenação "Recentes primeiro" por criado_em */
+  ok("o histórico da planilha filtra mirado por casaPorPrefixo e ordena por recentes",
+    /\["unidade", "nome", "documento"\]\.includes\(c\.papel\)/.test(tela)
+    && /ordem === "recentes"/.test(tela)
+    && /\["recentes", "Recentes primeiro"\]/.test(tela));
 
   /* nenhuma lista de unidade pode ter voltado a ser <select> cru: é o que
      esta mudança veio resolver */

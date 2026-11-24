@@ -78,6 +78,19 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 
 ## Histórico (mais recente primeiro)
 
+### 24/11/2026 — Historial (planilla): busca mirada por prefixo e "Recentes primeiro"
+A busca do histórico da planilha (Cobros QR) casava SUBSTRING em todas as colunas — "1-A"
+achava "11-A", datas, montos e texto solto ("corresponde - junio 2012"). Agora a busca é
+MIRADA: unidade, nome do pagador e documento, por prefixo de palavra (`casaPorPrefixo`, o
+mesmo filtro da lista de cobranças), com vírgula virando espaço para a célula multi-unidade
+("1-A,3-B") expor cada rótulo; o rótulo resolvido da unidade (labelResp/rotulo) também entra
+no alvo. Planilha sem colunas de mira cai na busca larga, ainda por prefixo.
+
+E a pergunta "como acho o que acabei de importar?": linha nova do Importar mais entra no FIM
+da ordem da planilha — entrou o seletor **"Recentes primeiro"** (criado_em desc; linha
+reenviada do mesmo mês só ATUALIZA, não sobe). "Limpar filtros" zera a ordenação junto.
+i18n EN/ES; sonda FONTE no testar-combo.mjs trava filtro e ordenação.
+
 ### 24/11/2026 — Passo 1 do guia conclui com o PAÍS: o síndico atual deixou de segurar o check
 O passo "Complete os dados do condomínio" exigia `pais && sindico` — mas o campo "Síndico
 atual" é opcional de verdade (prédio tocado por administrador não tem por que preenchê-lo), e

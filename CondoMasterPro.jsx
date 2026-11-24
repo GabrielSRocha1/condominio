@@ -3544,6 +3544,7 @@ function PlanilhaCobrancas({ t }) {
   const [q, setQ] = useState("");
   const [sit, setSit] = useState("todas");
   const [agrupar, setAgrupar] = useState("");
+  const [ordem, setOrdem] = useState("planilha"); // "recentes" = criado_em desc
   const [pagina, setPagina] = useState(0);
   const [calc, setCalc] = useState(null);       // construtor/editor de coluna calculada
   const [gerCols, setGerCols] = useState(null);  // cópia de trabalho do "Gerenciar colunas"
@@ -3574,15 +3575,33 @@ function PlanilhaCobrancas({ t }) {
     return conciliarPlanilha(resolvidas, db.cobr);
   }, [estado, planilha, colunas, db.cobr, db.ctx]);
 
+  /* busca MIRADA por prefixo de palavra (casaPorPrefixo: "1-a" não acha a
+     11-A): unidade, nome do pagador e documento — substring em TODAS as
+     colunas trazia data, monto e texto solto junto. Vírgula vira espaço
+     para a célula multi-unidade ("1-A,3-B") expor cada rótulo como palavra.
+     Planilha sem colunas de mira cai na busca larga, ainda por prefixo. */
+  const chavesBusca = useMemo(() => new Set(
+    colunas.filter((c) => ["unidade", "nome", "documento"].includes(c.papel)).map((c) => c.chave)
+  ), [colunas]);
   const filtradas = useMemo(() => {
-    const busca = q.trim().toLowerCase();
-    return linhas.filter((l) => {
+    const busca = q.trim();
+    const mapaU = new Map(db.ctx.unidades.map((u) => [u.id, u]));
+    const lista = linhas.filter((l) => {
       if (sit !== "todas" && l.situacao !== sit) return false;
       if (!busca) return true;
-      return Object.values(l.dados || {}).some((v) => String(v).toLowerCase().includes(busca));
+      const u = l.unidadeId ? mapaU.get(l.unidadeId) : null;
+      const partes = chavesBusca.size
+        ? [l.nomeResp, l.docResp, u?.labelResp, u?.rotulo, ...[...chavesBusca].map((k) => l.dados?.[k])]
+        : Object.values(l.dados || {});
+      return casaPorPrefixo(partes.filter(Boolean).join(" ").replace(/[,;/]+/g, " "), busca);
     });
-  }, [linhas, q, sit]);
-  useEffect(() => { setPagina(0); }, [q, sit, agrupar]);
+    /* "Recentes primeiro" = criado_em desc — é como se acha o que acabou de
+       entrar pelo Importar mais (linha nova entra no FIM da ordem da
+       planilha; linha reenviada do mesmo mês só atualiza, não sobe) */
+    if (ordem === "recentes") return [...lista].sort((a, b) => String(b.criado_em || "").localeCompare(String(a.criado_em || "")));
+    return lista;
+  }, [linhas, q, sit, ordem, chavesBusca, db.ctx.unidades]);
+  useEffect(() => { setPagina(0); }, [q, sit, agrupar, ordem]);
 
   /* valorExibido resolve calculada-sobre-calculada em cadeia E aplica a
      sincronização (paga congela a mora; indevida zera as numéricas) — o
@@ -3766,7 +3785,7 @@ function PlanilhaCobrancas({ t }) {
         <StatCard t={t} icon={Ban} label="Indevidas" value={String(linhas.filter((l) => l.situacao === "indevida").length)} color={t.dim} />
       </div>
 
-      <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar em qualquer coluna…"
+      <Toolbar t={t} q={q} setQ={setQ} placeholder="Buscar por unidade, nome ou documento…"
         action={<div className="flex flex-wrap gap-2">
           <Btn t={t} onClick={adicionarLinha}><Plus size={14} /> Linha</Btn>
           <Btn t={t} onClick={() => setCalc({ titulo: "", modo: "ab", esq: numericas[0]?.chave || "", op: "-", dir: numericas[1]?.chave || numericas[0]?.chave || "", esqNum: "", dirNum: "",
@@ -3783,9 +3802,11 @@ function PlanilhaCobrancas({ t }) {
         <Sel t={t} value={sit} onChange={setSit} opts={[["todas", "Todas as situações"], ["confere", "Confere"], ["difere", "Valor difere"], ["so_planilha", "Só na planilha"], ["sem_chave", "Sem unidade/competência"], ["paga", "Pagas"], ["indevida", "Indevidas"]]} />
         <Sel t={t} value={agrupar} onChange={setAgrupar}
           opts={[["", "Sem agrupamento"], ...colunas.filter((c) => !c.calculada).map((c) => [c.chave, c.titulo])]} />
-        {(q || sit !== "todas" || agrupar) && (
+        <Sel t={t} value={ordem} onChange={setOrdem}
+          opts={[["planilha", "Ordem da planilha"], ["recentes", "Recentes primeiro"]]} />
+        {(q || sit !== "todas" || agrupar || ordem !== "planilha") && (
           <Btn t={t} className="!px-2.5 !py-2 text-xs" title={L("Limpar filtros")}
-            onClick={() => { setQ(""); setSit("todas"); setAgrupar(""); setPagina(0); }}>
+            onClick={() => { setQ(""); setSit("todas"); setAgrupar(""); setOrdem("planilha"); setPagina(0); }}>
             <X size={13} /> Limpar filtros</Btn>)}
       </Toolbar>
 
