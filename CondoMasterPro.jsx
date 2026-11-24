@@ -46,6 +46,7 @@ import { filtrarOpcoes, ehListaLonga, casaPorPrefixo } from "./src/lib/combo.js"
 import { calcularLote, elegivelLote, chaveLote, ordenarLote } from "./src/lib/receber-lote.js";
 import { formatarNotificacao, contarNaoVistas, ehNova, horaCurta, chaveVisto, maisRecente } from "./src/lib/notificacoes.js";
 import { gerarModeloPessoas, lerPlanilhaPessoas } from "./src/lib/importPessoas.js";
+import { baixarModeloPlanilha } from "./src/lib/modelo-planilha.js";
 import { lerPlanilhaLivre, resolverLinha, conciliarPlanilha, dedupeLinhasPlanilha, valorCalculado, valorDaColuna, valorExibido, normalizarValor, paraNumero, carregarExcelJS, inferirPapelDespesa, resolverLinhaDespesa } from "./src/lib/planilha.js";
 import { PAISES_TEL, telInfo, formatarTelNacional, validarTel, normalizarTel, separarTel, exemploTel, telParaWhats } from "./src/lib/telefone.js";
 import { familiaCarteira, uriVerumPay, redesDaFamilia } from "./src/lib/qr-pagamento.js";
@@ -3005,6 +3006,29 @@ function Financeiro({ t }) {
 const PAPEIS_LANC = [["", "— nenhum —"], ["valor", "Valor"], ["categoria", "Categoria"],
   ["descricao", "Descrição"], ["data", "Data"], ["competencia", "Competência"], ["ano", "Ano"],
   ["centro", "Centro de custo"], ["forma", "Forma de pagamento"], ["pago", "Pago"]];
+/* Caixa "Baixar modelo" dos imports livres (contas a pagar e histórico de
+   cobranças): .xlsx com os cabeçalhos que o app reconhece sozinho, as
+   listas do condomínio (unidades/categorias/meios) e a aba de instruções —
+   para quem não tem planilha pronta. A geração vive em modelo-planilha.js
+   e a sonda prova que o modelo reimporta com os papéis certos. */
+function BaixarModeloBox({ t, tipo }) {
+  const { db } = useData();
+  const [gerando, setGerando] = useState(false);
+  const baixar = async () => {
+    setGerando(true);
+    try { await baixarModeloPlanilha(tipo, db.ctx); }
+    catch (e) { alert(L(e?.message || String(e))); }
+    finally { setGerando(false); }
+  };
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5"
+      style={{ borderColor: t.borderSoft }}>
+      <div className="text-xs" style={{ color: t.dim }}>
+        {L("Não tem planilha pronta? Baixe o modelo: colunas que o app reconhece, listas do condomínio e instruções.")}</div>
+      <Btn t={t} kind="soft" onClick={baixar} disabled={gerando}>
+        <Download size={14} /> {gerando ? "Gerando…" : "Baixar modelo (.xlsx)"}</Btn>
+    </div>);
+}
 function ImportarLancamentos({ t, onClose, onPronto, podeAprovar, podeBaixar }) {
   const { db } = useData();
   const [passo, setPasso] = useState("arquivo");
@@ -3077,6 +3101,7 @@ function ImportarLancamentos({ t, onClose, onPronto, podeAprovar, podeBaixar }) 
                 onChange={(e) => receber(e.target.files?.[0])} />
             </label>
           </div>
+          <BaixarModeloBox t={t} tipo="lancamentos" />
           {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
         </div>)}
 
@@ -4114,6 +4139,7 @@ function ImportarPlanilha({ t, planilha, onClose, onPronto }) {
                 onChange={(e) => receber(e.target.files?.[0])} />
             </label>
           </div>
+          <BaixarModeloBox t={t} tipo="cobrancas" />
           {erro && <div className="text-xs" style={{ color: t.danger }}>{erro}</div>}
         </div>)}
 

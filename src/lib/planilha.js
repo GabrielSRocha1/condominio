@@ -258,6 +258,13 @@ export function normalizarCompetencia(v) {
   return "";
 }
 
+/* "oct/2026", "octubre 2026", "ene/24": paraNumero arrancaria as letras
+   (parecem símbolo de moeda) e devolveria 2026 — mas isso é uma COMPETÊNCIA
+   escrita, não um número. A guarda vale para o tipo da coluna (inferirTipo)
+   e para a coerção do valor (normalizarValor): sem ela, uma coluna inteira
+   de "oct/2026" virava 2026 e caía na guarda do ano solto, perdendo o mês. */
+const ehCompetenciaTextual = (v) => typeof v === "string" && /[a-zà-ÿ]/i.test(v) && normalizarCompetencia(v) !== "";
+
 /* tipo da coluna pela amostra de valores: data ganha de número porque o
    serial/Date do Excel também passaria por número */
 export function inferirTipo(valores) {
@@ -268,7 +275,7 @@ export function inferirTipo(valores) {
     if (v instanceof Date) { datas++; continue; }
     if (typeof v === "number") { numeros++; continue; }
     if (paraISO(v).iso) datas++;
-    else if (paraNumero(v) != null) numeros++;
+    else if (!ehCompetenciaTextual(v) && paraNumero(v) != null) numeros++;
   }
   if (datas / amostra.length >= 0.7 && datas >= numeros) return "data";
   if (numeros / amostra.length >= 0.7) return "numero";
@@ -520,7 +527,10 @@ export async function lerPlanilhaLivre(file, opts = {}) {
 
 export function normalizarValor(v, tipo) {
   if (v == null || v === "") return "";
-  if (tipo === "numero") { const n = paraNumero(v); return n == null ? texto(v) : n; }
+  if (tipo === "numero") {
+    if (ehCompetenciaTextual(v)) return texto(v); // "oct/2026" nunca vira 2026
+    const n = paraNumero(v); return n == null ? texto(v) : n;
+  }
   if (tipo === "data") { const r = paraISO(v); return r.iso || texto(v); }
   return texto(v);
 }

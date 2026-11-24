@@ -52,6 +52,7 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 | `scripts/testar-moeda.mjs` | Sondas do campo de dinheiro por moeda: casas decimais, escala e o campo de ponta a ponta (guarani sem centavos vs. real) |
 | `scripts/testar-pessoas-doc.mjs` | Sondas do documento único de pessoa (unificação, duplicados) |
 | `scripts/testar-import-lancamentos.mjs` | Sondas do import de contas a pagar |
+| `scripts/testar-modelo-planilha.mjs` | Sondas do modelo .xlsx dos imports livres: todo cabeçalho infere o papel certo e o arquivo gerado reimporta de ponta a ponta |
 | `scripts/testar-historico.mjs` | Sondas da aba Histórico de alterações (motor puro + paridade SQL ≡ JS ≡ NAV) |
 | `scripts/testar-reservas.mjs` | Sondas de Reservas e Assembleias (motor puro + paridade policy/RPC/sync/histórico/sino) |
 | `scripts/testar-fatura-licenca.mjs` | Sondas da Fatura da licença: o administrador lê e paga pelo portal RESTRITO, e leva 403 em contratar/trocar/cancelar |
@@ -77,6 +78,22 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
   certo para esse caso, não defeito.
 
 ## Histórico (mais recente primeiro)
+
+### 24/11/2026 — "Baixar modelo" nos imports de cobranças e contas a pagar (e o bug que ele expôs)
+Os dois imports livres ganharam o que o de pessoas já tinha: um **modelo .xlsx** no passo do
+arquivo (`BaixarModeloBox` + `src/lib/modelo-planilha.js`). Cabeçalhos nas formas canônicas
+que `inferirPapel`/`inferirPapelDespesa` reconhecem sempre (Unidad/Datos/RUC/Mes\Año\Importe…
+e Fecha/Concepto/Rubro/Medio de pago…), aba oculta com as listas reais (unidades no de
+cobranças; categorias de despesa + meios de pagamento que `formaEnumDe` converte no de
+gastos), aba Instruções traduzida com exemplo, dropdowns até a linha 1.000. A sonda nova
+`testar-modelo-planilha.mjs` prova o CICLO: gerar → preencher uma linha → reimportar pelos
+mesmos caminhos dos modais (inclusive a data no dia 12 sem Fecha).
+
+E o ciclo expôs um bug da LEITURA, não do modelo: `paraNumero` arranca letras (parecem
+símbolo de moeda), então **"oct/2026" virava 2026** — coluna inteira inferida como número,
+coagida na leitura, e a guarda do ano solto descartava o mês. Guarda nova
+`ehCompetenciaTextual` em `inferirTipo` e `normalizarValor`: competência escrita nunca vira
+número ("Gs 6.000.000" segue virando 6000000). Regressões completas OK. i18n EN/ES.
 
 ### 24/11/2026 — Busca do Historial corrigida: o responsável do SISTEMA saiu do alvo
 Ajuste fino na busca mirada entregue hoje cedo: o alvo incluía o `labelResp` da unidade
