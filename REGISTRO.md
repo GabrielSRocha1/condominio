@@ -58,6 +58,7 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
 | `scripts/_contas-de-sonda.mjs` | Teardown das contas de teste: libera o e-mail sem apagar o rastro (`auditoria` é append-only) |
 | `scripts/corrigir-pagadores-planilha.mjs` | Reparo: placeholders "Responsável X" ganham nome/RUC do pagador da planilha |
 | `scripts/corrigir-competencias-planilha.mjs` | Reparo: competências 1905 (ano lido como serial) e meses recuperáveis |
+| `scripts/corrigir-override-permissoes.mjs` | Reparo: adiciona ao override de permissões os códigos que entraram no padrão depois dele (nunca remove) |
 | `scripts/corrigir-duplicados-pessoas.mjs` | Reparo: funde cadastros duplicados (mesmo nome, doc provisório P-/M-) |
 | `scripts/seed.mjs`, `scripts/testar-manuais-seed.mjs` e demais `testar-*` | Seeds e sondas das áreas mais antigas |
 
@@ -76,6 +77,27 @@ tema: [README.md](README.md) (visão geral + instalação), [SEGURANCA.md](SEGUR
   certo para esse caso, não defeito.
 
 ## Histórico (mais recente primeiro)
+
+### 23/11/2026 — Override de permissões é um retrato congelado: reparo devolve ao Administrador o que entrou no padrão depois
+O menu do Administrador do Progreso I estava sem Fatura e Histórico — e também sem Reservas e
+Assembleias, que ninguém tinha notado. Causa: o condomínio tem **override** do perfil (criado
+02/11, atualizado 07/11 em Gerenciar Acessos → Permissões), e override **substitui** o padrão
+inteiro — todo código que entra na MATRIZ_PADRAO depois nunca chega a condomínio com override.
+Ficaram de fora: `tela.reservas`/`tela.assembleias`/`reserva.decidir` (09/11),
+`tela.fatura`/`licenca.pagar` (22/11) e `tela.historico` (23/11).
+
+Reparo: `scripts/corrigir-override-permissoes.mjs` (ensaio por padrão, `--aplicar` grava) —
+calcula o que falta do padrão ATUAL via `sanearPerms` (o mesmo funil do editor da tela: vedadas
+ao admin e fixas ficam fora) e só ADICIONA; o que o diretor tirou ou pôs de propósito permanece.
+Aplicado no Progreso I: +6 códigos, override com 33, re-ensaio "em dia". Sessões pegam no
+próximo login/renovação (≤1h).
+
+Atenção: síndico e tesouraria do Progreso I também têm override congelado (07/11), mas com cara
+de customização deliberada (síndico sem as ações financeiras) — o script com `--perfil=sindico`
+re-adicionaria TUDO do padrão, desfazendo a customização. Para esses, o caminho é o diretor
+marcar só Reservas/Assembleias na tela de Permissões, se quiser. Fica a dívida de desenho:
+código novo no padrão não alcança condomínio com override — pensar numa migração de extensão
+quando o próximo código nascer.
 
 ### 23/11/2026 — Import de contas a pagar: ANO + mês por extenso viram competência, e o dia padrão é 12
 A planilha real das Expensas Comunes traz a competência em DUAS colunas — "ANO" (2026) e
